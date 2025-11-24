@@ -1,4 +1,4 @@
-module github.com/bins-go
+module github.com/dkblackley/bins-go
 
 go 1.25.4
 
