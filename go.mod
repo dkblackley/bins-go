@@ -1,4 +1,4 @@
-module github.com/bm25-bins
+module github.com/bins-go
 
 go 1.25.4
 
