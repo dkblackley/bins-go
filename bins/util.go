@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/csv"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"strconv"
 
 	"github.com/blugelabs/bluge"
@@ -24,7 +26,7 @@ import (
 func index_stuff() {
 	// 1) SCIFACT
 	LoadBeirJSONL("/home/yelnat/Nextcloud/10TB-STHDD/datasets/scifact/corpus.jsonl", "index_scifact")
-
+	logrus.SetLevel(logrus.InfoLevel)
 	// 2) TREC-COVID
 	LoadBeirJSONL("/home/yelnat/Nextcloud/10TB-STHDD/datasets/trec-covid/corpus.jsonl", "index_trec_covid")
 
@@ -259,4 +261,32 @@ func FromEmbedToID(answers map[string][][]uint64, IDLookup map[string]int, dim i
 	}
 
 	return queryIDstoDocIDS
+}
+
+func ReadCSV(path string) ([][]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	r := csv.NewReader(f)
+	// Allow ragged rows if you don't know column count ahead of time:
+	r.FieldsPerRecord = -1
+	return r.ReadAll()
+}
+
+// WriteCSV writes a [][]string as CSV.
+func WriteCSV(path string, data [][]string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := csv.NewWriter(f)
+	// Optional: TSV instead of CSV
+	// w.Comma = '\t'
+	w.WriteAll(data)
+	return w.Error()
 }

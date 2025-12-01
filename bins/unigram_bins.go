@@ -21,6 +21,7 @@ import (
 	"github.com/blugelabs/bluge/analysis/lang/en"
 	"github.com/blugelabs/bluge/analysis/token"
 	"github.com/blugelabs/bluge/analysis/tokenizer"
+	"github.com/dkblackley/bins-go/globals"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -56,7 +57,7 @@ func strictEnglishAnalyzer() *analysis.Analyzer {
 }
 
 // TODO: Replace bluge.reader with a generic implements
-func MakeUnigramDB(reader *bluge.Reader, dataset DatasetMetadata, config Config) [][]string {
+func MakeUnigramDB(reader *bluge.Reader, dataset DatasetMetadata, config globals.Args) [][]string {
 
 	//tokeniser := en.NewAnalyzer()
 
@@ -107,7 +108,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset DatasetMetadata, config Config)
 
 	bar.Finish()
 
-	// Very 'hacky' a mapping to a 'set' which is a mapping to structs. Is converted into a regular bin at the end.
+	// Very 'hacky' a mapping to a 'set' which is a mapping to globals. Is converted into a regular bin at the end.
 	setsBins := make(map[uint]map[string]struct{})
 
 	bar = progressbar.Default(int64(len(docs)), fmt.Sprintf("Putting items into bins %s", dataset.Name))
@@ -168,17 +169,17 @@ func MakeUnigramDB(reader *bluge.Reader, dataset DatasetMetadata, config Config)
 			storedIDs = append(storedIDs, doc_ids[rank])
 
 			// Now to do the actual 'binning' for each unigram.
-			for d := uint(0); d <= config.D; d++ {
+			for d := uint(0); d <= config.DChoice; d++ {
 
 				var bin_index = hashTokenChoice(word, d)
 
-				if config.Filenames {
+				if !config.Vectors { // If we're just the filenames/raw text
 					for _, docID := range storedIDs {
-						add(setsBins, uint(bin_index)%config.MaxBins, docID)
+						add(setsBins, uint(bin_index)%config.BinSize, docID)
 					}
 				} else {
 					for _, storedID := range storedIDs {
-						add(setsBins, uint(bin_index)%config.MaxBins, storedID)
+						add(setsBins, uint(bin_index)%config.BinSize, storedID)
 					}
 				}
 
@@ -189,7 +190,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset DatasetMetadata, config Config)
 	}
 
 	bar.Finish()
-	binsSlice := make([][]string, config.MaxBins)
+	binsSlice := make([][]string, config.BinSize)
 
 	for bin, set := range setsBins {
 		idx := int(bin)

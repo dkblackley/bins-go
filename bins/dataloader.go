@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/blugelabs/bluge"
+	"github.com/dkblackley/bins-go/globals"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 
@@ -44,6 +45,7 @@ type DatasetMetadata struct {
 	OriginalDir string
 	Queries     string
 	Qrels       string
+	Vectors     string
 }
 
 func LoadBeirJSONL(path, indexDir string) {
@@ -144,12 +146,6 @@ func LoadFloat32MatrixFromNpy(filename string, n int, dim int) ([][]float32, err
 	return ret, nil
 }
 
-type Query struct {
-	ID   string `json:"_id"`
-	Text string `json:"text"`
-	// Metadata string `json:"metadata"`
-}
-
 type qrels map[string]map[string]int
 
 func LoadCorpus(path string) ([]beirDoc, error) {
@@ -194,8 +190,18 @@ func LoadCorpus(path string) ([]beirDoc, error) {
 	return ds, sc.Err()
 }
 
-func LoadQueries(path string) ([]Query, error) {
+type Query struct {
+	ID   string `json:"_id"`
+	Text string `json:"text"`
+	// Metadata string `json:"metadata"`
+}
+
+func LoadQueries(config globals.Args) ([]Query, error) {
+
+	metaData := getDatasets(config.DatasetsDirectory, config.DataName)
+	path := metaData.Queries
 	f, err := os.Open(path)
+
 	if err != nil {
 		return nil, err
 	}
