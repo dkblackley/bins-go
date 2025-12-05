@@ -10,7 +10,6 @@ import (
 	"github.com/dkblackley/bins-go/pianopir"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/check.v1"
 )
 
 const MAX_UINT32 = ^uint32(0)
@@ -72,6 +71,7 @@ func main() {
 	flag.Parse()
 
 	var binsPIR PIRImpliment
+	// TODO: is it sensible to start the 'pre-processing' timer here?
 	start := time.Now()
 	if *searchType == "bins" {
 		binsPIR = bins.MakeVecDb(config)
@@ -139,6 +139,8 @@ func doPIRSearch(binsPIR PIRImpliment, qids []string) map[string][][]uint64 {
 		}
 	}
 	bar.Finish()
+
+	//TODO: results/answers are still encoded. We should decode them back into vectors or numbers or... etc.
 	//end := time.Now()
 
 	//total_query_size := 0

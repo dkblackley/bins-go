@@ -171,9 +171,8 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 
 	// first identify in average how many queries in each partition we need to make
 
-	// this is different from the default
-	queryNumToMake := len(idx) / int(p.config.PartitionNum)
-	queryNumToMake++
+	// Get average num ber partition and ALWAYS ROUND UP!
+	queryNumToMake := (len(idx) + int(p.config.PartitionNum) - 1) / int(p.config.PartitionNum)
 
 	// first arrange the queries into the partitions
 	partitionQueries := make([][]uint64, p.config.PartitionNum)

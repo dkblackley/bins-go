@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/blugelabs/bluge"
+	"github.com/blugelabs/bluge/analysis"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
 	"github.com/schollz/progressbar/v3"
@@ -46,15 +47,44 @@ func getDatasets(root, name string) DatasetMetadata {
 }
 
 type VecBins struct {
-	N           int    // Items in DB
-	Dimensions  int    // Dimension of vectors
-	EntrySize   int    // number of vectors in a row (Size of one entry)
-	DBEntrySize uint64 // Number of bytes in an entry
-	DBTotalSize uint64 // in bytes
-	Queries     []Query
+	N                    int              // Number of Bins
+	Dimensions           int              // Dimension of vectors
+	EntrySize            int              // number of vectors in a row (Size of one entry)
+	DBEntrySize          uint64           // Number of bytes in an entry
+	DBTotalSize          uint64           // in bytes
+	Queries              map[string]Query // A mapping from QID to query
+	EnglishTokenAnalyzer *analysis.Analyzer
+	PIR                  *pianopir.SimpleBatchPianoPIR
 
-	rawDB []uint64
-	PIR   *pianopir.SimpleBatchPianoPIR
+	rawDB  []uint64
+	config globals.Args
+}
+
+func (v VecBins) GetPIRInfo() *pianopir.SimpleBatchPianoPIR {
+	return v.PIR
+}
+
+func (v VecBins) GetNumQueries() int {
+	//TODO implement me
+	return len(v.Queries)
+}
+
+func (v VecBins) DoPIR(QID string) ([][]uint64, error) {
+
+	query := v.Queries[QID]
+
+	tokeniser := strictEnglishAnalyzer()
+	tokens := tokeniser.Analyze([]byte(query.Text))
+
+	indices := make([]uint64, len(tokens))
+	for i, t := range tokens {
+		indices[i] = hashTokenChoice(fmt.Sprintf("%s", t.Term), v.config.DChoice) % uint64(v.N)
+	}
+
+	responses, err := v.PIR.Query(indices)
+
+	return responses, err
+
 }
 
 // MakeVecDb Takes in args from command line and then outputs a 'VecBins' object that implements the functions required for
@@ -84,7 +114,6 @@ func MakeVecDb(config globals.Args) VecBins {
 			err = WriteCSV("marco.csv", DB)
 			Must(err)
 		}
-
 	}
 
 	if config.DebugLevel >= 1 {
@@ -153,8 +182,15 @@ func MakeVecDb(config globals.Args) VecBins {
 	//
 	//logrus.Infof("Preprocessing took %s", end.Sub(start))
 
-	queires, err := LoadQueries(metaData.Queries)
-	binPir.Queries = queires
+	queires, err := LoadQueries(config)
+	queryMap := make(map[string]Query)
+	for q := range len(queires) {
+		qid := queires[q].ID
+		queryMap[qid] = queires[q]
+
+	}
+	binPir.Queries = queryMap
+	binPir.EnglishTokenAnalyzer = strictEnglishAnalyzer()
 
 	return binPir
 
