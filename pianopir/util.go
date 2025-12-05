@@ -170,4 +170,7 @@ func GetLongKey(key *PrfKey128) []uint32 {
 	return longKey
 }
 
+// This is a function written in assembly for speed. dst is a buffer to hold the output/ get xor'd with
+// src. n is the size of the src and dst array. Make sure you use whatever you passed in as dst
+// after calling this function
 func xorSlices(dst, src []uint64, n int)
