@@ -56,11 +56,16 @@ type VecBins struct {
 	EnglishTokenAnalyzer *analysis.Analyzer
 	PIR                  *pianopir.SimpleBatchPianoPIR
 
-	rawDB  []uint64
+	rawDB  [][]uint64
 	config globals.Args
 }
 
-func (v VecBins) GetPIRInfo() *pianopir.SimpleBatchPianoPIR {
+func (v VecBins) GetRawDB() [][]uint64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (v VecBins) GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR {
 	return v.PIR
 }
 
@@ -69,7 +74,7 @@ func (v VecBins) GetNumQueries() int {
 	return len(v.Queries)
 }
 
-func (v VecBins) DoPIR(QID string) ([][]uint64, error) {
+func (v VecBins) MakeIndices(QID string) []uint64 {
 
 	query := v.Queries[QID]
 
@@ -81,9 +86,7 @@ func (v VecBins) DoPIR(QID string) ([][]uint64, error) {
 		indices[i] = hashTokenChoice(fmt.Sprintf("%s", t.Term), v.config.DChoice) % uint64(v.N)
 	}
 
-	responses, err := v.PIR.Query(indices)
-
-	return responses, err
+	return indices
 
 }
 
@@ -204,7 +207,7 @@ func PreprocessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]f
 	wordsPerEntry := DBEntrySize / 8
 
 	// I think just DBsize is big enough but I might need to multiply by wordsPerEntry
-	rawDB := make([]uint64, DBSize)
+	rawDB := make([][]uint64, DBSize)
 
 	//TODO: remove bar for efficiency
 	bar := progressbar.Default(int64(len(vectorsInBins)), fmt.Sprintf("Preprocessing"))
@@ -240,7 +243,10 @@ func PreprocessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]f
 		}
 
 		// Copy into rawDB at the right offset
-		copy(rawDB[i*int(wordsPerEntry):], entry)
+		//copy(rawDB[i*int(wordsPerEntry):], entry)
+
+		// We just directly set the entry in rawdb:
+		rawDB[i] = entry
 
 		bar.Add(1)
 	}
@@ -248,7 +254,7 @@ func PreprocessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]f
 	bar.Finish()
 
 	// Now that we have the rawDB, set up the PIR
-	pir := pianopir.NewSimpleBatchPianoPIR(uint64(len(vectorsInBins)), uint64(DBEntrySize), 16, rawDB, 8)
+	pir := pianopir.NewSimpleBatchPianoPIR(uint64(len(vectorsInBins)), uint64(maxRowSize), uint64(DBEntrySize), 16, rawDB, 8)
 
 	logrus.Info("PIR Ready for preprocessing")
 

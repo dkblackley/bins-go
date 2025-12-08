@@ -15,9 +15,9 @@ import (
 const MAX_UINT32 = ^uint32(0)
 
 type PIRImpliment interface {
-	GetPIRInfo() *pianopir.SimpleBatchPianoPIR
+	GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR
 	GetNumQueries() int
-	DoPIR(QID string) ([][]uint64, error)
+	MakeIndices(QID string) []uint64
 	GetRawDB() [][]uint64
 }
 
@@ -109,7 +109,7 @@ func doPIRSearch(binsPIR PIRImpliment, qids []string) map[string][][]uint64 {
 
 	answers := make(map[string][][]uint64, numQueries)
 	maintainenceTime := time.Duration(0)
-	PIR := binsPIR.GetPIRInfo()
+	PIR := binsPIR.GetBatchPIRInfo()
 
 	//start := time.Now()
 
@@ -122,7 +122,9 @@ func doPIRSearch(binsPIR PIRImpliment, qids []string) map[string][][]uint64 {
 
 		// Results should be a 2d array, each item in the first dimension should be a single result and then the lower
 		//dimension is an item in the DB
-		results, err := binsPIR.DoPIR(q)
+		indices := binsPIR.MakeIndices(q)
+
+		results, err := PIR.Query(indices)
 
 		if err != nil {
 			logrus.Errorf("Error querying PIR: %v", err)
