@@ -18,6 +18,7 @@ type PIRImpliment interface {
 	GetPIRInfo() *pianopir.SimpleBatchPianoPIR
 	GetNumQueries() int
 	DoPIR(QID string) ([][]uint64, error)
+	GetRawDB() [][]uint64
 }
 
 func main() {

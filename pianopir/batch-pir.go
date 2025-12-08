@@ -3,6 +3,7 @@ package pianopir
 import (
 	"fmt"
 	"log"
+	"math"
 	"sync"
 	"time"
 )
@@ -18,7 +19,7 @@ const (
 
 type SimpleBatchPianoPIRConfig struct {
 	DBEntryByteNum  uint64 // the number of bytes in a DB entry
-	DBEntrySize     uint64 // the number of uint64 in a DB entry
+	MaxDBEntrySize  uint64 // the number of uint64 in a DB entry
 	DBSize          uint64
 	BatchSize       uint64
 	PartitionNum    uint64
@@ -52,11 +53,11 @@ type SimpleBatchPianoPIR struct {
 	commCostPerBatchOffline uint64  // bytes
 }
 
-func NewSimpleBatchPianoPIR(DBSize uint64, DBEntryByteNum uint64, BatchSize uint64, rawDB []uint64, FailureProbLog2 uint64) *SimpleBatchPianoPIR {
-	DBEntrySize := DBEntryByteNum / 8
-	if len(rawDB) != int(DBSize*DBEntrySize) {
-		log.Fatalf("BatchPIR: len(rawDB) = %v; want %v", len(rawDB), DBSize*DBEntrySize)
-	}
+func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum uint64, BatchSize uint64, rawDB [][]uint64, FailureProbLog2 uint64) *SimpleBatchPianoPIR {
+	//DBEntrySize := DBEntryByteNum / 8
+	//if len(rawDB) != int(DBSize*DBEntrySize) {
+	//	log.Fatalf("BatchPIR: len(rawDB) = %v; want %v", len(rawDB), DBSize*DBEntrySize)
+	//}
 
 	// create the sub PIR classes
 	PartitionNum := BatchSize / RealQueryPerPartition
@@ -65,7 +66,7 @@ func NewSimpleBatchPianoPIR(DBSize uint64, DBEntryByteNum uint64, BatchSize uint
 
 	config := &SimpleBatchPianoPIRConfig{
 		DBEntryByteNum:  DBEntryByteNum,
-		DBEntrySize:     DBEntrySize,
+		MaxDBEntrySize:  MaxDBEntrySize,
 		DBSize:          DBSize,
 		BatchSize:       BatchSize,
 		PartitionNum:    PartitionNum,
@@ -81,7 +82,32 @@ func NewSimpleBatchPianoPIR(DBSize uint64, DBEntryByteNum uint64, BatchSize uint
 		end := min((i+1)*PartitionSize, DBSize)
 		// print start and end
 		//fmt.Printf("start: %v, end: %v\n", start, end)
-		subPIR[i] = NewPianoPIR(end-start, DBEntryByteNum, rawDB[start*DBEntrySize:end*DBEntrySize], FailureProbLog2)
+
+		// assert that the rawDB is of the correct size
+		if uint64(len(rawDB)) != DBSize {
+			log.Fatalf("Piano PIR len(rawDB) = %v; want %v", len(rawDB), DBSize)
+		}
+
+		targetChunkSize := uint64(2 * math.Sqrt(float64(DBSize)))
+		ChunkSize := uint64(1)
+		for ChunkSize < targetChunkSize {
+			ChunkSize *= 2
+		}
+		SetSize := uint64(math.Ceil(float64(DBSize) / float64(ChunkSize)))
+		// round up to the next mulitple of 4
+		SetSize = (SetSize + 3) / 4 * 4
+
+		subConfig := PianoPIRConfig{
+			DBEntryByteNum:  DBEntryByteNum,
+			MaxDBEntrySize:  MaxDBEntrySize,
+			DBSize:          DBSize,
+			ChunkSize:       ChunkSize,
+			SetSize:         SetSize,
+			ThreadNum:       ThreadNum,
+			FailureProbLog2: FailureProbLog2,
+		}
+
+		subPIR[i] = NewPianoPIR(&subConfig, rawDB[start:end])
 	}
 
 	return &SimpleBatchPianoPIR{
@@ -104,6 +130,11 @@ func (p *SimpleBatchPianoPIR) PrintInfo() {
 	fmt.Printf("comm cost per batch = %v KB\n", p.CommCostPerBatchOnline()/1024)
 	fmt.Printf("amortized preprocessing comm cost = %v KB\n", float64(DBSizeInBytes)/float64(maxQuery)/1024)
 	fmt.Printf("total amortized comm cost = %v KB\n", float64(DBSizeInBytes)/float64(maxQuery)/1024+float64(p.CommCostPerBatchOnline())/1024)
+	fmt.Printf("-----------------------------\n")
+
+	PIR := p.subPIR[0]
+	fmt.Printf("-----------PIR config --------\n")
+	fmt.Printf("DBSize: %v, DBEntryByteNum: %v, DBEntrySize: %v, ChunkSize: %v, SetSize: %v, ThreadNum: %v, FailureProbLog2: %v\n", PIR.config.DBSize, PIR.config.DBEntryByteNum, PIR.config.MaxDBEntrySize, PIR.config.ChunkSize, PIR.config.SetSize, PIR.config.ThreadNum, PIR.config.FailureProbLog2)
 	fmt.Printf("-----------------------------\n")
 }
 
@@ -227,8 +258,8 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 			ret[i] = response
 		} else {
 			// otherwise just make a zero response
-			ret[i] = make([]uint64, p.config.DBEntrySize)
-			for j := uint64(0); j < p.config.DBEntrySize; j++ {
+			ret[i] = make([]uint64, 1)
+			for j := uint64(0); j < 1; j++ {
 				ret[i][j] = 0
 			}
 		}
