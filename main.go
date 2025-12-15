@@ -107,7 +107,8 @@ func getQIDS(config globals.Args) []string {
 
 func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string][][]uint64 {
 
-	numQueries := len(qids)
+	//numQueries := len(qids)
+	numQueries := 300
 
 	answers := make(map[string][][]uint64, numQueries)
 	maintainenceTime := time.Duration(0)
