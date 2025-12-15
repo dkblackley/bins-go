@@ -94,7 +94,7 @@ func TestBatchPIRBasic(t *testing.T) {
 	// Arrange
 	// Set up any necessary data or arguments
 
-	DBSize := uint64(8000)
+	DBSize := uint64(80000)
 	DBEntrySize := uint64(192 * 10)
 	BatchSize := uint64(32)
 
@@ -151,7 +151,10 @@ func TestBatchPIRBasic(t *testing.T) {
 	// now make a batch query
 	// they should be all correct
 
+	start := time.Now()
 	responses, err := PIR.Query(batchQuery)
+	end := time.Now()
+	t.Logf("Batch PIR.Query(%v) took %v", batchQuery, end.Sub(start))
 
 	if err != nil {
 		t.Errorf("PIR.Query(%v) failed: %v", batchQuery, err)
