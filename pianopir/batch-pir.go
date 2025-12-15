@@ -88,19 +88,19 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 			log.Fatalf("Piano PIR len(rawDB) = %v; want %v", len(rawDB), DBSize)
 		}
 
-		targetChunkSize := uint64(2 * math.Sqrt(float64(DBSize)))
+		targetChunkSize := uint64(2 * math.Sqrt(float64(PartitionSize)))
 		ChunkSize := uint64(1)
 		for ChunkSize < targetChunkSize {
 			ChunkSize *= 2
 		}
-		SetSize := uint64(math.Ceil(float64(DBSize) / float64(ChunkSize)))
+		SetSize := uint64(math.Ceil(float64(PartitionSize) / float64(ChunkSize)))
 		// round up to the next mulitple of 4
 		SetSize = (SetSize + 3) / 4 * 4
 
 		subConfig := PianoPIRConfig{
 			DBEntryByteNum:  DBEntryByteNum,
 			MaxDBEntrySize:  MaxDBEntrySize,
-			DBSize:          DBSize,
+			DBSize:          PartitionSize,
 			ChunkSize:       ChunkSize,
 			SetSize:         SetSize,
 			ThreadNum:       ThreadNum,

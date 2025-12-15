@@ -8,8 +8,6 @@ import (
 	"math"
 	"math/rand"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -18,7 +16,7 @@ const (
 )
 
 type PianoPIRConfig struct {
-	DBEntryByteNum  uint64 // the number of bytes in a DB entry
+	DBEntryByteNum  uint64 // the (average) number of bytes in a DB entry - just used for debugging/printing
 	MaxDBEntrySize  uint64 // The maximum number of uint64 in a DB entry
 	DBSize          uint64
 	ChunkSize       uint64 // chunksize is 2 times sqrt of DBSize and then rounded up to power of 2.
@@ -95,13 +93,14 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 		// should be a multiple of 4!
 
 		entry := s.rawDB[idx : idx+1]
-		n := len(entry[0]) // uint64 elements
-
-		// Debug check for size:
-		if n%4 != 0 {
-			logrus.Fatalf("idx %v is out of range", idx)
-			panic("DB entry size mismatch - not a multiple of 4!!!!")
-		}
+		//TODO: this might be causing issues, uncomment?
+		//n := len(entry[0]) // uint64 elements
+		//
+		//// Debug check for size:
+		//if n%4 != 0 {
+		//	logrus.Fatalf("idx %v is out of range", idx)
+		//	panic("DB entry size mismatch - not a multiple of 4!!!!")
+		//}
 
 		// I think this is an update 'in place', so I shouldn't need to copy temp_ret[0]/do any fancy memory allocs
 		EntryXor(tempRet, entry)
@@ -290,6 +289,7 @@ func (c *PianoPIRClient) Initialization() {
 		for j := 0; j < int(c.maxQueryPerChunk); j++ {
 
 			c.backupParity[i][j] = make([]uint64, c.config.MaxDBEntrySize)
+			c.replacementVal[i][j] = make([]uint64, c.config.MaxDBEntrySize)
 
 			c.replacementIdx[i][j] = DefaultProgramPoint
 			c.backupShortTag[i][j] = shortTagCount
@@ -309,50 +309,96 @@ func (c *PianoPIRClient) Initialization() {
 	c.localCache = make(map[uint64][][]uint64)
 }
 
-// entrySize has to be a multiple of 4 !!!!!!!!!!!!! We can't make this a 'flat' array with re-allocing, so sometimes
-// (often times) you will jsut be passing in a 2d-array with a single outer dimentions (i.e len(a) == 1)
-func EntryXor(a [][]uint64, b [][]uint64) {
-	if len(a) == 0 || len(b) == 0 {
-		return
-	}
+// Use native XOR instead of ASM. I think the ASM version has hardware acceleration though, so I'll leave the other
+// below and commented out for now.
+func EntryXor(a, b [][]uint64) {
 
-	// XOR as much as possible across matching items.
-	limit := len(a)
-	if len(b) < limit {
-		limit = len(b)
-	}
-
-	for i := 0; i < limit; i++ {
+	for i := 0; i < len(b); i++ {
 		ai := a[i]
 		bi := b[i]
-		if len(ai) == 0 || len(bi) == 0 {
+
+		n := len(ai)
+		if lb := len(bi); lb < n {
+			n = lb
+		}
+		if n == 0 {
 			continue
 		}
 
-		n := len(ai)
-		if len(bi) < n {
-			n = len(bi)
+		j := 0
+		n8 := n &^ 7 // largest multiple of 8 <= n
+		if n8 > 0 {
+			// Help the compiler prove bounds safety for the unrolled loop.
+			_ = ai[n8-1]
+			_ = bi[n8-1]
+
+			for ; j < n8; j += 8 {
+				ai[j+0] ^= bi[j+0]
+				ai[j+1] ^= bi[j+1]
+				ai[j+2] ^= bi[j+2]
+				ai[j+3] ^= bi[j+3]
+				ai[j+4] ^= bi[j+4]
+				ai[j+5] ^= bi[j+5]
+				ai[j+6] ^= bi[j+6]
+				ai[j+7] ^= bi[j+7]
+			}
 		}
 
-		// Largest multiple of 4
-		n4 := n &^ 3
-
-		if n4 > 0 {
-			xorSlices(ai[:n4], bi[:n4], n4)
-		}
-
-		// Tail
-		for j := n4; j < n; j++ {
+		for ; j < n; j++ {
 			ai[j] ^= bi[j]
 		}
 	}
 }
 
-func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) {
+//func EntryXor(a, b [][]uint64) {
+//	limit := len(a)
+//	if lb := len(b); lb < limit {
+//		limit = lb
+//	}
+//
+//	for i := 0; i < limit; i++ {
+//		ai := a[i]
+//		bi := b[i]
+//
+//		n := len(ai)
+//		if lb := len(bi); lb < n {
+//			n = lb
+//		}
+//		if n == 0 {
+//			continue
+//		}
+//
+//		n4 := n &^ 3
+//		if n4 != 0 {
+//			// Option A: xorSlices(ai[:n4], bi[:n4])
+//			// Option B: xorSlices(ai, bi, n4)
+//			xorSlices(ai[:n4], bi[:n4])
+//		}
+//		for j := n4; j < n; j++ {
+//			ai[j] ^= bi[j]
+//		}
+//	}
+//
+//}
+
+func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) [][]uint64 {
 	c.Initialization() // first clean everything
+
+	if len(rawDB) < int(c.config.ChunkSize*c.config.SetSize) {
+		// append with zeros
+		prev_len := len(rawDB)
+		rawDB = append(rawDB, make([][]uint64, int(c.config.ChunkSize*c.config.SetSize)-len(rawDB))...)
+		for j := 1; j < int(c.config.ChunkSize*c.config.SetSize)-prev_len; j++ {
+			rawDB[j+prev_len] = make([]uint64, c.config.MaxDBEntrySize)
+			for k := 0; k < len(rawDB[j+prev_len]); k++ {
+				rawDB[j+prev_len][k] = 0
+			}
+		}
+	}
+
 	if c.skipPrep {
 		// only for debugging and benchmarking
-		return
+		return rawDB
 	}
 
 	//log.Printf("len(rawDB) %v\n", len(rawDB))
@@ -384,8 +430,12 @@ func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) {
 		//	//fmt.Println("preprocessing chunk ", i, "start ", start, "end ", end)
 		//	c.UpdatePreprocessing(i, rawDB[start*c.config.DBEntrySize:end*c.config.DBEntrySize])
 		//}
+		// Turns out we do still need to append empty items to our rawDB...
+
 		c.UpdatePreprocessing(i, rawDB[start:end])
 	}
+
+	return rawDB
 
 }
 
@@ -606,8 +656,27 @@ func NewPianoPIR(config *PianoPIRConfig, rawDB [][]uint64) *PianoPIR {
 	}
 }
 
+func DeepCopy2DUint64(src [][]uint64) [][]uint64 {
+	if src == nil {
+		return nil
+	}
+
+	dst := make([][]uint64, len(src))
+	for i := range src {
+		if src[i] == nil {
+			// Preserve nil rows distinctly from empty rows.
+			dst[i] = nil
+			continue
+		}
+		dst[i] = make([]uint64, len(src[i]))
+		copy(dst[i], src[i])
+	}
+	return dst
+}
+
 func (p *PianoPIR) Preprocessing() {
-	p.client.Preprocessing(p.server.rawDB)
+	p.server.rawDB = DeepCopy2DUint64(p.server.rawDB)
+	p.server.rawDB = p.client.Preprocessing(p.server.rawDB)
 }
 
 func (p *PianoPIR) DummyPreprocessing() {

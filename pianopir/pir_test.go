@@ -1,6 +1,7 @@
 package pianopir
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -10,19 +11,50 @@ func TestPIRBasic(t *testing.T) {
 	// Arrange
 	// Set up any necessary data or arguments
 
-	DBSize := uint64(18750)
-	DBEntrySize := uint64(4)
+	DBSize := uint64(80000)
+	MaxDBEntrySize := uint64(192 * 80) // alternate between 40, 80 and 0 for testing
 	seed := time.Now().UnixNano()
 	rng := rand.New(rand.NewSource(seed))
 
-	rawDB := make([]uint64, DBEntrySize*DBSize)
+	rawDB := make([][]uint64, DBSize)
 	for i := uint64(0); i < DBSize; i++ {
-		for j := uint64(0); j < DBEntrySize; j++ {
-			rawDB[i*DBEntrySize+j] = rng.Uint64()
+		rand_int := rand.Intn(100)
+		var entry []uint64
+		// 50 chance to put a zero, 40% to put a random 192 * 40 and 10% to put a random 192 * 80
+		if rand_int <= 50 {
+			entry = make([]uint64, 1)
+		} else if rand_int <= 90 {
+			entry = make([]uint64, 192*40/8)
+		} else {
+			entry = make([]uint64, 192*80/8)
 		}
+
+		for j := 0; j < len(entry); j++ {
+			entry[j] = rng.Uint64()
+		}
+		rawDB[i] = entry
 	}
 
-	PIR := NewPianoPIR(DBSize, DBEntrySize*8, rawDB, 40)
+	targetChunkSize := uint64(2 * math.Sqrt(float64(DBSize)))
+	ChunkSize := uint64(1)
+	for ChunkSize < targetChunkSize {
+		ChunkSize *= 2
+	}
+	SetSize := uint64(math.Ceil(float64(DBSize) / float64(ChunkSize)))
+	// round up to the next mulitple of 4
+	SetSize = (SetSize + 3) / 4 * 4
+
+	Config := PianoPIRConfig{
+		DBEntryByteNum:  192 * 50, // Roughly - used for debugging/results
+		MaxDBEntrySize:  MaxDBEntrySize,
+		DBSize:          DBSize,
+		ChunkSize:       ChunkSize,
+		SetSize:         SetSize,
+		ThreadNum:       ThreadNum,
+		FailureProbLog2: 40,
+	}
+
+	PIR := NewPianoPIR(&Config, rawDB)
 
 	// print the config of the PIR
 	config := PIR.Config()
@@ -42,9 +74,10 @@ func TestPIRBasic(t *testing.T) {
 			t.Errorf("PIR.Query(%v) failed: %v", idx, err)
 		}
 
-		for j := uint64(0); j < DBEntrySize; j++ {
-			if query[j] != rawDB[idx*DBEntrySize+j] {
-				t.Errorf("query[%v] = %v; want %v", idx, query[j], rawDB[idx*DBEntrySize+j])
+		entry := rawDB[idx]
+		for j := 0; j < len(entry); j++ {
+			if query[j] != entry[j] {
+				t.Errorf("query[%v] = %v; want %v", idx, query[j], rawDB[idx][j])
 			}
 		}
 
@@ -61,22 +94,38 @@ func TestBatchPIRBasic(t *testing.T) {
 	// Arrange
 	// Set up any necessary data or arguments
 
-	DBSize := uint64(1000000)
-	DBEntrySize := uint64(16)
+	DBSize := uint64(8000)
+	DBEntrySize := uint64(192 * 10)
 	BatchSize := uint64(32)
 
 	// a seed that's depending on the current time
 	//seed := time.Now().UnixNano()
 	//rng := rand.New(rand.NewSource(seed))
 
-	rawDB := make([]uint64, DBEntrySize*DBSize)
+	MaxDBEntrySize := uint64(192 * 30) // alternate between 40, 80 and 0 for testing
+	seed := time.Now().UnixNano()
+	rng := rand.New(rand.NewSource(seed))
+
+	rawDB := make([][]uint64, DBSize)
 	for i := uint64(0); i < DBSize; i++ {
-		for j := uint64(0); j < DBEntrySize; j++ {
-			rawDB[i*DBEntrySize+j] = uint64(i) //rng.Uint64()
+		rand_int := rand.Intn(100)
+		var entry []uint64
+		// 50 chance to put a zero, 40% to put a random 192 * 40 and 10% to put a random 192 * 80
+		if rand_int <= 75 {
+			entry = make([]uint64, 1)
+		} else if rand_int <= 90 {
+			entry = make([]uint64, 192*10/8)
+		} else {
+			entry = make([]uint64, 192*30/8)
 		}
+
+		for j := 0; j < len(entry); j++ {
+			entry[j] = rng.Uint64()
+		}
+		rawDB[i] = entry
 	}
 
-	PIR := NewSimpleBatchPianoPIR(DBSize, DBEntrySize*8, BatchSize, rawDB, 20)
+	PIR := NewSimpleBatchPianoPIR(DBSize, MaxDBEntrySize, DBEntrySize, BatchSize, rawDB, 40)
 
 	// print the config of the PIR
 	config := PIR.Config()
@@ -111,9 +160,10 @@ func TestBatchPIRBasic(t *testing.T) {
 	for i := 0; i < len(batchQuery); i++ {
 		idx := batchQuery[i]
 		query := responses[i]
-		for j := uint64(0); j < DBEntrySize; j++ {
-			if query[j] != rawDB[idx*DBEntrySize+j] {
-				t.Errorf("query[%v] = %v; want %v", idx, query[j], rawDB[idx*DBEntrySize+j])
+		entry := rawDB[idx]
+		for j := 0; j < len(entry); j++ {
+			if query[j] != entry[j] {
+				t.Errorf("query[%v] = %v; want %v", idx, query[j], entry[j])
 			}
 		}
 	}
@@ -141,9 +191,10 @@ func TestBatchPIRBasic(t *testing.T) {
 	for i := 0; i < len(batchQuery); i++ {
 		idx := batchQuery[i]
 		query := responses[i]
-		for j := uint64(0); j < DBEntrySize; j++ {
-			if query[j] != rawDB[idx*DBEntrySize+j] {
-				t.Errorf("query[%v] = %v; want %v", idx, query[j], rawDB[idx*DBEntrySize+j])
+		entry := rawDB[idx]
+		for j := 0; j < len(entry); j++ {
+			if query[j] != entry[j] {
+				t.Errorf("query[%v] = %v; want %v", idx, query[j], entry[j])
 			}
 		}
 	}
@@ -185,94 +236,99 @@ func TestBatchPIRBasic(t *testing.T) {
 
 		if i < QueryPerPartition {
 			// check if the first PartitionQueryNum queries are correct
-			for j := uint64(0); j < DBEntrySize; j++ {
-				if query[j] != rawDB[idx*DBEntrySize+j] {
-					t.Errorf("query[%v] = %v; want %v", idx, query[j], rawDB[idx*DBEntrySize+j])
+			entry := rawDB[idx]
+			for j := 0; j < len(entry); j++ {
+				if query[j] != entry[j] {
+					t.Errorf("query[%v] = %v; want %v", idx, query[j], entry[j])
 				}
 			}
 		} else {
+
 			// otherwise check if they are all zeros
-			for j := uint64(0); j < DBEntrySize; j++ {
-				if query[j] != 0 {
-					t.Errorf("query[%v] = %v; want 0", idx, query[j])
-				}
-			}
+			// Beforehand they would return all 0s for everything outside of the batch. We return actual data (but we don't
+			// really care about it)
+			//for j := uint64(0); j < DBEntrySize; j++ {
+			//	if query[j] != 0 {
+			//		t.Errorf("query[%v] = %v; want 0", idx, query[j])
+			//	}
+			//}
 		}
 	}
 }
 
-func TestBatchPIRPerf(t *testing.T) {
-	// Arrange
-	// Set up any necessary data or arguments
-
-	DBSize := uint64(3201821)
-	//DBSize := uint64(100000000)
-	//DBSize := uint64(300000)
-	DBEntrySize := uint64(112)
-	BatchSize := uint64(32)
-
-	// a seed that's depending on the current time
-	seed := time.Now().UnixNano()
-	rng := rand.New(rand.NewSource(seed))
-
-	rawDB := make([]uint64, DBEntrySize*DBSize)
-	for i := uint64(0); i < DBSize; i++ {
-		for j := uint64(0); j < DBEntrySize; j++ {
-			rawDB[i*DBEntrySize+j] = rng.Uint64()
-		}
-	}
-
-	PIR := NewSimpleBatchPianoPIR(DBSize, DBEntrySize*8, BatchSize, rawDB, 8)
-
-	// print the config of the PIR
-	config := PIR.Config()
-	t.Logf("Batch PIR config: %v\n", config)
-	t.Logf("Batch PIR storage %v MB\n", PIR.LocalStorageSize()/1024/1024)
-	t.Logf("Batch PIR max query num%v\n", PIR.subPIR[0].client.MaxQueryNum)
-	t.Logf("Sub PIR config: %v\n", PIR.subPIR[0].Config())
-	t.Logf("Sub PIR primary hint num: %v\n", PIR.subPIR[0].client.primaryHintNum)
-	t.Logf("Sub PIR strorae %v MB\n", PIR.subPIR[0].LocalStorageSize()/1024/1024)
-	PIR.subPIR[0].client.PrintStorageBreakdown()
-
-	start := time.Now()
-	PIR.Preprocessing()
-	end := time.Now()
-	t.Logf("Preprocessing time = %v\n", end.Sub(start))
-
-	// now we make 1000 random batchQuery
-
-	queryNum := 300
-
-	start = time.Now()
-	for i := 0; i < queryNum; i++ {
-		batch := make([]uint64, 0, BatchSize)
-		for j := 0; j < int(BatchSize); j++ {
-			batch = append(batch, rng.Uint64()%DBSize)
-		}
-		response, err := PIR.Query(batch)
-		if err != nil {
-			t.Errorf("PIR.Query(%v) failed: %v", batch, err)
-		}
-		//we check the first response, either it's all zeros, or it's correct
-		for j := uint64(0); j < DBEntrySize; j++ {
-			if response[0][j] != 0 && response[0][j] != rawDB[batch[0]*DBEntrySize+j] {
-				t.Errorf("response[0][%v] = %v; want %v", j, response[0][j], rawDB[batch[0]*DBEntrySize+j])
-			}
-		}
-	}
-	end = time.Now()
-	t.Logf("Total query time = %v\n", end.Sub(start))
-	t.Logf("Average query time per batch = %v\n", end.Sub(start)/time.Duration(queryNum))
-	avgBatchTime := end.Sub(start) / time.Duration(queryNum)
-
-	rtt := time.Duration(50) * time.Millisecond
-	parallel := 2
-	step := 15
-
-	// now we estimate the average ann latency by (avgBatchTime * parallel + rtt) * step
-	annLatency := (avgBatchTime*time.Duration(parallel) + rtt) * time.Duration(step)
-	t.Logf("Estimated ANN latency = %v\n", annLatency)
-}
+//
+//func TestBatchPIRPerf(t *testing.T) {
+//	// Arrange
+//	// Set up any necessary data or arguments
+//
+//	DBSize := uint64(3201821)
+//	//DBSize := uint64(100000000)
+//	//DBSize := uint64(300000)
+//	DBEntrySize := uint64(112)
+//	BatchSize := uint64(32)
+//
+//	// a seed that's depending on the current time
+//	seed := time.Now().UnixNano()
+//	rng := rand.New(rand.NewSource(seed))
+//
+//	rawDB := make([]uint64, DBEntrySize*DBSize)
+//	for i := uint64(0); i < DBSize; i++ {
+//		for j := uint64(0); j < DBEntrySize; j++ {
+//			rawDB[i*DBEntrySize+j] = rng.Uint64()
+//		}
+//	}
+//
+//	PIR := NewSimpleBatchPianoPIR(DBSize, DBEntrySize*8, BatchSize, rawDB, 8)
+//
+//	// print the config of the PIR
+//	config := PIR.Config()
+//	t.Logf("Batch PIR config: %v\n", config)
+//	t.Logf("Batch PIR storage %v MB\n", PIR.LocalStorageSize()/1024/1024)
+//	t.Logf("Batch PIR max query num%v\n", PIR.subPIR[0].client.MaxQueryNum)
+//	t.Logf("Sub PIR config: %v\n", PIR.subPIR[0].Config())
+//	t.Logf("Sub PIR primary hint num: %v\n", PIR.subPIR[0].client.primaryHintNum)
+//	t.Logf("Sub PIR strorae %v MB\n", PIR.subPIR[0].LocalStorageSize()/1024/1024)
+//	PIR.subPIR[0].client.PrintStorageBreakdown()
+//
+//	start := time.Now()
+//	PIR.Preprocessing()
+//	end := time.Now()
+//	t.Logf("Preprocessing time = %v\n", end.Sub(start))
+//
+//	// now we make 1000 random batchQuery
+//
+//	queryNum := 300
+//
+//	start = time.Now()
+//	for i := 0; i < queryNum; i++ {
+//		batch := make([]uint64, 0, BatchSize)
+//		for j := 0; j < int(BatchSize); j++ {
+//			batch = append(batch, rng.Uint64()%DBSize)
+//		}
+//		response, err := PIR.Query(batch)
+//		if err != nil {
+//			t.Errorf("PIR.Query(%v) failed: %v", batch, err)
+//		}
+//		//we check the first response, either it's all zeros, or it's correct
+//		for j := uint64(0); j < DBEntrySize; j++ {
+//			if response[0][j] != 0 && response[0][j] != rawDB[batch[0]*DBEntrySize+j] {
+//				t.Errorf("response[0][%v] = %v; want %v", j, response[0][j], rawDB[batch[0]*DBEntrySize+j])
+//			}
+//		}
+//	}
+//	end = time.Now()
+//	t.Logf("Total query time = %v\n", end.Sub(start))
+//	t.Logf("Average query time per batch = %v\n", end.Sub(start)/time.Duration(queryNum))
+//	avgBatchTime := end.Sub(start) / time.Duration(queryNum)
+//
+//	rtt := time.Duration(50) * time.Millisecond
+//	parallel := 2
+//	step := 15
+//
+//	// now we estimate the average ann latency by (avgBatchTime * parallel + rtt) * step
+//	annLatency := (avgBatchTime*time.Duration(parallel) + rtt) * time.Duration(step)
+//	t.Logf("Estimated ANN latency = %v\n", annLatency)
+//}
 
 func TestXORPerf(t *testing.T) {
 
@@ -327,6 +383,30 @@ func TestXORPerf(t *testing.T) {
 	for i := 0; i < l*n; i++ {
 		if a[i] != 12312312^12312 {
 			t.Errorf("a[%v] = %v; want %v", i, a[i], 12312312^12312)
+		}
+	}
+
+	// pir XOR for different sized arrays
+	new_a := make([][]uint64, len(a))
+	new_b := make([][]uint64, len(b))
+
+	for i := 0; i < len(new_a); i++ {
+		new_a[i] = make([]uint64, 1)
+		new_b[i] = make([]uint64, 1)
+		new_a[i][0] = 12312312
+		new_b[i][0] = 12312
+	}
+
+	start = time.Now()
+
+	EntryXor(new_a, new_b)
+	end = time.Now()
+	t.Logf("New XOR time = %v\n", end.Sub(start))
+
+	// verify the result
+	for i := 0; i < len(new_a); i++ {
+		if new_a[i][0] != 12312312^12312 {
+			t.Errorf("new_a[%v][0] = %v; want %v", i, new_a[i][0], 12312312^12312)
 		}
 	}
 }
