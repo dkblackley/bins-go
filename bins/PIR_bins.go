@@ -55,23 +55,26 @@ type VecBins struct {
 	Queries              map[string]Query // A mapping from QID to query
 	EnglishTokenAnalyzer *analysis.Analyzer
 	PIR                  *pianopir.SimpleBatchPianoPIR
+	MaxRowSize           uint
 
 	rawDB  [][]uint64
 	config globals.Args
-}
-
-func (v VecBins) GetRawDB() [][]uint64 {
-	//TODO implement me
-	panic("implement me")
 }
 
 func (v VecBins) GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR {
 	return v.PIR
 }
 
-func (v VecBins) GetNumQueries() int {
-	//TODO implement me
-	return len(v.Queries)
+func (v VecBins) Preprocess() {
+	v.PIR.Preprocessing()
+}
+
+func (v VecBins) DoSearch(QID string, k int) ([][]uint64, error) {
+	indices := v.MakeIndices(QID)
+	results, err := v.PIR.Query(indices)
+
+	//TODO: something with K
+	return results[:k], err
 }
 
 func (v VecBins) MakeIndices(QID string) []uint64 {
@@ -180,7 +183,8 @@ func MakeVecDb(config globals.Args) VecBins {
 
 	// PIR setup
 	// start := time.Now()
-	binPir := PreprocessVecDB(config, uint(maxRowSize), newDb)
+
+	binPir := ProcessVecDB(config, uint(maxRowSize), newDb)
 	//end := time.Now()
 	//
 	//logrus.Infof("Preprocessing took %s", end.Sub(start))
@@ -199,7 +203,7 @@ func MakeVecDb(config globals.Args) VecBins {
 
 }
 
-func PreprocessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]float32) VecBins {
+func ProcessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]float32) VecBins {
 	DBEntrySize := config.Dimensions * 4 * maxRowSize // bytes per DB entry (maxRowSize vectors × config.Dimensions float32s)
 	DBSize := len(vectorsInBins)
 
@@ -258,7 +262,7 @@ func PreprocessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]f
 
 	logrus.Info("PIR Ready for preprocessing")
 
-	pir.Preprocessing()
+	// pir.Preprocessing()
 
 	ret := VecBins{
 		N:          len(vectorsInBins),

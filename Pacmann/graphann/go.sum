@@ -1,3 +1,5 @@
+github.com/dkblackley/bins-go v0.0.0-20251215155550-60f369953cea h1:DZiWDEfNbtxmqBPBXubtgHacUaeoeCuN0fxgs+ec3MU=
+github.com/dkblackley/bins-go v0.0.0-20251215155550-60f369953cea/go.mod h1:kniFkWnNzJf2DEIdnuOo2Vz68+CQSMWdk478m4deVcI=
 github.com/evan176/hnswgo v0.0.0-20220622031020-39253a76f9e4 h1:eYdhTPTj1XuYMSj0z0jX2M/3G3MuwYInBcX8fv9f2as=
 github.com/evan176/hnswgo v0.0.0-20220622031020-39253a76f9e4/go.mod h1:11Pgq6/bxATnB3XckcwKDY5XQA5asCa3hwSEOMGc0io=
 github.com/fogfish/it/v2 v2.0.1 h1:vu3kV2xzYDPHoMHMABxXeu5CoMcTfRc4gkWkzOUkRJY=

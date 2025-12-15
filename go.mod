@@ -2,6 +2,7 @@ module github.com/dkblackley/bins-go
 
 go 1.24.0
 
+
 require (
 	github.com/blugelabs/bluge v0.2.2
 	github.com/kshedden/gonpy v0.0.0-20210519231815-fa3c8dd8e59b

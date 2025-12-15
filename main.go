@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dkblackley/bins-go/Pacmann"
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
@@ -16,9 +17,8 @@ const MAX_UINT32 = ^uint32(0)
 
 type PIRImpliment interface {
 	GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR
-	GetNumQueries() int
-	MakeIndices(QID string) []uint64
-	GetRawDB() [][]uint64
+	DoSearch(QID string, k int) ([][]uint64, error)
+	Preprocess()
 }
 
 func main() {
@@ -71,22 +71,25 @@ func main() {
 
 	flag.Parse()
 
-	var binsPIR PIRImpliment
-	// TODO: is it sensible to start the 'pre-processing' timer here?
-	start := time.Now()
+	var PIRImplemented PIRImpliment
+	// TODO: is it sensible to start the 'pre-processing' timer here? If so replace if with switch case!
+
 	if *searchType == "bins" {
-		binsPIR = bins.MakeVecDb(config)
+		PIRImplemented = bins.MakeVecDb(config)
+	} else if *searchType == "Pacmann" {
+		PIRImplemented = Pacmann.PacmannMain(config)
 	} else {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return
 	}
-
+	start := time.Now()
+	PIRImplemented.Preprocess()
 	end := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
 
 	qids := getQIDS(config)
 
-	doPIRSearch(binsPIR, qids)
+	doPIRSearch(PIRImplemented, qids, int(config.K))
 
 }
 
@@ -103,18 +106,18 @@ func getQIDS(config globals.Args) []string {
 
 }
 
-func doPIRSearch(binsPIR PIRImpliment, qids []string) map[string][][]uint64 {
+func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string][][]uint64 {
 
 	numQueries := len(qids)
 
 	answers := make(map[string][][]uint64, numQueries)
 	maintainenceTime := time.Duration(0)
-	PIR := binsPIR.GetBatchPIRInfo()
+	PIR := PIRImplimented.GetBatchPIRInfo()
 
 	//start := time.Now()
 
-	// TODO REMOVE THIS
-	bar := progressbar.Default(int64(binsPIR.GetNumQueries()), fmt.Sprintf("Answering Queries"))
+	// TODO REMOVE THIS (?)
+	bar := progressbar.Default(int64(numQueries), fmt.Sprintf("Answering Queries"))
 	for i := 0; i < numQueries; i++ {
 
 		bar.Add(1)
@@ -122,9 +125,7 @@ func doPIRSearch(binsPIR PIRImpliment, qids []string) map[string][][]uint64 {
 
 		// Results should be a 2d array, each item in the first dimension should be a single result and then the lower
 		//dimension is an item in the DB
-		indices := binsPIR.MakeIndices(q)
-
-		results, err := PIR.Query(indices)
+		results, err := PIRImplimented.DoSearch(q, k)
 
 		if err != nil {
 			logrus.Errorf("Error querying PIR: %v", err)
@@ -142,29 +143,6 @@ func doPIRSearch(binsPIR PIRImpliment, qids []string) map[string][][]uint64 {
 		}
 	}
 	bar.Finish()
-
-	//TODO: results/answers are still encoded. We should decode them back into vectors or numbers or... etc.
-	//end := time.Now()
-
-	//total_query_size := 0
-	//
-	//// TODO change to numQueries
-	//for i := 0; i < 300; i++ {
-	//	text := queries[i].Text
-	//
-	//	tokeniser := strictEnglishAnalyzer()
-	//	tokens := tokeniser.Analyze([]byte(text))
-	//
-	//	total_query_size += len(tokens)
-	//}
-	//
-	//avg_query_size := float64(total_query_size) / float64(numQueries)
-	//
-	//searchTime := end.Sub(start) - maintainenceTime
-	//avgTime := searchTime.Seconds() / float64(numQueries)
-	//
-	//fmt.Printf("Search computation time: %f seconds", avgTime)
-	//fmt.Printf("Search total time: %f seconds", avgTime+float64(config.RTT)/1000.0*float64(avg_query_size))
 
 	return answers
 }
