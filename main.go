@@ -94,7 +94,6 @@ func main() {
 }
 
 func getQIDS(config globals.Args) []string {
-	//TODO: move this function out of bins
 
 	queries, _ := bins.LoadQueries(config)
 

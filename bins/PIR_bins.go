@@ -74,7 +74,7 @@ func (v VecBins) DoSearch(QID string, k int) ([][]uint64, error) {
 	results, err := v.PIR.Query(indices)
 
 	//TODO: something with K
-	return results[:k], err
+	return results, err
 }
 
 func (v VecBins) MakeIndices(QID string) []uint64 {
