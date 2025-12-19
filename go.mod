@@ -9,6 +9,11 @@ require (
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/sirupsen/logrus v1.9.3
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
+	github.com/evan176/hnswgo v0.0.0-20220622031020-39253a76f9e4
+	github.com/kshard/fvecs v0.0.1
+	github.com/kshedden/gonpy v0.0.0-20210519231815-fa3c8dd8e59b
+	github.com/yahoojapan/gongt v0.0.0-20190517050727-966dcc7aa5e8
+
 )
 
 require (
