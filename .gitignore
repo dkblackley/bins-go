@@ -40,3 +40,6 @@ go.work.sum
 
 # emacs debug files
 \#*\#
+
+*.err
+*.out
