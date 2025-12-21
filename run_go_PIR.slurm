@@ -18,6 +18,20 @@ module load hosts/hopper
 # module load go/1.23.1    # or: module load go/1.22.2  (use the exact version you saw)
 
 
+module load gnu9/9.3.0
+
+# --- native libs installed under $HOME ---
+export NGT_PREFIX="$HOME/opt/ngt-amd"
+export HNSW_PREFIX="$HOME/opt/hnsw"
+
+# cgo compile & link flags
+export CGO_CXXFLAGS="-std=c++11"
+export CGO_CFLAGS="-I${NGT_PREFIX}/include"   # NGT headers used by gongt
+export CGO_LDFLAGS="\
+-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt \
+-L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
+
+
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
 # Use cached toolchain via symlink created in $HOME/opt/go1.24
@@ -35,8 +49,20 @@ export GOTOOLCHAIN=local
 # If compute nodes can't reach the internet, pre-vendor deps and uncomment:
 # export GOFLAGS="-mod=vendor"
 
+test -f "${NGT_PREFIX}/lib/libngt.so"  || { echo "Missing libngt.so";  exit 1; }
+test -f "${HNSW_PREFIX}/lib/libhnsw.so" || { echo "Missing libhnsw.so"; exit 1; }
+
+
+go mod tidy
+
 # Build & run your main.go
 go build -v -o app ./main.go
+
+# sanity: confirm both libs resolve
+echo "Linked libs:"
+ldd ./app | egrep 'ngt|hnsw' || true
+
+
 # default flags are MS marco expected to be found in the ../datasets directory
 srun ./app
 
@@ -46,3 +72,5 @@ srun ./app
 #   -step  10 -parallel 3 -rtt 50 \
 #   -output  msmarco_embeddings_8841823_192_32_output.txt \
 #   -report  msmarco_embeddings_8841823_192_32_report.txt
+
+

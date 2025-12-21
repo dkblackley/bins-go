@@ -2,16 +2,13 @@ module github.com/dkblackley/bins-go
 
 go 1.24.0
 
-
 require (
 	github.com/blugelabs/bluge v0.2.2
-	github.com/kshedden/gonpy v0.0.0-20210519231815-fa3c8dd8e59b
-	github.com/schollz/progressbar/v3 v3.18.0
-	github.com/sirupsen/logrus v1.9.3
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	github.com/evan176/hnswgo v0.0.0-20220622031020-39253a76f9e4
 	github.com/kshard/fvecs v0.0.1
 	github.com/kshedden/gonpy v0.0.0-20210519231815-fa3c8dd8e59b
+	github.com/schollz/progressbar/v3 v3.18.0
+	github.com/sirupsen/logrus v1.9.3
 	github.com/yahoojapan/gongt v0.0.0-20190517050727-966dcc7aa5e8
 
 )
@@ -33,12 +30,9 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/kamstrup/intmap v0.5.1 // indirect
 	github.com/klauspost/compress v1.18.1 // indirect
-	github.com/kr/pretty v0.3.0 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.3.0 // indirect
