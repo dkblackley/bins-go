@@ -14,6 +14,7 @@ import (
 	"strconv"
 
 	"github.com/blugelabs/bluge"
+	"github.com/dkblackley/bins-go/globals"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -38,9 +39,9 @@ func index_stuff() {
 
 // ----------------- evaluation ----------------------------------------------
 
-func MrrAtK(idxPath, queriesPath, qrelsPath string, k int) float64 {
+func MrrAtK(idxPath, qrelsPath string, args globals.Args, k int) float64 {
 
-	qs, err := LoadQueries(queriesPath)
+	qs, err := LoadQueries(args)
 	Must(err)
 	rels, err := loadQrels(qrelsPath)
 	Must(err)
