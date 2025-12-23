@@ -77,6 +77,7 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 	metaData := getDatasets(config.DatasetsDirectory, config.DataName)
 
 	IDLookup := make(map[string]int)
+	logrus.Debugf("Loading data from: %s", config.DatasetsDirectory+"/"+metaData.Vectors)
 	bm25Vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors, int(config.DBSize), int(config.Dimensions))
 	Must(err)
 	for i := 0; i < len(bm25Vectors); i++ {
