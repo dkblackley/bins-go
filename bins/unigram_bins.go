@@ -96,7 +96,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset DatasetMetadata, config globals
 			word := fmt.Sprintf("%s", t.Term)
 			_, ok := set[word]
 
-			if !ok {
+			if !ok { // item does not exist in set
 				total_items_in_set++
 			}
 			set[word] = struct{}{}
@@ -107,6 +107,8 @@ func MakeUnigramDB(reader *bluge.Reader, dataset DatasetMetadata, config globals
 	}
 
 	bar.Finish()
+
+	logrus.Infof("Total items in vocab: %d", total_items_in_set)
 
 	// Very 'hacky' a mapping to a 'set' which is a mapping to globals. Is converted into a regular bin at the end.
 	setsBins := make(map[uint]map[string]struct{})

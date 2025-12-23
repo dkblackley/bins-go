@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/dkblackley/bins-go/Pacmann"
@@ -19,24 +21,27 @@ type PIRImpliment interface {
 	GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR
 	DoSearch(QID string, k int) ([][]uint64, error)
 	Preprocess()
+	Decode(map[string][][]uint64, globals.Args) map[string][]string
 }
 
 func main() {
 
 	DBSize := flag.Uint("n", 8841823, "Number of items/vectors in DB")
 	searchType := flag.String("t", "bins", "Search type, current options are 'bins'|'Pacmann'")
-	dbFileName := flag.String("filename", "msmarco", "Identifier for the dataset to be loaded")
-	datasetsDirectory := flag.String("dataset", "../datasets", "Where to look for the dataset/data")
+	dbFileName := flag.String("filename", "debug", "Identifier for the dataset to be loaded")
+	datasetsDirectory := flag.String("dataset", "../../../datasets", "Where to look for the dataset/data")
 	topK := flag.Uint("k", 100, "K many items to return in search")
 	vectors := flag.Bool("vectors", true, "Use npy vectors for retrieval or raw text")
-	thresh := flag.Uint("thresh", 10, "Threshold to start dropping items from bins")
+	dimensions := flag.Uint("dim", 192, "Dimension of vectors (if being used)")
+	thresh := flag.Uint("thresh", 5, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
-	binSize := flag.Uint("binSize", 8841823/200, "The number of bins to use")
-	save := flag.Bool("save", false, "Whether or not to save data")
+	binSize := flag.Uint("binSize", 8841823/20, "The number of bins to use")
+	save := flag.Bool("save", true, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
-	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace")
+	debugLevel := flag.Int("debug", 1, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
 	checkPointFolder := flag.String("checkpoint", "checkPoint", "Where to look for the checkpoint data")
 	RTT := flag.Uint("RTT", 50, "RTT for the network")
+	outFile := flag.String("outFile", "out.json", "Where to save the answers")
 
 	config := globals.Args{
 		DatasetsDirectory: *datasetsDirectory,
@@ -52,6 +57,8 @@ func main() {
 		DebugLevel:        *debugLevel,
 		CheckPointFolder:  *checkPointFolder,
 		RTT:               *RTT,
+		Dimensions:        *dimensions,
+		OutFile:           *outFile,
 	}
 
 	switch *debugLevel {
@@ -64,6 +71,7 @@ func main() {
 	default:
 		logrus.SetLevel(logrus.ErrorLevel)
 	}
+	logrus.SetReportCaller(true)
 
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
@@ -89,8 +97,27 @@ func main() {
 
 	qids := getQIDS(config)
 
-	doPIRSearch(PIRImplemented, qids, int(config.K))
+	answers := doPIRSearch(PIRImplemented, qids, int(config.K))
 
+	decodedAnswers := PIRImplemented.Decode(answers, config)
+
+	writeAnswers(decodedAnswers, config)
+
+}
+
+func writeAnswers(answers map[string][]string, config globals.Args) {
+	f, err := os.Create(config.OutFile)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ") // optional
+
+	if err := enc.Encode(answers); err != nil {
+		panic(err)
+	}
 }
 
 func getQIDS(config globals.Args) []string {

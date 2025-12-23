@@ -15,4 +15,5 @@ type Args struct {
 	DebugLevel        int
 	CheckPointFolder  string
 	RTT               uint
+	OutFile           string
 }

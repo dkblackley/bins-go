@@ -11,7 +11,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"strconv"
 
 	"github.com/blugelabs/bluge"
 	"github.com/dkblackley/bins-go/globals"
@@ -109,79 +108,58 @@ func DecodeEntryToVectors(entry []uint64, Dim int) ([][]float32, error) {
 		return nil, errors.New("DecodeEntryToVectors: empty entry")
 	}
 
-	bytesInEntry := len(entry) * 8
-	bytesPerRow := Dim * 4
-	if bytesPerRow == 0 {
-		return nil, errors.New("DecodeEntryToVectors: invalid bytesPerRow (Dim?)")
-	}
+	wordsPerVec := (Dim + 1) / 2 // 2 float32 per uint64
 
-	// If caller didn't provide maxRowSize (or it's wrong), try to infer from entry size.
-	rowsInEntry := bytesInEntry / bytesPerRow
-	if bytesInEntry%bytesPerRow != 0 {
+	if len(entry)%wordsPerVec != 0 {
 		return nil, fmt.Errorf(
-			"DecodeEntryToVectors: entry size (%d bytes) is not a multiple of row size (%d bytes). "+
-				"Dim mismatch? len(entry)=%d",
-			bytesInEntry, bytesPerRow, len(entry),
+			"DecodeEntryToVectors: len(entry)=%d not divisible by wordsPerVec=%d (Dim=%d). "+
+				"Wrong Dim or PIR entry sizing mismatch.",
+			len(entry), wordsPerVec, Dim,
 		)
 	}
 
-	maxRowSize := rowsInEntry
+	maxRowSize := len(entry) / wordsPerVec
 
-	// Sanity check: expected words given (Dim, maxRowSize)
-	expectedWords := (Dim * 4 * maxRowSize) / 8
-	if expectedWords != len(entry) {
-		// If the full entry contains fewer/more rows than declared maxRowSize, prefer the
-		// rows actually present to avoid out-of-range.
-		maxRowSize = rowsInEntry
-		expectedWords = (Dim * 4 * maxRowSize) / 8
-		if expectedWords != len(entry) {
-			return nil, fmt.Errorf(
-				"DecodeEntryToVectors: size mismatch. expectedWords=%d (Dim=%d, rows=%d), got len(entry)=%d. "+
-					"Use the same (Dim,maxRowSize) used at encode time.",
-				expectedWords, Dim, maxRowSize, len(entry),
-			)
+	// Trim trailing *all-zero vectors* (not trailing zero words)
+	actualRows := maxRowSize
+	for actualRows > 0 {
+		start := (actualRows - 1) * wordsPerVec
+		end := start + wordsPerVec
+
+		allZero := true
+		for _, w := range entry[start:end] {
+			if w != 0 {
+				allZero = false
+				break
+			}
 		}
+		if !allZero {
+			break
+		}
+		actualRows--
 	}
 
-	// Rebuild the raw bytes from uint64 words (little-endian)
-	entryBytes := make([]byte, len(entry)*8)
-	for k := 0; k < len(entry); k++ {
-		binary.LittleEndian.PutUint64(entryBytes[k*8:], entry[k])
-	}
-
-	// Slice back into rows and floats
-	out := make([][]float32, maxRowSize)
-	for r := 0; r < maxRowSize; r++ {
-		start := r * bytesPerRow
-		end := start + bytesPerRow
-		rowBytes := entryBytes[start:end]
-
+	// Decode only the non-padding vectors
+	out := make([][]float32, actualRows)
+	pos := 0
+	for r := 0; r < actualRows; r++ {
 		row := make([]float32, Dim)
-		for c := 0; c < Dim; c++ {
-			off := c * 4
-			bits := binary.LittleEndian.Uint32(rowBytes[off : off+4])
-			row[c] = math.Float32frombits(bits)
+		d := 0
+		for d < Dim {
+			w := entry[pos]
+			pos++
+
+			row[d] = math.Float32frombits(uint32(w))
+			d++
+			if d < Dim {
+				row[d] = math.Float32frombits(uint32(w >> 32))
+				d++
+			}
 		}
 		out[r] = row
 	}
 
 	return out, nil
-}
-
-// TrimZeroRows removes rows that are entirely 0.0 (from padding).
-func TrimZeroRows(vv [][]float32) [][]float32 {
-	out := vv[:0]
-RowLoop:
-	for _, row := range vv {
-		for _, x := range row {
-			if x != 0 {
-				out = append(out, row)
-				continue RowLoop
-			}
-		}
-		// all zeros -> skip
-	}
-	return out
 }
 
 func HashFloat32s(xs []float32) string {
@@ -195,74 +173,74 @@ func HashFloat32s(xs []float32) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Takes in the original embeddings of the queries (assumed to be in order, i.e. first item has docID 1) and the answers
-// to the queries, assumed to be a mapping of qid to answer
-func FromEmbedToID(answers map[string][][]uint64, IDLookup map[string]int, dim int) map[string][]string {
-	// Result: qid -> list of DocIDs (as strings, unchanged)
-	queryIDstoDocIDS := make(map[string][]string, len(answers))
-
-	debugOnce := true
-
-	for qid, answer := range answers { // each answer = slices of entries in DB (per word)
-		// Small capacity hint to reduce reallocs; tune if you know more about average rows/entry.
-		dst := make([]string, 0, 8*len(answer))
-
-		for k := 0; k < len(answer); k++ {
-			entry := answer[k]
-
-			if debugOnce {
-				// util.go, before DecodeEntryToVectors, inspect 'entry'
-				allZeroU64 := true
-				for i := 0; i < len(entry) && i < 8; i++ {
-					if entry[i] != 0 {
-						allZeroU64 = false
-						break
-					}
-				}
-				logrus.Debugf("first 8 uint64 words allZero=%t (len(entry)=%d)", allZeroU64, len(entry))
-			}
-
-			f32Entry, err := DecodeEntryToVectors(entry, dim)
-			Must(err)
-
-			if debugOnce {
-				// util.go, right after DecodeEntryToVectors(...)
-				sum0 := 0.0
-				if len(f32Entry) > 0 {
-					for c := 0; c < dim && c < len(f32Entry[0]); c++ {
-						sum0 += float64(f32Entry[0][c])
-					}
-				}
-				logrus.Debugf("entry rows=%d firstRowSum=%.6f", len(f32Entry), sum0)
-			}
-
-			f32Entry = TrimZeroRows(f32Entry)
-
-			for q := 0; q < len(f32Entry); q++ {
-				key := HashFloat32s(f32Entry[q])
-				docID, ok := IDLookup[key]
-				if debugOnce {
-					if !ok { // This should never be the case
-						logrus.Errorf("BAD ID?? %d", docID)
-						logrus.Errorf("Key: %s", key)
-						logrus.Errorf("QueryID: %s", qid)
-						logrus.Errorf("IDLookup Length: %d", len(IDLookup))
-					}
-				}
-
-				dst = append(dst, strconv.Itoa(docID))
-			}
-
-			debugOnce = false
-
-		}
-
-		queryIDstoDocIDS[qid] = dst
-
-	}
-
-	return queryIDstoDocIDS
-}
+//// Takes in the original embeddings of the queries (assumed to be in order, i.e. first item has docID 1) and the answers
+//// to the queries, assumed to be a mapping of qid to answer
+//func FromEmbedToID(answers map[string][][]uint64, IDLookup map[string]int, dim int) map[string][]string {
+//	// Result: qid -> list of DocIDs (as strings, unchanged)
+//	queryIDstoDocIDS := make(map[string][]string, len(answers))
+//
+//	debugOnce := true
+//
+//	for qid, answer := range answers { // each answer = slices of entries in DB (per word)
+//		// Small capacity hint to reduce reallocs; tune if you know more about average rows/entry.
+//		dst := make([]string, 0, 8*len(answer))
+//
+//		for k := 0; k < len(answer); k++ {
+//			entry := answer[k]
+//
+//			if debugOnce {
+//				// util.go, before DecodeEntryToVectors, inspect 'entry'
+//				allZeroU64 := true
+//				for i := 0; i < len(entry) && i < 8; i++ {
+//					if entry[i] != 0 {
+//						allZeroU64 = false
+//						break
+//					}
+//				}
+//				logrus.Debugf("first 8 uint64 words allZero=%t (len(entry)=%d)", allZeroU64, len(entry))
+//			}
+//
+//			f32Entry, err := DecodeEntryToVectors(entry, dim)
+//			Must(err)
+//
+//			if debugOnce {
+//				// util.go, right after DecodeEntryToVectors(...)
+//				sum0 := 0.0
+//				if len(f32Entry) > 0 {
+//					for c := 0; c < dim && c < len(f32Entry[0]); c++ {
+//						sum0 += float64(f32Entry[0][c])
+//					}
+//				}
+//				logrus.Debugf("entry rows=%d firstRowSum=%.6f", len(f32Entry), sum0)
+//			}
+//
+//			f32Entry = TrimZeroRows(f32Entry)
+//
+//			for q := 0; q < len(f32Entry); q++ {
+//				key := HashFloat32s(f32Entry[q])
+//				docID, ok := IDLookup[key]
+//				if debugOnce {
+//					if !ok { // This should never be the case
+//						logrus.Errorf("BAD ID?? %d", docID)
+//						logrus.Errorf("Key: %s", key)
+//						logrus.Errorf("QueryID: %s", qid)
+//						logrus.Errorf("IDLookup Length: %d", len(IDLookup))
+//					}
+//				}
+//
+//				dst = append(dst, strconv.Itoa(docID))
+//			}
+//
+//			debugOnce = false
+//
+//		}
+//
+//		queryIDstoDocIDS[qid] = dst
+//
+//	}
+//
+//	return queryIDstoDocIDS
+//}
 
 func ReadCSV(path string) ([][]string, error) {
 	f, err := os.Open(path)

@@ -1,28 +1,6 @@
-go: downloading github.com/fogfish/it/v2 v2.0.1
-go: downloading gonum.org/v1/hdf5 v0.0.0-20190227001252-83207889d689
-go: downloading github.com/chengxilo/virtualterm v1.0.4
-go: downloading github.com/stretchr/testify v1.9.0
-go: downloading github.com/mschoch/smat v0.2.0
-go: downloading github.com/davecgh/go-spew v1.1.1
-go: downloading github.com/leesper/go_rng v0.0.0-20190531154944-a612b043e353
-go: downloading gonum.org/v1/gonum v0.7.0
-go: downloading github.com/mattn/go-runewidth v0.0.16
-go: downloading gopkg.in/yaml.v3 v3.0.1
-go: downloading github.com/pmezard/go-difflib v1.0.0
-runtime/cgo
-github.com/yahoojapan/gongt
-github.com/evan176/hnswgo
-net
-vendor/golang.org/x/net/http/httpproxy
-net/textproto
-crypto/x509
-vendor/golang.org/x/net/http/httpguts
-crypto/tls
-github.com/dkblackley/bins-go/Pacmann/graphann
-github.com/dkblackley/bins-go/Pacmann
-net/http/httptrace
-net/http
-command-line-arguments
-time="2025-12-20T20:33:15-05:00" level=info msg="Size of vectors: 0"
-2025/12/20 20:33:15 invalid shape: [8841823 192]
-srun: error: amd080: task 0: Exited with exit code 1
+# github.com/dkblackley/bins-go
+/usr/local/go/pkg/tool/linux_amd64/link: running g++ failed: exit status 1
+/usr/bin/g++ -m64 -Wl,--build-id=0x150bed4ebed211df9d51f92318d09df1c5af299b -o $WORK/b001/exe/a.out -Wl,--export-dynamic-symbol=_cgo_panic -Wl,--export-dynamic-symbol=_cgo_topofstack -Wl,--export-dynamic-symbol=crosscall2 -Wl,--compress-debug-sections=zlib /tmp/go-link-2111797638/go.o /tmp/go-link-2111797638/000000.o /tmp/go-link-2111797638/000001.o /tmp/go-link-2111797638/000002.o /tmp/go-link-2111797638/000003.o /tmp/go-link-2111797638/000004.o /tmp/go-link-2111797638/000005.o /tmp/go-link-2111797638/000006.o /tmp/go-link-2111797638/000007.o /tmp/go-link-2111797638/000008.o /tmp/go-link-2111797638/000009.o /tmp/go-link-2111797638/000010.o /tmp/go-link-2111797638/000011.o /tmp/go-link-2111797638/000012.o /tmp/go-link-2111797638/000013.o /tmp/go-link-2111797638/000014.o /tmp/go-link-2111797638/000015.o /tmp/go-link-2111797638/000016.o /tmp/go-link-2111797638/000017.o /tmp/go-link-2111797638/000018.o /tmp/go-link-2111797638/000019.o /tmp/go-link-2111797638/000020.o /tmp/go-link-2111797638/000021.o /tmp/go-link-2111797638/000022.o /tmp/go-link-2111797638/000023.o /tmp/go-link-2111797638/000024.o -L/home/yelnat/opt/ngt/lib -lngt -lhnsw -L/home/yelnat/opt/ngt/lib -lngt -lngt -L/home/yelnat/opt/ngt/lib -lngt -lresolv -L/home/yelnat/opt/ngt/lib -lngt -lpthread -no-pie
+/usr/bin/ld: cannot find -lhnsw: No such file or directory
+collect2: error: ld returned 1 exit status
+

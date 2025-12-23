@@ -1,7 +1,9 @@
 package Pacmann
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -328,6 +330,56 @@ type PIRGraphInfo struct {
 	succQueryNum  int
 	queries       [][]float32
 	frontend      graphann.GraphANNFrontend
+}
+
+func HashFloat32s(vec []float32) string {
+	buf := make([]byte, 4*len(vec))
+	for i, f := range vec {
+		bits := math.Float32bits(f)
+		binary.LittleEndian.PutUint32(buf[i*4:], bits)
+	}
+
+	sum := sha256.Sum256(buf)
+	return hex.EncodeToString(sum[:])
+}
+
+func (g PIRGraphInfo) Decode(answers map[string][][]uint64, config globals.Args) map[string][]string {
+	// This is actually just the same as for the bins method, so we do a little jank to re-use the same code...
+
+	vectorFile := config.DatasetsDirectory + "/Son/my_vectors_192.npy"
+
+	IDLookup := make(map[string]int)
+	bm25Vectors, _ := graphann.LoadFloat32Matrix(vectorFile, int(config.DBSize), int(config.Dimensions))
+
+	for i := 0; i < len(bm25Vectors); i++ {
+		ID := HashFloat32s(bm25Vectors[i])
+		IDLookup[ID] = i
+	}
+
+	docIDs := make(map[string][]string)
+
+	for qid, results := range answers {
+		for i := 0; i < len(results); i++ {
+			entry := results[i]
+
+			entryBytes := make([]byte, len(entry)*8)
+			for i := 0; i < len(entry); i++ {
+				binary.LittleEndian.PutUint64(entryBytes[i*8:], entry[i])
+			}
+
+			// for the first vectorSize*4 bytes, we convert it to a float32 slice
+			vector := make([]float32, config.Dimensions)
+			for i := 0; i < int(config.Dimensions); i++ {
+				vector[i] = math.Float32frombits(binary.LittleEndian.Uint32(entryBytes[i*4:]))
+			}
+			ID := HashFloat32s(vector)
+			docID := IDLookup[ID]
+			docIDs[qid] = append(docIDs[qid], strconv.Itoa(docID))
+
+		}
+	}
+
+	return docIDs
 }
 
 func (g PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
