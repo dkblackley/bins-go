@@ -29,7 +29,7 @@ func main() {
 	DBSize := flag.Uint("n", 8841823, "Number of items/vectors in DB")
 	searchType := flag.String("t", "bins", "Search type, current options are 'bins'|'Pacmann'")
 	dbFileName := flag.String("filename", "debug", "Identifier for the dataset to be loaded")
-	datasetsDirectory := flag.String("dataset", "../../../datasets", "Where to look for the dataset/data")
+	datasetsDirectory := flag.String("dataset", "../datasets", "Where to look for the dataset/data")
 	topK := flag.Uint("k", 100, "K many items to return in search")
 	vectors := flag.Bool("vectors", true, "Use npy vectors for retrieval or raw text")
 	dimensions := flag.Uint("dim", 192, "Dimension of vectors (if being used)")
