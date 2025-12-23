@@ -43,3 +43,4 @@ go.work.sum
 
 *.err
 *.out
+*.json
