@@ -141,7 +141,7 @@ func MakeVecDb(config globals.Args) VecBins {
 
 	metaData := getDatasets(config.DatasetsDirectory, config.DataName)
 
-	logrus.Debugf("Loading data from: %s", config.DatasetsDirectory+"/"+metaData.Vectors)
+	logrus.Debugf("Loading data from: %s and %s", metaData.Vectors, metaData.IndexDir)
 
 	// TODO: Uncomment when back
 	//if config.Vectors { // If we want to lead npy vectors
