@@ -151,7 +151,7 @@ func MakeVecDb(config globals.Args) VecBins {
 	var DB [][]string
 	if config.Load {
 		// TODO: make this dynamic
-		DB, err = ReadCSV("debug_marco.csv")
+		DB, err = ReadCSV(config.DataName + "_unigram_DB.csv")
 		Must(err)
 
 	} else {
@@ -161,7 +161,7 @@ func MakeVecDb(config globals.Args) VecBins {
 		Must(err)
 
 		if config.Save {
-			err = WriteCSV("marco.csv", DB)
+			err = WriteCSV(config.DataName+"_unigram_DB.csv", DB)
 			Must(err)
 		}
 	}
