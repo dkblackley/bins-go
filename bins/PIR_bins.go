@@ -85,10 +85,18 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 	}
 
 	docIDs := make(map[string][]string)
+	empty := 0
 
 	for qid, results := range answers {
 		for i := 0; i < len(results); i++ {
 			singleResult := results[i]
+			if len(singleResult) == 1 {
+				logrus.Warnf("Got an empty result: %d - Possibly missed and entry", singleResult)
+				empty++
+				if empty == len(results) {
+					fmt.Errorf("All results were empty!!!!")
+				}
+			}
 			multipleVectors, err := DecodeEntryToVectors(singleResult, 192)
 			Must(err)
 			for j := 0; j < len(multipleVectors); j++ {
