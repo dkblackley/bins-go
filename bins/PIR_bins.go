@@ -95,7 +95,9 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 				empty++
 				if empty == len(results) {
 					fmt.Errorf("All results were empty!!!!")
+
 				}
+				continue
 			}
 			multipleVectors, err := DecodeEntryToVectors(singleResult, 192)
 			Must(err)
@@ -107,6 +109,7 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 		}
 	}
 
+	logrus.Debugf("Number of empty: %d over all  %d", empty, len(answers))
 	return docIDs
 
 }

@@ -35,7 +35,7 @@ func main() {
 	dimensions := flag.Uint("dim", 192, "Dimension of vectors (if being used)")
 	thresh := flag.Uint("thresh", 5, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
-	binSize := flag.Uint("binSize", 8841823/20, "The number of bins to use")
+	binSize := flag.Uint("binSize", 8841823/100, "The number of bins to use")
 	save := flag.Bool("save", true, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
 	debugLevel := flag.Int("debug", 1, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
