@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const MAX_UINT32 = ^uint32(0)
+// const MAX_UINT32 = ^uint32(0)
 
 type PIRImpliment interface {
 	GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR
@@ -103,6 +104,10 @@ func main() {
 
 	writeAnswers(decodedAnswers, config)
 
+	if config.DebugLevel >= 1 && config.Vectors == false {
+		bins.BasicReRank(decodedAnswers, config)
+	}
+
 }
 
 func writeAnswers(answers map[string][]string, config globals.Args) {
@@ -110,7 +115,12 @@ func writeAnswers(answers map[string][]string, config globals.Args) {
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(f)
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ") // optional
@@ -122,7 +132,8 @@ func writeAnswers(answers map[string][]string, config globals.Args) {
 
 func getQIDS(config globals.Args) []string {
 
-	queries, _ := bins.LoadQueries(config)
+	meta := bins.GetDatasets(config.DatasetsDirectory, config.DataName)
+	queries, _ := bins.LoadQueries(meta.Queries)
 
 	ids := make([]string, len(queries))
 	for i, q := range queries {
@@ -147,7 +158,10 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string][
 	bar := progressbar.Default(int64(numQueries), fmt.Sprintf("Answering Queries"))
 	for i := 0; i < numQueries; i++ {
 
-		bar.Add(1)
+		err := bar.Add(1)
+		if err != nil {
+			log.Fatal(err)
+		}
 		q := qids[i]
 
 		// Results should be a 2d array, each item in the first dimension should be a single result and then the lower
@@ -169,7 +183,18 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string][
 			maintainenceTime += end.Sub(start)
 		}
 	}
-	bar.Finish()
+	err := bar.Finish()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return answers
 }
+
+// For degugging, return the first n elements.
+//func FirstN[T any](xs []T, n int) []T {
+//	if len(xs) <= n {
+//		return xs
+//	}
+//	return xs[:n]
+//}

@@ -1,11 +1,13 @@
 package bins
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/csv"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -23,33 +25,59 @@ import (
 // For scifact doc ID is just an integer, like: "40584205" or "10608397", sometimes it's a smaller number though, like:
 // "3845894" or probably even "1"
 // For TREC-COVID its strings like "1hvihwkz" or "3jolt83r". Bodies are just sentences of text.
-func index_stuff() {
-	// 1) SCIFACT
-	LoadBeirJSONL("/home/yelnat/Nextcloud/10TB-STHDD/datasets/scifact/corpus.jsonl", "index_scifact")
-	logrus.SetLevel(logrus.InfoLevel)
-	// 2) TREC-COVID
-	LoadBeirJSONL("/home/yelnat/Nextcloud/10TB-STHDD/datasets/trec-covid/corpus.jsonl", "index_trec_covid")
+//func index_stuff() {
+//	// 1) SCIFACT
+//	LoadBeirJSONL("/home/yelnat/Nextcloud/10TB-STHDD/datasets/scifact/corpus.jsonl", "index_scifact")
+//	logrus.SetLevel(logrus.InfoLevel)
+//	// 2) TREC-COVID
+//	LoadBeirJSONL("/home/yelnat/Nextcloud/10TB-STHDD/datasets/trec-covid/corpus.jsonl", "index_trec_covid")
+//
+//	// 3) MSMARCO passage
+//	// loadMSMARCO("/home/yelnat/Nextcloud/10TB-STHDD/datasets/msmarco/collection.tsv", "index_msmarco")
+//
+//	log.Println("✅  All indices built.")
+//}
 
-	// 3) MSMARCO passage
-	// loadMSMARCO("/home/yelnat/Nextcloud/10TB-STHDD/datasets/msmarco/collection.tsv", "index_msmarco")
+// Takes in a mapping from QID to DOCID and loads the query text and document text. Then Re-ranks all the docIDs based
+// Upon the BM25 search. Returns a mapping with only the top-k (from config) documents
+func BasicReRank(results map[string][]string, config globals.Args) map[string][]string {
 
-	log.Println("✅  All indices built.")
-}
+	qids := make([]string, 0, len(results))
+	docIDs := make([]string, 0, len(results))
+	new_results := make(map[string][]string, len(results))
 
-// ----------------- evaluation ----------------------------------------------
+	for k, v := range results {
+		qids = append(qids, k)
 
-func MrrAtK(idxPath, qrelsPath string, args globals.Args, k int) float64 {
+		for _, id := range v {
+			docIDs = append(docIDs, id)
+		}
+	}
 
-	qs, err := LoadQueries(args)
+	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
+
+	err := FilterJSONLByIDs(metaData.IndexDir, "temp_doc.jsonl", docIDs)
 	Must(err)
-	rels, err := loadQrels(qrelsPath)
+	err = FilterJSONLByIDs(metaData.IndexDir, "temp_q.jsonl", docIDs)
 	Must(err)
 
-	reader, err := bluge.OpenReader(bluge.DefaultConfig(idxPath))
-	Must(err)
-	defer reader.Close()
+	// Now do BLUGE on the remaining items
 
-	bar := progressbar.Default(int64(len(qs)), fmt.Sprintf("eval %s", idxPath))
+	qs, err := LoadQueries("temp_q.jsonl")
+	Must(err)
+	rels, err := loadQrels(metaData.Qrels)
+	Must(err)
+
+	bar := progressbar.Default(int64(len(qs)), fmt.Sprintf("BM25 eval %s", config.DataName))
+
+	reader, err := bluge.OpenReader(bluge.DefaultConfig("temp_doc.jsonl"))
+	Must(err)
+	defer func(reader *bluge.Reader) {
+		err := reader.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(reader)
 
 	var sumRR float64
 	for _, q := range qs {
@@ -61,13 +89,13 @@ func MrrAtK(idxPath, qrelsPath string, args globals.Args, k int) float64 {
 			AddShould(matchTitle).
 			AddShould(matchBody)
 
-		req := bluge.NewTopNSearch(k, boolean)
+		req := bluge.NewTopNSearch(int(config.K), boolean)
 		it, err := reader.Search(context.Background(), req)
 
 		Must(err)
 
 		rr := 0.0
-		for rank := 1; rank <= k; rank++ {
+		for rank := 1; rank <= int(config.K); rank++ {
 			match, err := it.Next()
 			if err != nil {
 				break
@@ -87,6 +115,8 @@ func MrrAtK(idxPath, qrelsPath string, args globals.Args, k int) float64 {
 			})
 			Must(err)
 
+			new_results[q.ID] = append(new_results[q.ID], docID)
+
 			if rels[q.ID][docID] > 0 {
 				rr = 1.0 / float64(rank)
 				break
@@ -94,11 +124,151 @@ func MrrAtK(idxPath, qrelsPath string, args globals.Args, k int) float64 {
 		}
 
 		sumRR += rr
-		bar.Add(1)
+		err = bar.Add(1)
+		if err != nil {
+			log.Fatal(err)
+		}
+
 	}
 
-	return sumRR / float64(len(rels))
+	logrus.Infof("MRR (post BM25 search): %f", sumRR/float64(len(rels)))
+
+	err = os.Remove("temp_doc.jsonl")
+	Must(err)
+	err = os.Remove("temp_q.jsonl")
+	Must(err)
+
+	return new_results
+
 }
+
+// Takes in two pahs and a list of docIDS/qIDs and then selects those elements from inputPath before outputting ONLY them
+// to outputPath.
+func FilterJSONLByIDs(inputPath, outputPath string, docIDs []string) error {
+	// Build a set for O(1) lookups
+	idSet := make(map[string]struct{}, len(docIDs))
+	for _, id := range docIDs {
+		idSet[id] = struct{}{}
+	}
+
+	inFile, err := os.Open(inputPath)
+	if err != nil {
+		return err
+	}
+	defer func(inFile *os.File) {
+		err := inFile.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(inFile)
+
+	outFile, err := os.Create(outputPath)
+	if err != nil {
+		return err
+	}
+	defer func(outFile *os.File) {
+		err := outFile.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(outFile)
+
+	scanner := bufio.NewScanner(inFile)
+	writer := bufio.NewWriter(outFile)
+	defer func(writer *bufio.Writer) {
+		err := writer.Flush()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(writer)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		var obj struct {
+			ID string `json:"_id"`
+		}
+		if err := json.Unmarshal(line, &obj); err != nil {
+			return err
+		}
+
+		if _, ok := idSet[obj.ID]; ok {
+			if _, err := writer.Write(line); err != nil {
+				return err
+			}
+			if err := writer.WriteByte('\n'); err != nil {
+				return err
+			}
+		}
+	}
+
+	return scanner.Err()
+}
+
+// ----------------- evaluation ----------------------------------------------
+
+//func MrrAtK(idxPath, qrelsPath string, args globals.Args, k int) float64 {
+//
+//	meta := GetDatasets(args.DatasetsDirectory, args.DataName)
+//	qs, err := LoadQueries(meta.Queries)
+//	Must(err)
+//	rels, err := loadQrels(qrelsPath)
+//	Must(err)
+//
+//	reader, err := bluge.OpenReader(bluge.DefaultConfig(idxPath))
+//	Must(err)
+//	defer reader.Close()
+//
+//	bar := progressbar.Default(int64(len(qs)), fmt.Sprintf("eval %s", idxPath))
+//
+//	var sumRR float64
+//	for _, q := range qs {
+//
+//		// simple: match Query text against both title and body
+//		matchTitle := bluge.NewMatchQuery(q.Text).SetField("title")
+//		matchBody := bluge.NewMatchQuery(q.Text).SetField("body")
+//		boolean := bluge.NewBooleanQuery().
+//			AddShould(matchTitle).
+//			AddShould(matchBody)
+//
+//		req := bluge.NewTopNSearch(k, boolean)
+//		it, err := reader.Search(context.Background(), req)
+//
+//		Must(err)
+//
+//		rr := 0.0
+//		for rank := 1; rank <= k; rank++ {
+//			match, err := it.Next()
+//			if err != nil {
+//				break
+//			}
+//			if match == nil {
+//				break
+//			}
+//
+//			// pull out the stored "_id" field instead of match.ID()
+//			var docID string
+//			err = match.VisitStoredFields(func(field string, value []byte) bool {
+//				if field == "_id" {
+//					docID = string(value)
+//					return false // stop visiting as soon as we have the id
+//				}
+//				return true // keep scanning other stored fields
+//			})
+//			Must(err)
+//
+//			if rels[q.ID][docID] > 0 {
+//				rr = 1.0 / float64(rank)
+//				break
+//			}
+//		}
+//
+//		sumRR += rr
+//		bar.Add(1)
+//	}
+//
+//	return sumRR / float64(len(rels))
+//}
 
 func DecodeEntryToVectors(entry []uint64, Dim int) ([][]float32, error) {
 	if Dim <= 0 {
@@ -246,7 +416,12 @@ func ReadCSV(path string) ([][]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(f)
 
 	r := csv.NewReader(f)
 	// Allow ragged rows if you don't know column count ahead of time:
@@ -260,11 +435,19 @@ func WriteCSV(path string, data [][]string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(f)
 
 	w := csv.NewWriter(f)
 	// Optional: TSV instead of CSV
 	// w.Comma = '\t'
-	w.WriteAll(data)
+	err = w.WriteAll(data)
+	if err != nil {
+		log.Fatal(err)
+	}
 	return w.Error()
 }

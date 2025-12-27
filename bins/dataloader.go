@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/blugelabs/bluge"
-	"github.com/dkblackley/bins-go/globals"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 
@@ -48,61 +47,61 @@ type DatasetMetadata struct {
 	Vectors     string
 }
 
-func LoadBeirJSONL(path, indexDir string) {
-	f, err := os.Open(path)
-	Must(err)
-	defer f.Close()
-
-	var counter = 0
-
-	cfg := bluge.DefaultConfig(indexDir)
-	w, err := bluge.OpenWriter(cfg)
-	Must(err)
-	defer w.Close()
-
-	bar := progressbar.Default(-1, "index "+indexDir) // unknown total
-
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 1024*1024), 10*1024*1024) // 1 MiB buf, 10 MiB max
-
-	for sc.Scan() {
-		bar.Add64(int64(len(sc.Bytes()) + 1)) // +1 for '\n'
-
-		// use a Decoder so we can catch unknown fields
-		raw := sc.Bytes()
-		dec := json.NewDecoder(bytes.NewReader(sc.Bytes()))
-		dec.DisallowUnknownFields()
-
-		var d beirDoc
-		if err := dec.Decode(&d); err != nil {
-			// if it's an unknown‐field error, log it and continue
-			if strings.HasPrefix(err.Error(), "json: unknown field") {
-				logrus.Tracef("⚠️  unknown JSON field in line: %v", err)
-				logrus.Tracef("Raw JSON line: %s", raw)
-			}
-		}
-
-		// now index as before
-		doc := bluge.NewDocument(d.ID)
-		doc.AddField(bluge.NewTextField("title", d.Title))
-
-		body := d.Text
-		if body == "" {
-			body = d.Abstract
-		}
-		doc.AddField(bluge.NewTextField("body", body))
-		doc.AddField(bluge.NewKeywordField("dataset", indexDir))
-
-		Must(w.Insert(doc))
-		counter++
-	}
-	if err := sc.Err(); err != nil {
-		log.Fatal(err)
-	}
-	bar.Finish()
-
-	logrus.Debugf("Total documents: %d", counter)
-}
+//func LoadBeirJSONL(path, indexDir string) {
+//	f, err := os.Open(path)
+//	Must(err)
+//	defer f.Close()
+//
+//	var counter = 0
+//
+//	cfg := bluge.DefaultConfig(indexDir)
+//	w, err := bluge.OpenWriter(cfg)
+//	Must(err)
+//	defer w.Close()
+//
+//	bar := progressbar.Default(-1, "index "+indexDir) // unknown total
+//
+//	sc := bufio.NewScanner(f)
+//	sc.Buffer(make([]byte, 1024*1024), 10*1024*1024) // 1 MiB buf, 10 MiB max
+//
+//	for sc.Scan() {
+//		bar.Add64(int64(len(sc.Bytes()) + 1)) // +1 for '\n'
+//
+//		// use a Decoder so we can catch unknown fields
+//		raw := sc.Bytes()
+//		dec := json.NewDecoder(bytes.NewReader(sc.Bytes()))
+//		dec.DisallowUnknownFields()
+//
+//		var d beirDoc
+//		if err := dec.Decode(&d); err != nil {
+//			// if it's an unknown‐field error, log it and continue
+//			if strings.HasPrefix(err.Error(), "json: unknown field") {
+//				logrus.Tracef("⚠️  unknown JSON field in line: %v", err)
+//				logrus.Tracef("Raw JSON line: %s", raw)
+//			}
+//		}
+//
+//		// now index as before
+//		doc := bluge.NewDocument(d.ID)
+//		doc.AddField(bluge.NewTextField("title", d.Title))
+//
+//		body := d.Text
+//		if body == "" {
+//			body = d.Abstract
+//		}
+//		doc.AddField(bluge.NewTextField("body", body))
+//		doc.AddField(bluge.NewKeywordField("dataset", indexDir))
+//
+//		Must(w.Insert(doc))
+//		counter++
+//	}
+//	if err := sc.Err(); err != nil {
+//		log.Fatal(err)
+//	}
+//	bar.Finish()
+//
+//	logrus.Debugf("Total documents: %d", counter)
+//}
 
 // Taken from graphann package. I think dim should be 192 and n should be 8841823 (ms marco size)
 func LoadFloat32MatrixFromNpy(filename string, n int, dim int) ([][]float32, error) {
@@ -196,11 +195,9 @@ type Query struct {
 	// Metadata string `json:"metadata"`
 }
 
-func LoadQueries(config globals.Args) ([]Query, error) {
+func LoadQueries(query_path string) ([]Query, error) {
 
-	metaData := getDatasets(config.DatasetsDirectory, config.DataName)
-	path := metaData.Queries
-	f, err := os.Open(path)
+	f, err := os.Open(query_path)
 
 	if err != nil {
 		return nil, err

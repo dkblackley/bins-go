@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func getDatasets(root, name string) DatasetMetadata {
+func GetDatasets(root, name string) DatasetMetadata {
 
 	if name == "msmarco" {
 		return DatasetMetadata{
@@ -35,6 +35,7 @@ func getDatasets(root, name string) DatasetMetadata {
 			"",
 		}
 	} else if name == "debug" {
+		logrus.Debugf("Using debug dataset")
 		return DatasetMetadata{
 			"Marco",
 			"index_marco",
@@ -74,7 +75,7 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 	// Each input here is going to be a map of QID to a 2d array of uint64s. We want to produce a map of QID to top-k
 	// (larger than k in our case) docIDs.
 
-	metaData := getDatasets(config.DatasetsDirectory, config.DataName)
+	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
 
 	IDLookup := make(map[string]int)
 	bm25Vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors, int(config.DBSize), int(config.Dimensions))
@@ -94,7 +95,7 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 				logrus.Warnf("Got an empty result: %d - Possibly missed and entry", singleResult)
 				empty++
 				if empty == len(results) {
-					fmt.Errorf("All results were empty!!!!")
+					logrus.Errorf("All results were empty!!!!")
 
 				}
 				continue
@@ -122,7 +123,7 @@ func (v VecBins) Preprocess() {
 	v.PIR.Preprocessing()
 }
 
-func (v VecBins) DoSearch(QID string, k int) ([][]uint64, error) {
+func (v VecBins) DoSearch(QID string, _ int) ([][]uint64, error) {
 	indices := v.MakeIndices(QID)
 	results, err := v.PIR.Query(indices)
 
@@ -150,7 +151,7 @@ func (v VecBins) MakeIndices(QID string) []uint64 {
 // binsDB.
 func MakeVecDb(config globals.Args) VecBins {
 
-	metaData := getDatasets(config.DatasetsDirectory, config.DataName)
+	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
 
 	logrus.Debugf("Loading data from: %s and %s", metaData.Vectors, metaData.IndexDir)
 
@@ -240,7 +241,9 @@ func MakeVecDb(config globals.Args) VecBins {
 	//
 	//logrus.Infof("Preprocessing took %s", end.Sub(start))
 
-	queires, err := LoadQueries(config)
+	meta := GetDatasets(config.DatasetsDirectory, config.DataName)
+	queires, err := LoadQueries(meta.Queries)
+	Must(err)
 	queryMap := make(map[string]Query)
 	for q := range len(queires) {
 		qid := queires[q].ID
