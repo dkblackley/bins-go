@@ -56,21 +56,21 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 
 	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
 
-	err := FilterJSONLByIDs(metaData.OriginalDir, "temp_doc.jsonl", docIDs)
+	err := FilterJSONLByIDs(metaData.OriginalDir, "./temp_doc.jsonl", docIDs)
 	Must(err)
-	err = FilterJSONLByIDs(metaData.Queries, "temp_q.jsonl", docIDs)
+	err = FilterJSONLByIDs(metaData.Queries, "./temp_q.jsonl", qids)
 	Must(err)
 
 	// Now do BLUGE on the remaining items
 
-	qs, err := LoadQueries("temp_q.jsonl")
+	qs, err := LoadQueries("./temp_q.jsonl")
 	Must(err)
 	rels, err := loadQrels(metaData.Qrels)
 	Must(err)
 
 	bar := progressbar.Default(int64(len(qs)), fmt.Sprintf("BM25 eval %s", config.DataName))
 
-	reader, err := bluge.OpenReader(bluge.DefaultConfig("temp_doc.jsonl"))
+	reader, err := bluge.OpenReader(bluge.DefaultConfig("./temp_doc.jsonl"))
 	Must(err)
 	defer func(reader *bluge.Reader) {
 		err := reader.Close()
