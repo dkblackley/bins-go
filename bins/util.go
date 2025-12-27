@@ -281,8 +281,8 @@ func DecodeEntryToVectors(entry []uint64, Dim int) ([][]float32, error) {
 	wordsPerVec := (Dim + 1) / 2 // 2 float32 per uint64
 	if len(entry)%wordsPerVec != 0 {
 		return nil, fmt.Errorf(
-			"DecodeEntryToVectors: len(entry)=%d not divisible by wordsPerVec=%d (Dim=%d). "+
-				"Wrong Dim or PIR entry sizing mismatch.",
+			"decodeEntryToVectors: len(entry)=%d not divisible by wordsPerVec=%d (Dim=%d). "+
+				"Wrong Dim or PIR entry sizing mismatch",
 			len(entry), wordsPerVec, Dim,
 		)
 	}
