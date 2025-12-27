@@ -61,8 +61,11 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 	err = FilterJSONLByIDs(metaData.Queries, "./temp_q.jsonl", qids)
 	Must(err)
 
-	// Now do BLUGE on the remaining items
+	// NEW: build a real Bluge index directory from temp_doc.jsonl
+	err = BuildBlugeIndexFromJSONL("./temp_doc.jsonl", "./temp_doc")
+	Must(err)
 
+	// Now do BLUGE on the remaining items
 	qs, err := LoadQueries("./temp_q.jsonl")
 	Must(err)
 	rels, err := loadQrels(metaData.Qrels)
@@ -70,8 +73,11 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 
 	bar := progressbar.Default(int64(len(qs)), fmt.Sprintf("BM25 eval %s", config.DataName))
 
-	reader, err := bluge.OpenReader(bluge.DefaultConfig("./temp_doc.jsonl"))
+	// NEW: open the DIRECTORY, not the jsonl file
+	reader, err := bluge.OpenReader(bluge.DefaultConfig("./temp_doc"))
 	Must(err)
+	defer reader.Close()
+
 	defer func(reader *bluge.Reader) {
 		err := reader.Close()
 		if err != nil {
@@ -137,10 +143,12 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 
 	logrus.Infof("MRR (post BM25 search): %f", sumRR/float64(len(rels)))
 
-	err = os.Remove("temp_doc.jsonl")
-	Must(err)
-	err = os.Remove("temp_q.jsonl")
-	Must(err)
+	// old temp jsonl cleanup is fine
+	Must(os.Remove("./temp_doc.jsonl"))
+	Must(os.Remove("./temp_q.jsonl"))
+
+	// NEW: remove the Bluge index directory
+	Must(os.RemoveAll("./temp_doc"))
 
 	return new_results
 
@@ -207,6 +215,79 @@ func FilterJSONLByIDs(inputPath, outputPath string, docIDs []string) error {
 	}
 
 	return scanner.Err()
+}
+
+func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
+	// Start fresh (important if you re-run)
+	if err := os.RemoveAll(indexDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(indexDir, 0o755); err != nil {
+		return err
+	}
+
+	w, err := bluge.OpenWriter(bluge.DefaultConfig(indexDir))
+	if err != nil {
+		return err
+	}
+	defer w.Close()
+
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	// JSONL lines can be long; bump scanner limit.
+	buf := make([]byte, 0, 1024*1024)
+	sc.Buffer(buf, 16*1024*1024) // 16MB max line; adjust if needed
+
+	batch := bluge.NewBatch()
+	const flushEvery = 2000
+	n := 0
+
+	for sc.Scan() {
+		var d jsonlDoc
+		if err := json.Unmarshal(sc.Bytes(), &d); err != nil {
+			return fmt.Errorf("json unmarshal: %w", err)
+		}
+		if d.ID == "" {
+			continue
+		}
+
+		doc := bluge.NewDocument(d.ID)
+		// Index searchable fields
+		if d.Title != "" {
+			doc.AddField(bluge.NewTextField("title", d.Title))
+		}
+		if d.Text != "" {
+			doc.AddField(bluge.NewTextField("body", d.Text))
+		}
+		// Store _id so your VisitStoredFields logic keeps working
+		doc.AddField(bluge.NewKeywordField("_id", d.ID).StoreValue())
+
+		batch.Insert(doc)
+		n++
+		if n%flushEvery == 0 {
+			if err := w.Batch(batch); err != nil {
+				return err
+			}
+			batch = bluge.NewBatch()
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return err
+	}
+
+	// Flush remainder
+	if batch.Size() > 0 {
+		if err := w.Batch(batch); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // ----------------- evaluation ----------------------------------------------
