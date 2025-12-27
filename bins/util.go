@@ -56,9 +56,9 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 
 	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
 
-	err := FilterJSONLByIDs(metaData.IndexDir, "temp_doc.jsonl", docIDs)
+	err := FilterJSONLByIDs(metaData.OriginalDir, "temp_doc.jsonl", docIDs)
 	Must(err)
-	err = FilterJSONLByIDs(metaData.IndexDir, "temp_q.jsonl", docIDs)
+	err = FilterJSONLByIDs(metaData.Queries, "temp_q.jsonl", docIDs)
 	Must(err)
 
 	// Now do BLUGE on the remaining items
