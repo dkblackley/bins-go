@@ -102,11 +102,11 @@ func main() {
 
 	decodedAnswers := PIRImplemented.Decode(answers, config)
 
-	writeAnswers(decodedAnswers, config)
-
 	if config.DebugLevel >= 1 && config.Vectors == false {
 		bins.BasicReRank(decodedAnswers, config)
 	}
+
+	writeAnswers(decodedAnswers, config)
 
 }
 

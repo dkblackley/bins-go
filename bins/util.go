@@ -80,6 +80,10 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 	}(reader)
 
 	var sumRR float64
+
+	if len(qs) <= 0 {
+		log.Fatal("No results found")
+	}
 	for _, q := range qs {
 
 		// simple: match Query text against both title and body
