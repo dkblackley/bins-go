@@ -98,13 +98,14 @@ func main() {
 
 	qids := getQIDS(config)
 
+	start = time.Now()
 	answers := doPIRSearch(PIRImplemented, qids, int(config.K))
+	end = time.Now()
+	logrus.Infof("Answers finished in %s seconds", end.Sub(start))
 
 	decodedAnswers := PIRImplemented.Decode(answers, config)
 
-	if config.DebugLevel >= 1 && config.Vectors == false {
-		bins.BasicReRank(decodedAnswers, config)
-	}
+	bins.BasicReRank(decodedAnswers, config)
 
 	writeAnswers(decodedAnswers, config)
 
