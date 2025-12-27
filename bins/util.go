@@ -248,7 +248,7 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 	n := 0
 
 	for sc.Scan() {
-		var d jsonlDoc
+		var d beirDoc
 		if err := json.Unmarshal(sc.Bytes(), &d); err != nil {
 			return fmt.Errorf("json unmarshal: %w", err)
 		}
@@ -280,12 +280,12 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 		return err
 	}
 
-	// Flush remainder
-	if batch.Size() > 0 {
-		if err := w.Batch(batch); err != nil {
-			return err
-		}
-	}
+	//// Flush remainder
+	//if batch.Size() > 0 {
+	//	if err := w.Batch(batch); err != nil {
+	//		return err
+	//	}
+	//}
 
 	return nil
 }
