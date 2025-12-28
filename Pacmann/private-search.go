@@ -76,9 +76,9 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	neighborNum := 32
 	outputNum := args.K
 	queryNum := 300 //TODO: make this a command line argument?
-	inputFile := args.DataName
-	graphFile := inputFile + "_graph.npy"
-	queryFile := args.DatasetsDirectory + "_query.npy"
+	inputFile := args.DatasetsDirectory + "/Son/my_vectors_192_f64.npy"
+	graphFile := args.DatasetsDirectory + "/Son/my_vectors_192_f64_8841823_192_32_graph.npy"
+	queryFile := args.DatasetsDirectory + "/Son/query_192_f64.npy"
 	//outputFile := args.DatasetsDirectory + "_pacmann_output.npy"
 	//gndFile := "" //TODO: we don't need this for MSmarco/test datasets
 	//reportFile := "pacmann_report.txt"
