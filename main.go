@@ -105,9 +105,9 @@ func main() {
 
 	decodedAnswers := PIRImplemented.Decode(answers, config)
 
-	bins.BasicReRank(decodedAnswers, config)
+	sortedAnswers := bins.BasicReRank(decodedAnswers, config)
 
-	writeAnswers(decodedAnswers, config)
+	writeAnswers(sortedAnswers, config)
 
 }
 
