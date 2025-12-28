@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ import (
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
+	"github.com/sirupsen/logrus"
 )
 
 // TODO: check if the variables are used correctly
@@ -403,6 +405,17 @@ func (g PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 	//}
 
 	query := g.queryMap[QID]
+
+	if query == nil {
+		logrus.Errorf("QID not found in file?? %s", QID)
+
+		for key, val := range g.queryMap {
+			logrus.Debugf("key: %s", key)
+			logrus.Tracef("Val: %f", val)
+		}
+		return nil, errors.New("query not found")
+	}
+
 	vertexIds, _ := frontend.SearchKNN(query, k, 15, pianopir.ThreadNum, false)
 
 	// Turn vertices back into DB entries (silly but shouldn't take too much time per Q)
