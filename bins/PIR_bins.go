@@ -21,8 +21,8 @@ func GetDatasets(root, name string) DatasetMetadata {
 			"Marco",
 			"index_marco",
 			root + "/msmarco/corpus.jsonl",
-			root + "/msmarco/queries.jsonl",
-			root + "/msmarco/qrels/test.tsv",
+			root + "/msmarco/queries.dev.small.jsonl",
+			root + "/msmarco/qrels/dev.tsv",
 			root + "/Son/my_vectors_192.npy", // Change this when debugging as it's a big file
 		}
 	} else if name == "scifact" {
@@ -40,8 +40,8 @@ func GetDatasets(root, name string) DatasetMetadata {
 			"Marco",
 			"index_marco",
 			root + "/msmarco/corpus_debug.jsonl",
-			root + "/msmarco/queries.jsonl",
-			root + "/msmarco/qrels/test.tsv",
+			root + "/msmarco/queries.dev.small.jsonl",
+			root + "/msmarco/qrels/dev.tsv",
 			root + "/Son/my_vectors_192_debug.npy",
 		}
 	} else {

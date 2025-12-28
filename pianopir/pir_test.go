@@ -102,7 +102,7 @@ func TestBatchPIRBasic(t *testing.T) {
 	//seed := time.Now().UnixNano()
 	//rng := rand.New(rand.NewSource(seed))
 
-	MaxDBEntrySize := uint64(192 * 30) // alternate between 40, 80 and 0 for testing
+	MaxDBEntrySize := uint64(192 * 30) // alternate between 10, 30 and 0 for testing
 	seed := time.Now().UnixNano()
 	rng := rand.New(rand.NewSource(seed))
 
