@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dkblackley/bins-go/Pacmann/graphann"
+	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
 )
@@ -31,7 +32,8 @@ var n int
 var dim int
 var m int
 var k int
-var q int
+
+// var q int
 
 var PIR *pianopir.SimpleBatchPianoPIR
 
@@ -75,7 +77,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	dimVectors := 192
 	neighborNum := 32
 	outputNum := args.K
-	queryNum := 300 //TODO: make this a command line argument?
+	// queryNum := 300 //TODO: make this a command line argument?
 	inputFile := args.DatasetsDirectory + "/Son/my_vectors_192_f64.npy"
 	graphFile := args.DatasetsDirectory + "/Son/my_vectors_192_f64_8841823_192_32_graph.npy"
 	queryFile := args.DatasetsDirectory + "/Son/query_192_f64.npy"
@@ -94,7 +96,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	dim = dimVectors
 	m = neighborNum
 	k = int(outputNum)
-	q = queryNum
+	// q = queryNum
 	nonPrivateMode = false
 	workingDir := filepath.Dir(inputFile)
 	fmt.Println("Working directory: ", workingDir)
@@ -162,6 +164,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	}
 
 	// step 3: load queries
+	q := 6980 // TODO: this is statically loaded for out specific query file. Should perhaps make a CMD arg....
 
 	queries = make([][]float32, q)
 	if syntheticTest {
@@ -177,6 +180,12 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 		if err != nil {
 			log.Fatalf("Error reading the query file: %v", err)
 		}
+	}
+
+	string_query, _ := bins.LoadQueries(args.DatasetsDirectory + "/msmarco/queries.jsonl")
+	queryMap := make(map[string][]float32)
+	for i := 0; i < q; i++ {
+		queryMap[string_query[i].ID] = queries[i]
 	}
 
 	// step 4: build PIR instace
@@ -196,6 +205,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 		rawDB:          nil,
 		PIR:            nil,
 		queries:        queries,
+		queryMap:       queryMap,
 	}
 
 	return queryEngine
@@ -329,6 +339,7 @@ type PIRGraphInfo struct {
 	totalQueryNum int
 	succQueryNum  int
 	queries       [][]float32
+	queryMap      map[string][]float32
 	frontend      graphann.GraphANNFrontend
 }
 
@@ -385,13 +396,13 @@ func (g PIRGraphInfo) Decode(answers map[string][][]uint64, config globals.Args)
 func (g PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 	frontend := g.frontend
 
-	qIdx, err := strconv.Atoi(QID)
+	//qIdx, err := strconv.Atoi(QID)
 
-	if err != nil {
-		return nil, err
-	}
+	//if err != nil {
+	//	return nil, err
+	//}
 
-	query := g.queries[qIdx]
+	query := g.queryMap[QID]
 	vertexIds, _ := frontend.SearchKNN(query, k, 15, pianopir.ThreadNum, false)
 
 	// Turn vertices back into DB entries (silly but shouldn't take too much time per Q)
