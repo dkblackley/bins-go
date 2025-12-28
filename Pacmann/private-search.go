@@ -404,9 +404,9 @@ func (g PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 	//	return nil, err
 	//}
 
-	query := g.queryMap[QID]
+	query, exists := g.queryMap[QID]
 
-	if query == nil {
+	if !exists {
 		logrus.Errorf("QID not found in file?? %s", QID)
 
 		for key, val := range g.queryMap {
