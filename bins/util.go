@@ -230,7 +230,10 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 	if err != nil {
 		return err
 	}
-	defer w.Close()
+	// Close explicitly so you can catch errors
+	defer func() {
+		_ = w.Close()
+	}()
 
 	f, err := os.Open(jsonlPath)
 	if err != nil {
@@ -241,51 +244,66 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 	sc := bufio.NewScanner(f)
 	// JSONL lines can be long; bump scanner limit.
 	buf := make([]byte, 0, 1024*1024)
-	sc.Buffer(buf, 16*1024*1024) // 16MB max line; adjust if needed
+	sc.Buffer(buf, 16*1024*1024) // 16MB max line
 
 	batch := bluge.NewBatch()
 	const flushEvery = 2000
-	n := 0
+	batchCount := 0
+	totalInserted := 0
 
 	for sc.Scan() {
 		var d beirDoc
 		if err := json.Unmarshal(sc.Bytes(), &d); err != nil {
-			logrus.Tracef("Unmarshal error: %s", err.Error())
+
+			logrus.Tracef("json unmarshal failed: %w", err)
 		}
 		if d.ID == "" {
 			continue
 		}
 
 		doc := bluge.NewDocument(d.ID)
-		// Index searchable fields
 		if d.Title != "" {
 			doc.AddField(bluge.NewTextField("title", d.Title))
 		}
 		if d.Text != "" {
 			doc.AddField(bluge.NewTextField("body", d.Text))
 		}
-		// Store _id so your VisitStoredFields logic keeps working
+		// store _id so your VisitStoredFields logic still works
 		doc.AddField(bluge.NewKeywordField("_id", d.ID).StoreValue())
 
 		batch.Insert(doc)
-		n++
-		if n%flushEvery == 0 {
+		batchCount++
+		totalInserted++
+
+		if batchCount >= flushEvery {
 			if err := w.Batch(batch); err != nil {
 				return err
 			}
 			batch = bluge.NewBatch()
+			batchCount = 0
 		}
 	}
+
 	if err := sc.Err(); err != nil {
 		return err
 	}
 
-	//// Flush remainder
-	//if batch.Size() > 0 {
-	//	if err := w.Batch(batch); err != nil {
-	//		return err
-	//	}
-	//}
+	// Flush remainder
+	if batchCount > 0 {
+		if err := w.Batch(batch); err != nil {
+			return err
+		}
+	}
+
+	// Ensure we actually created an index snapshot
+	if totalInserted == 0 {
+		return fmt.Errorf("no documents indexed (temp jsonl produced zero parseable docs?)")
+	}
+
+	// Close writer and surface errors (snapshot persistence happens here as well)
+	if err := w.Close(); err != nil {
+		return err
+	}
 
 	return nil
 }
