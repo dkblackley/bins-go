@@ -92,7 +92,7 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 		for i := 0; i < len(results); i++ {
 			singleResult := results[i]
 			if len(singleResult) == 1 {
-				logrus.Warnf("Got an empty result: %d - Possibly missed and entry", singleResult)
+				logrus.Warnf("Got an empty result: %v - Possibly missed and entry", singleResult)
 				empty++
 				if empty == len(results) {
 					logrus.Errorf("All results were empty!!!!")
@@ -103,9 +103,14 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 			multipleVectors, err := DecodeEntryToVectors(singleResult, 192)
 			Must(err)
 			for j := 0; j < len(multipleVectors); j++ {
-				ID := HashFloat32s(bm25Vectors[i])
-				docID := IDLookup[ID]
+				ID := HashFloat32s(multipleVectors[j])
+				docID, ok := IDLookup[ID]
+				if !ok {
+					logrus.Warnf("Vector hash not found: %s", ID)
+					continue
+				}
 				docIDs[qid] = append(docIDs[qid], strconv.Itoa(docID))
+
 			}
 		}
 	}

@@ -6,6 +6,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 //"encoding/binary"
@@ -203,7 +205,7 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 	// first identify in average how many queries in each partition we need to make
 
 	// Get average num ber partition and ALWAYS ROUND UP!
-	queryNumToMake := (len(idx) + int(p.config.PartitionNum) - 1) / int(p.config.PartitionNum)
+	// queryNumToMake := (len(idx) + int(p.config.PartitionNum) - 1) / int(p.config.PartitionNum)
 
 	// first arrange the queries into the partitions
 	partitionQueries := make([][]uint64, p.config.PartitionNum)
@@ -211,6 +213,15 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 		partitionIdx := idx[i] / p.config.PartitionSize
 		partitionQueries[partitionIdx] = append(partitionQueries[partitionIdx], idx[i])
 	}
+
+	maxLen := 0
+	for i := range partitionQueries {
+		if len(partitionQueries[i]) > maxLen {
+			maxLen = len(partitionQueries[i])
+		}
+	}
+	// Get maxium queries we can make
+	queryNumToMake := maxLen
 
 	//fmt.Println("partitionQueries: ", partitionQueries)
 
@@ -233,14 +244,14 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 			if partitionQueries[i][j] == DefaultValue {
 				_, _ = p.subPIR[i].Query(0, false) // just make a dummy query
 			} else {
-				query, _ := p.subPIR[i].Query(partitionQueries[i][j]-i*p.config.PartitionSize, true)
-				//if err != nil {
+				query, err := p.subPIR[i].Query(partitionQueries[i][j]-i*p.config.PartitionSize, true)
+				if err != nil {
 
-				//log.Printf("the queries to this sub pir is: %v, the offset is %v\n", partitionQueries[i], partitionQueries[i][j]-i*p.config.PartitionSize)
-				//log.Printf("All the queries are %v\n", partitionQueries)
-				//log.Printf("SimpleBatchPianoPIR.Query: subPIR[%v].Query(%v) failed: %v\n", i, partitionQueries[i][j], err)
-				//	return nil, err
-				//	}
+					logrus.Errorf("the queries to this sub pir is: %v, the offset is %v\n", partitionQueries[i], partitionQueries[i][j]-i*p.config.PartitionSize)
+					logrus.Errorf("All the queries are %v\n", partitionQueries)
+					logrus.Errorf("SimpleBatchPianoPIR.Query: subPIR[%v].Query(%v) failed: %v\n", i, partitionQueries[i][j], err)
+					return nil, err
+				}
 				responses[partitionQueries[i][j]] = query
 			}
 		}
