@@ -130,6 +130,10 @@ func (v VecBins) Preprocess() {
 
 func (v VecBins) DoSearch(QID string, _ int) ([][]uint64, error) {
 	indices := v.MakeIndices(QID)
+
+	if uint64(len(indices)) >= 32 { // TODO: pass batchsize in args to checl
+		logrus.Warnf("Too many indices in batch: %d for QID: %s - Possible corruption incoming", len(indices), QID)
+	}
 	results, err := v.PIR.Query(indices)
 
 	//TODO: something with K
