@@ -3,15 +3,10 @@ package bins
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/csv"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
-	"math"
 	"os"
 
 	"github.com/blugelabs/bluge"
@@ -388,78 +383,6 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 //
 //	return sumRR / float64(len(rels))
 //}
-
-func DecodeEntryToVectors(entry []uint64, Dim int) ([][]float32, error) {
-	if Dim <= 0 {
-		return nil, errors.New("DecodeEntryToVectors: Dim must be > 0")
-	}
-	if len(entry) == 0 {
-		return nil, errors.New("DecodeEntryToVectors: empty entry")
-	}
-
-	wordsPerVec := (Dim + 1) / 2 // 2 float32 per uint64
-	if len(entry)%wordsPerVec != 0 {
-		return nil, fmt.Errorf(
-			"decodeEntryToVectors: len(entry)=%d not divisible by wordsPerVec=%d (Dim=%d). "+
-				"Wrong Dim or PIR entry sizing mismatch",
-			len(entry), wordsPerVec, Dim,
-		)
-	}
-
-	maxRowSize := len(entry) / wordsPerVec
-
-	// Trim trailing *all-zero vectors* (not trailing zero words)
-	actualRows := maxRowSize
-	for actualRows > 0 {
-		start := (actualRows - 1) * wordsPerVec
-		end := start + wordsPerVec
-
-		allZero := true
-		for _, w := range entry[start:end] {
-			if w != 0 {
-				allZero = false
-				break
-			}
-		}
-		if !allZero {
-			break
-		}
-		actualRows--
-	}
-
-	// Decode only the non-padding vectors
-	out := make([][]float32, actualRows)
-	pos := 0
-	for r := 0; r < actualRows; r++ {
-		row := make([]float32, Dim)
-		d := 0
-		for d < Dim {
-			w := entry[pos]
-			pos++
-
-			row[d] = math.Float32frombits(uint32(w))
-			d++
-			if d < Dim {
-				row[d] = math.Float32frombits(uint32(w >> 32))
-				d++
-			}
-		}
-		out[r] = row
-	}
-
-	return out, nil
-}
-
-func HashFloat32s(xs []float32) string {
-	buf := make([]byte, 4*len(xs))
-	for i, f := range xs {
-		bits := math.Float32bits(f)
-		binary.LittleEndian.PutUint32(buf[i*4:], bits)
-	}
-
-	sum := sha256.Sum256(buf)
-	return hex.EncodeToString(sum[:])
-}
 
 //// Takes in the original embeddings of the queries (assumed to be in order, i.e. first item has docID 1) and the answers
 //// to the queries, assumed to be a mapping of qid to answer
