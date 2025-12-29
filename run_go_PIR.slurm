@@ -65,7 +65,7 @@ ldd ./app | egrep 'ngt|hnsw' || true
 
 # default flags are MS marco expected to be found in the ../datasets directory
 # srun ./app -n 8841823 -t Pacmann -filename msmarco -k 10
-srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -threshold 5
+srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
 
 # srun ./app -n 8841823 -d 192 -m 32 -k 100 -q 1000 \
 #   -input ../datasets/Son/my_vectors_192_f64.npy \
