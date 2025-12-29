@@ -78,6 +78,8 @@ func main() {
 		FullTimestamp: true,
 	})
 
+	logrus.Debugf("Config: %v", config)
+
 	flag.Parse()
 
 	var PIRImplemented PIRImpliment
