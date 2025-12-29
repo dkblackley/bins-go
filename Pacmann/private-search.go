@@ -117,10 +117,10 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	if inputFile == "synthetic" {
 		syntheticTest = true
 		vectors = genRandomMatrix(n, dim)
-		logrus.Debugf("Generated synthetic data with n=%d, dim=%d\n", n, dim)
+		log.Printf("Generated synthetic data with n=%d, dim=%d\n", n, dim)
 	} else {
 		// it means we need to read the file
-		logrus.Debug("Loading vectors from file: ", inputFile)
+		log.Print("Loading vectors from file: ", inputFile)
 		var err error
 		vectors, err = graphann.LoadFloat32Matrix(inputFile, n, dim)
 		if err != nil {
@@ -134,7 +134,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	graphFileName := graphFile
 	if syntheticTest {
 		graph = genRandomGraph(n, m)
-		logrus.Debug("Generated synthetic graph...")
+		log.Print("Generated synthetic graph...")
 	} else {
 		if graphFile == "" {
 			// we will use the default name
@@ -143,12 +143,12 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 
 		if _, err := os.Stat(graphFileName); os.IsNotExist(err) {
 			// in this case we need to generate the graph
-			logrus.Warnf("Graph file %s does not exist. Generating the graph...\n", graphFileName)
+			log.Printf("Graph file %s does not exist. Generating the graph...\n", graphFileName)
 			start := time.Now()
 			graph = graphann.BuildGraph(n, dim, m, vectors, workingDir, dataset)
 			end := time.Now()
 			graphann.SaveGraphToFile(graphFileName, graph)
-			logrus.Debugf("Graph generation time: %v\n", end.Sub(start))
+			log.Printf("Graph generation time: %v\n", end.Sub(start))
 
 			// we write the graph generation time to an auxiliary file
 
@@ -157,7 +157,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 			fmt.Fprintf(auxFile, "Dataset: %s\n", dataset)
 			fmt.Fprintf(auxFile, "Graph generation time: %v\n", end.Sub(start))
 		} else {
-			logrus.Debugf("Loading graph from file %s\n", graphFileName)
+			log.Printf("Loading graph from file %s\n", graphFileName)
 			graph, err = graphann.LoadIntMatrixFromFile(graphFileName, n, m)
 			if err != nil {
 				log.Fatalf("Error reading the graph file: %v", err)
@@ -171,12 +171,12 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	queries = make([][]float32, q)
 	if syntheticTest {
 		queries = genRandomMatrix(q, dim)
-		logrus.Debug("Generated synthetic queries...")
+		log.Print("Generated synthetic queries...")
 	} else {
 		if queryFile == "" {
 			log.Fatalf("No query file specified. Please specify the query file.")
 		}
-		logrus.Debug("Loading queries from file: ", queryFile)
+		log.Print("Loading queries from file: ", queryFile)
 		var err error
 		queries, err = graphann.LoadFloat32Matrix(queryFile, q, dim)
 		if err != nil {
