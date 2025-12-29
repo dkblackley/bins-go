@@ -88,6 +88,8 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 	docIDs := make(map[string][]string)
 	empty := 0
 
+	logrus.Debugf("Decoding answers with %d items", len(answers))
+
 	for qid, results := range answers {
 		for i := 0; i < len(results); i++ {
 			singleResult := results[i]
@@ -104,19 +106,19 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 			Must(err)
 
 			// TODO: Remove this when not debug
-			if len(multipleVectors) > 0 {
-				// Check if the first vector is all zeros
-				isZero := true
-				for _, val := range multipleVectors[0] {
-					if val != 0 {
-						isZero = false
-						break
-					}
-				}
-				if isZero {
-					logrus.Warnf("WARNING: Decoded vector is ALL ZEROS for QID %s", qid)
-				}
-			}
+			//if len(multipleVectors) > 0 {
+			//	// Check if the first vector is all zeros
+			//	isZero := true
+			//	for _, val := range multipleVectors[0] {
+			//		if val != 0 {
+			//			isZero = false
+			//			break
+			//		}
+			//	}
+			//	if isZero {
+			//		logrus.Warnf("WARNING: Decoded vector is ALL ZEROS for QID %s", qid)
+			//	}
+			//}
 
 			for j := 0; j < len(multipleVectors); j++ {
 				ID := HashFloat32s(multipleVectors[j])
