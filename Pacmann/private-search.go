@@ -410,7 +410,7 @@ func (g PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 		logrus.Errorf("QID not found in file?? %s", QID)
 
 		for key, val := range g.queryMap {
-			logrus.Debugf("key: %s", key)
+			logrus.Tracef("key: %s", key)
 			logrus.Tracef("Val: %f", val)
 		}
 		return nil, errors.New("query not found")
