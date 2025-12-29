@@ -102,6 +102,22 @@ func (v VecBins) Decode(answers map[string][][]uint64, config globals.Args) map[
 			}
 			multipleVectors, err := DecodeEntryToVectors(singleResult, 192)
 			Must(err)
+
+			// TODO: Remove this when not debug
+			if len(multipleVectors) > 0 {
+				// Check if the first vector is all zeros
+				isZero := true
+				for _, val := range multipleVectors[0] {
+					if val != 0 {
+						isZero = false
+						break
+					}
+				}
+				if isZero {
+					logrus.Warnf("WARNING: Decoded vector is ALL ZEROS for QID %s", qid)
+				}
+			}
+
 			for j := 0; j < len(multipleVectors); j++ {
 				ID := HashFloat32s(multipleVectors[j])
 				docID, ok := IDLookup[ID]
@@ -331,9 +347,27 @@ func ProcessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]floa
 
 	// TODO: Get average size instead of worst-case
 	DBEntrySize := config.Dimensions * 4 * maxRowSize // bytes per DB entry (maxRowSize vectors × config.Dimensions float32s)
+	maxWordsPerEntry := (uint64(DBEntrySize) + 7) / 8
 
 	// Now that we have the rawDB, set up the PIR
-	pir := pianopir.NewSimpleBatchPianoPIR(uint64(len(vectorsInBins)), uint64(DBEntrySize), uint64(DBEntrySize), 16, rawDB, 8)
+	// pir := pianopir.NewSimpleBatchPianoPIR(uint64(len(vectorsInBins)), uint64(DBEntrySize), uint64(DBEntrySize), 16, rawDB, 8)
+	pir := pianopir.NewSimpleBatchPianoPIR(
+		uint64(len(vectorsInBins)),
+		maxWordsPerEntry,
+		uint64(DBEntrySize),
+		16,
+		rawDB,
+		8,
+	)
+
+	//TODO: Remove this when not debugging
+	if len(rawDB) > 0 {
+		logrus.Debugf("DEBUG: rawDB[0] length (uint64s): %d", len(rawDB[0]))
+		// Print first few uint64s to see if they are 0
+		if len(rawDB[0]) > 5 {
+			logrus.Debugf("DEBUG: rawDB[0] head: %v", rawDB[0][:5])
+		}
+	}
 
 	logrus.Info("PIR Ready for preprocessing")
 

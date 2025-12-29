@@ -461,7 +461,7 @@ func HashFloat32s(xs []float32) string {
 //			entry := answer[k]
 //
 //			if debugOnce {
-//				// util.go, before DecodeEntryToVectors, inspect 'entry'
+//				// bins_util.go, before DecodeEntryToVectors, inspect 'entry'
 //				allZeroU64 := true
 //				for i := 0; i < len(entry) && i < 8; i++ {
 //					if entry[i] != 0 {
@@ -476,7 +476,7 @@ func HashFloat32s(xs []float32) string {
 //			Must(err)
 //
 //			if debugOnce {
-//				// util.go, right after DecodeEntryToVectors(...)
+//				// bins_util.go, right after DecodeEntryToVectors(...)
 //				sum0 := 0.0
 //				if len(f32Entry) > 0 {
 //					for c := 0; c < dim && c < len(f32Entry[0]); c++ {

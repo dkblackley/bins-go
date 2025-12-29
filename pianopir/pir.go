@@ -17,7 +17,7 @@ const (
 
 type PianoPIRConfig struct {
 	DBEntryByteNum  uint64 // the (average) number of bytes in a DB entry - just used for debugging/printing
-	MaxDBEntrySize  uint64 // The maximum number of uint64 in a DB entry
+	MaxDBEntrySize  uint64 // The maximum number of uint64 in a DB entry (this is actually just the size of the largest entry)
 	DBSize          uint64
 	ChunkSize       uint64 // chunksize is 2 times sqrt of DBSize and then rounded up to power of 2.
 	SetSize         uint64 // Set size is the number of chunks we have (rounde dup to multiple of 4)
