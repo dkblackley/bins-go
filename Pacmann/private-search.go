@@ -74,7 +74,7 @@ func genRandomGraph(n int, m int) [][]int {
 	return ret
 }
 
-func PacmannMain(args globals.Args) PIRGraphInfo {
+func PacmannMain(args globals.Args) *PIRGraphInfo {
 	numVectors := args.DBSize
 	dimVectors := args.Dimensions
 	neighborNum := 32
@@ -192,7 +192,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 
 	// step 4: build PIR instace
 
-	queryEngine := PIRGraphInfo{
+	queryEngine := &PIRGraphInfo{
 		N:              n,
 		Dim:            dim,
 		M:              m,
@@ -356,7 +356,7 @@ func HashFloat32s(vec []float32) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (g PIRGraphInfo) Decode(answers map[string][][]uint64, config globals.Args) map[string][]string {
+func (g *PIRGraphInfo) Decode(answers map[string][][]uint64, config globals.Args) map[string][]string {
 	// This is actually just the same as for the bins method, so we do a little jank to re-use the same code...
 
 	vectorFile := config.DatasetsDirectory + "/Son/my_vectors_192.npy"
@@ -395,7 +395,7 @@ func (g PIRGraphInfo) Decode(answers map[string][][]uint64, config globals.Args)
 	return docIDs
 }
 
-func (g PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
+func (g *PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 	frontend := g.frontend
 
 	//qIdx, err := strconv.Atoi(QID)
@@ -465,11 +465,11 @@ func (g PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 	return responses, err
 }
 
-func (g PIRGraphInfo) GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR {
+func (g *PIRGraphInfo) GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR {
 	return g.PIR
 }
 
-func (g PIRGraphInfo) Preprocess() {
+func (g *PIRGraphInfo) Preprocess() {
 	// now we set up the PIR
 	// first step, we need to convert the matrix and graph into a rawDB
 
@@ -528,6 +528,7 @@ func (g PIRGraphInfo) Preprocess() {
 		g.PIR.Preprocessing()
 	}
 
+	// Watch this pointer :c
 	g.frontend = graphann.GraphANNFrontend{
 		Graph: g,
 	}
@@ -539,7 +540,7 @@ func (g PIRGraphInfo) Preprocess() {
 	g.frontend.StartVertices = v
 }
 
-func (g PIRGraphInfo) GetMetadata() (int, int, int) {
+func (g *PIRGraphInfo) GetMetadata() (int, int, int) {
 	return g.N, g.Dim, g.M
 }
 
@@ -568,7 +569,7 @@ func Entry2VectorAndNeighbors(dim int, m int, entry []uint64) ([]float32, []int)
 }
 
 // This is what is actually being run during the PIR - it only grabs a single vertex and is used as part of the larger search!
-func (g PIRGraphInfo) GetVertexInfo(vertexIds []int) ([]graphann.Vertex, error) {
+func (g *PIRGraphInfo) GetVertexInfo(vertexIds []int) ([]graphann.Vertex, error) {
 
 	g.totalQueryNum += len(vertexIds)
 
@@ -635,7 +636,7 @@ func (g PIRGraphInfo) GetVertexInfo(vertexIds []int) ([]graphann.Vertex, error) 
 	return vertices, nil
 }
 
-func (g PIRGraphInfo) GetStartVertex() ([]graphann.Vertex, error) {
+func (g *PIRGraphInfo) GetStartVertex() ([]graphann.Vertex, error) {
 	n, _, _ := g.GetMetadata()
 
 	added := make(map[int]bool)
