@@ -82,6 +82,8 @@ func main() {
 
 	flag.Parse()
 
+	qids := getQIDS(config)
+
 	var PIRImplemented PIRImpliment
 	// TODO: is it sensible to start the 'pre-processing' timer here? If so replace if with switch case!
 
@@ -97,8 +99,6 @@ func main() {
 	PIRImplemented.Preprocess()
 	end := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
-
-	qids := getQIDS(config)
 
 	start = time.Now()
 	answers := doPIRSearch(PIRImplemented, qids, int(config.K))

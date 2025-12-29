@@ -198,13 +198,29 @@ func FilterJSONLByIDs(inputPath, outputPath string, docIDs []string) error {
 		line := scanner.Bytes()
 
 		var obj struct {
-			ID string `json:"_id"`
-		}
-		if err := json.Unmarshal(line, &obj); err != nil {
-			return err
+			ID      string `json:"_id"`
+			AltID   string `json:"id"`
+			QueryID string `json:"query_id"`
 		}
 
-		if _, ok := idSet[obj.ID]; ok {
+		if err := json.Unmarshal(line, &obj); err != nil {
+			logrus.Errorf("Error unmarshalling JSON: %v", err)
+			return err // I think this might be causing issues
+		}
+
+		id := obj.ID
+		if id == "" {
+			if obj.AltID != "" {
+				id = obj.AltID
+			} else {
+				id = obj.QueryID
+			}
+		}
+		if id == "" {
+			continue
+		}
+
+		if _, ok := idSet[id]; ok {
 			if _, err := writer.Write(line); err != nil {
 				return err
 			}
