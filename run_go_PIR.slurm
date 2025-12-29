@@ -71,13 +71,6 @@ python3 json_to_tsv.py out.json pacmann_out.tsv
 #python3 json_to_tsv.py out.json bins_out.tsv
 # python3 re_rank --qrels ../datasets/msmarco/qrels/dev.tsv --step3-output bins_out.tsv --queries ../datasets/msmarco/queries.dev.small.tsv --documents documents.txt --k 10
 
-ap = argparse.ArgumentParser(description='Optimized Cache‑free PP top‑k simulation on MS MARCO')
-    ap.add_argument('--qrels', type=str, required=True, help='Path to qrels file')
-    ap.add_argument('--step3-output', type=str, required=True, help='Path to step3 output file')
-    ap.add_argument('--queries', type=str, required=True, help='Path to queries file')
-    ap.add_argument('--documents', type=str, required=True, help='Path to documents file')
-    ap.add_argument('--k', type=int, default=10, help='Value of k for MRR@k')
-    main(ap.parse_args())
 
 # srun ./app -n 8841823 -d 192 -m 32 -k 100 -q 1000 \
 #   -input ../datasets/Son/my_vectors_192_f64.npy \
