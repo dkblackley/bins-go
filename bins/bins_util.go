@@ -148,7 +148,7 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 	Must(os.Remove("./temp_q.jsonl"))
 
 	// NEW: remove the Bluge index directory
-	Must(os.RemoveAll("./temp_doc"))
+	Must(os.Remove("./temp_doc"))
 
 	return new_results
 

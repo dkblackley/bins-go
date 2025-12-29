@@ -34,7 +34,7 @@ func main() {
 	topK := flag.Uint("k", 5, "K many items to return in search")
 	vectors := flag.Bool("vectors", true, "Use npy vectors for retrieval or raw text")
 	dimensions := flag.Uint("dim", 192, "Dimension of vectors (if being used)")
-	thresh := flag.Uint("thresh", 5, "Threshold to start dropping items from bins")
+	thresh := flag.Uint("thresh", 0, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
 	binSize := flag.Uint("binSize", 8841823/100, "The number of bins to use")
 	save := flag.Bool("save", false, "Whether or not to save data")

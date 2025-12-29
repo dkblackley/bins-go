@@ -345,7 +345,7 @@ func ProcessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]floa
 
 	bar.Finish()
 
-	// TODO: Get average size instead of worst-case
+	// TODO: Get average size instead of worst-case(?)
 	DBEntrySize := config.Dimensions * 4 * maxRowSize // bytes per DB entry (maxRowSize vectors × config.Dimensions float32s)
 	maxWordsPerEntry := (uint64(DBEntrySize) + 7) / 8
 
