@@ -223,7 +223,7 @@ func (g GraphANNFrontend) SearchKNN(queryVector []float32, k int, maxStep int, p
 	ret := make([]int, k)
 	stepRet := make([]int, k)
 	for i := 0; i < k; i++ {
-		if i >= len(allKnownVertices) {
+		if i >= len(allKnownVertices) { // if we don't have enough vertices to continue a search
 			ret[i] = -1
 			stepRet[i] = -1
 		} else {

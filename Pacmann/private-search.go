@@ -421,6 +421,15 @@ func (g *PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 	// Turn vertices back into DB entries (silly but shouldn't take too much time per Q)
 	// convert the vertexIds to uint64. TODO: Is this a massive burden? Could remove it from final comp time
 
+	// Drop bad vertices (-1 if we failed the search)
+	filtered := vertexIds[:0]
+	for _, id := range vertexIds {
+		if id >= 0 && id < g.N {
+			filtered = append(filtered, id)
+		}
+	}
+	vertexIds = filtered
+
 	g.NonPrivateMode = true
 
 	vertices, err := g.GetVertexInfo(vertexIds)
@@ -434,16 +443,14 @@ func (g *PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 	DBEntryByteNum := g.DBEntryByteNum
 	responses := make([][]uint64, len(vertices))
 
-	for i := range vertices {
-		vertex := vertices[i]
+	for i, vertex := range vertices {
 		vector := vertex.Vector
 		vectorBytes := make([]byte, Dim*4)
 		for j := 0; j < Dim; j++ {
 			binary.LittleEndian.PutUint32(vectorBytes[j*4:], math.Float32bits(vector[j]))
 		}
-
 		// we also convert the graph row to a byte slice
-		neighbors := g.graph[i]
+		neighbors := g.graph[vertex.Id]
 		neighborsBytes := make([]byte, M*4)
 		for j := 0; j < M; j++ {
 			binary.LittleEndian.PutUint32(neighborsBytes[j*4:], uint32(neighbors[j]))
