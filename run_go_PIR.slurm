@@ -64,11 +64,11 @@ ldd ./app | egrep 'ngt|hnsw' || true
 
 
 
-srun ./app -n 8841823 -t Pacmann -filename msmarco -k 100
-python3 json_to_tsv.py out.json pacmann_out.tsv
+#srun ./app -n 8841823 -t Pacmann -filename msmarco -k 100
+#python3 json_to_tsv.py out.json pacmann_out.tsv
 
-#srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
-#python3 json_to_tsv.py out.json bins_out.tsv
+srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
+python3 json_to_tsv.py out.json bins_out.tsv
 # python3 re_rank.py --qrels ../datasets/msmarco/qrels/dev.tsv --step3-output bins_out.tsv --queries ../datasets/msmarco/queries.dev.small.tsv --documents ../datasets/msmarco/collection.tsv --k 100
 
 
