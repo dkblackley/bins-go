@@ -11,7 +11,7 @@ def load_qrels(qrels_path):
     qrels = {}
     with open(qrels_path, 'r') as f:
         for line in f:
-            qid, _, docid, rel = line.strip().split()
+            qid, docid, rel = line.strip().split()
             if int(rel) > 0:
                 if qid not in qrels:
                     qrels[qid] = set()
@@ -93,7 +93,7 @@ def main(args):
         print(f"Recall@k: mean={arr.mean():.4f} median={np.median(arr):.4f} p90={np.quantile(arr, 0.9):.4f}")
     else:
         print("No queries with relevant documents were evaluated.")
-    
+
     # step 4: load embeddings and rerank
     # pca = faiss.read_VectorTransform("pca_768_to_192.faiss")
     query_embeddings, _ = load_queries_embeddings('query_192_float32.npy')#, 'queries_768.npy.ids')
