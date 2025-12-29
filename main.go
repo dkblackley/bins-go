@@ -44,6 +44,8 @@ func main() {
 	RTT := flag.Uint("RTT", 50, "RTT for the network")
 	outFile := flag.String("outFile", "out.json", "Where to save the answers")
 
+	flag.Parse()
+
 	config := globals.Args{
 		DatasetsDirectory: *datasetsDirectory,
 		K:                 *topK,
