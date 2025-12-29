@@ -190,8 +190,10 @@ func LoadCorpus(path string) ([]beirDoc, error) {
 }
 
 type Query struct {
-	ID   string `json:"_id"`
-	Text string `json:"text"`
+	ID      string `json:"_id"`
+	AltID   string `json:"id"`       // Add this to catch "id"
+	QueryID string `json:"query_id"` // Add this to catch "query_id"
+	Text    string `json:"text"`
 	// Metadata string `json:"metadata"`
 }
 
@@ -211,24 +213,29 @@ func LoadQueries(query_path string) ([]Query, error) {
 	// allow long queries
 	sc.Buffer(make([]byte, 1024), 1024*1024)
 	for sc.Scan() {
-		raw := sc.Bytes()
-		dec := json.NewDecoder(bytes.NewReader(sc.Bytes()))
-		dec.DisallowUnknownFields()
-
 		var q Query
-		if err := dec.Decode(&q); err != nil {
-			// if it's an unknown‐field error, log it and continue
-			if strings.HasPrefix(err.Error(), "json: unknown field") {
-				logrus.Tracef("⚠️  unknown JSON field in line: %v", err)
-				logrus.Tracef("Raw JSON line: %s", raw)
-			}
-		}
 
 		if err := json.Unmarshal(sc.Bytes(), &q); err == nil {
+
+			// LOGIC FIX: Normalize the ID
+			if q.ID == "" {
+				if q.AltID != "" {
+					q.ID = q.AltID
+				} else if q.QueryID != "" {
+					q.ID = q.QueryID
+				}
+			}
+
+			// SAFETY CHECK: Skip or Warn if still empty
+			if q.ID == "" {
+				logrus.Warnf("Skipping query with empty ID: %s", string(sc.Bytes()))
+				continue
+			}
+
 			qs = append(qs, q)
 			counter++
 		} else {
-			logrus.Error("Query not added, error: %v", err)
+			logrus.Errorf("Query JSON parse error: %v", err)
 		}
 	}
 	return qs, sc.Err()
