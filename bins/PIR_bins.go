@@ -190,7 +190,7 @@ func MakeVecDb(config globals.Args) VecBins {
 		// TODO: make this dynamic
 		DB, err = ReadCSV(config.DataName + "_unigram_DB.csv")
 		Must(err)
-		logrus.Debugf("Loaded DB from %s", config.DataName+"_unigram_DB.csv")
+		logrus.Debugf("Loaded DB with %d items from %s", len(DB), config.DataName+"_unigram_DB.csv")
 
 	} else {
 		reader, _ := bluge.OpenReader(bluge.DefaultConfig(metaData.IndexDir))
