@@ -76,10 +76,10 @@ func genRandomGraph(n int, m int) [][]int {
 
 func PacmannMain(args globals.Args) PIRGraphInfo {
 	numVectors := args.DBSize
-	dimVectors := 192
+	dimVectors := args.Dimensions
 	neighborNum := 32
 	outputNum := args.K
-	// queryNum := 300 //TODO: make this a command line argument?
+	queryNum := args.QueryNum //TODO: make this a command line argument?
 	inputFile := args.DatasetsDirectory + "/Son/my_vectors_192_f64.npy"
 	graphFile := args.DatasetsDirectory + "/Son/my_vectors_192_f64_8841823_192_32_graph.npy"
 	queryFile := args.DatasetsDirectory + "/Son/query_192_f64.npy"
@@ -95,7 +95,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	flag.Parse()
 
 	n = int(numVectors)
-	dim = dimVectors
+	dim = int(dimVectors)
 	m = neighborNum
 	k = int(outputNum)
 	// q = queryNum
@@ -166,7 +166,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 	}
 
 	// step 3: load queries
-	q := 6980 // TODO: this is statically loaded for out specific query file. Should perhaps make a CMD arg....
+	q := int(queryNum)
 
 	queries = make([][]float32, q)
 	if syntheticTest {

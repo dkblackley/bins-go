@@ -16,4 +16,5 @@ type Args struct {
 	CheckPointFolder  string
 	RTT               uint
 	OutFile           string
+	QueryNum          uint
 }

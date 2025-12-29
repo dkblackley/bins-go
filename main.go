@@ -62,6 +62,7 @@ func main() {
 		RTT:               *RTT,
 		Dimensions:        *dimensions,
 		OutFile:           *outFile,
+		QueryNum:          0,
 	}
 
 	switch *debugLevel {
@@ -85,6 +86,7 @@ func main() {
 	flag.Parse()
 
 	qids := getQIDS(config)
+	config.QueryNum = uint(len(qids))
 
 	var PIRImplemented PIRImpliment
 	// TODO: is it sensible to start the 'pre-processing' timer here? If so replace if with switch case!
