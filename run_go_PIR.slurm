@@ -1,8 +1,8 @@
 #!/bin/bash -l
-#SBATCH --job-name=go_job
+#SBATCH --job-name=go_job_bins
 #SBATCH --partition=bigmem
-#SBATCH --output=go.out
-#SBATCH --error=go.err
+#SBATCH --output=go_bins.out
+#SBATCH --error=go_bins.err
 #SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
