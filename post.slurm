@@ -18,30 +18,9 @@ source /home/dblackle/miniconda3/etc/profile.d/conda.sh
 export CONDA_ENVS_PATH=/scratch/dblackle/conda/envs
 export CONDA_PKGS_DIRS=/scratch/dblackle/conda/pkgs
 
-# conda create -y -p /scratch/dblackle/conda/envs/rag_eval python=3.10 pip
-conda activate /scratch/dblackle/conda/envs/rag_eval
-
-# Example installs
-# python -m pip install --upgrade pip
-# pip install -r requirements.txt
+conda activate /scratch/dblackle/conda/envs/main
 
 
-# wget -c -O collection.tar.gz "https://msmarco.z22.web.core.windows.net/msmarcoranking/collection.tar.gz"
-# tar -xzf collection.tar.gz
-
-# # 2) Dev-small queries (qid \t text)
-# wget -c -O queries.dev.small.tsv \
-#   "https://git.uwaterloo.ca/jimmylin/doc2query-data/raw/master/T5-passage/queries.dev.small.tsv"
-
-
-# wget -c -O qrels.dev.tsv \
-    #   "https://msmarco.blob.core.windows.net/msmarcoranking/qrels.dev.tsv"
-
-# wget -c -O qrels.dev.tsv "https://msmarco.z22.web.core.windows.net/msmarcoranking/qrels.dev.tsv"
-
-
-# wget -c -O qrels.dev.small.tsv \
-#   "https://git.uwaterloo.ca/jimmylin/doc2query-data/raw/master/T5-passage/qrels.dev.small.tsv"
 
 # conda install -c conda-forge sentencepiece -y
 
