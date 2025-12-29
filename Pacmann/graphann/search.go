@@ -2,10 +2,11 @@ package graphann
 
 import (
 	"container/heap"
-	"fmt"
 	"math"
 	"math/rand"
 	"sort"
+
+	"github.com/sirupsen/logrus"
 )
 
 // define a struct that represents a vertex in a graph
@@ -175,8 +176,8 @@ func (g GraphANNFrontend) SearchKNN(queryVector []float32, k int, maxStep int, p
 		//fmt.Println("Querying vertices done")
 
 		if err != nil {
-			fmt.Printf("Error when querying vertices: %v\n", err)
-			panic(err)
+			logrus.Warnf("Error when querying vertices: %v\n", err)
+			continue // Probably a primary hint miss (happens with small prob) Could return a random vec?
 		}
 
 		if benchmarking {

@@ -419,7 +419,7 @@ func (g *PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 	vertexIds, _ := frontend.SearchKNN(query, k, 15, pianopir.ThreadNum, false)
 
 	// Turn vertices back into DB entries (silly but shouldn't take too much time per Q)
-	// convert the vertexIds to uint64
+	// convert the vertexIds to uint64. TODO: Is this a massive burden? Could remove it from final comp time
 
 	g.NonPrivateMode = true
 
