@@ -18,7 +18,7 @@ source /home/dblackle/miniconda3/etc/profile.d/conda.sh
 export CONDA_ENVS_PATH=/scratch/dblackle/conda/envs
 export CONDA_PKGS_DIRS=/scratch/dblackle/conda/pkgs
 
-conda activate /scratch/dblackle/conda/envs/main
+conda activate /home/dblackle/.conda/envs/main
 
 
 
