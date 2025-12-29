@@ -1,8 +1,8 @@
 #!/bin/bash -l
-#SBATCH --job-name=go_job_bins
+#SBATCH --job-name=go_job
 #SBATCH --partition=bigmem
-#SBATCH --output=go_bins.out
-#SBATCH --error=go_bins.err
+#SBATCH --output=go.out
+#SBATCH --error=go.err
 #SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -63,16 +63,13 @@ echo "Linked libs:"
 ldd ./app | egrep 'ngt|hnsw' || true
 
 
-# default flags are MS marco expected to be found in the ../datasets directory
-# srun ./app -n 8841823 -t Pacmann -filename msmarco -k 100
-srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
 
-# Head for sanity
-# head -c 100 ./out.json
+srun ./app -n 8841823 -t Pacmann -filename msmarco -k 100
+python3 json_to_tsv.py out.json pacmann_out.tsv
 
-python3 json_to_tsv.py out.json bins_out.tsv
+#srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
+#python3 json_to_tsv.py out.json bins_out.tsv
 
-# head -c 100 ./bins_out.tsv
 
 # srun ./app -n 8841823 -d 192 -m 32 -k 100 -q 1000 \
 #   -input ../datasets/Son/my_vectors_192_f64.npy \
