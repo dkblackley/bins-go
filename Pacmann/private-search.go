@@ -520,7 +520,7 @@ func (g *PIRGraphInfo) Preprocess() {
 	g.DBTotalSize = uint64(N) * DBEntryByteNum
 
 	// now we set up the PIR
-	g.PIR = pianopir.NewSimpleBatchPianoPIR(uint64(g.N), uint64(len(g.rawDB[0])), g.DBEntryByteNum, uint64(len(g.graph[0])), g.rawDB, 8)
+	g.PIR = pianopir.NewSimpleBatchPianoPIR(uint64(g.N), uint64(len(g.rawDB[0])), g.DBEntryByteNum, uint64(len(g.graph[0])), g.rawDB, 40)
 
 	if g.skipPrep {
 		g.PIR.DummyPreprocessing()
