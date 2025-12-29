@@ -184,7 +184,7 @@ func PacmannMain(args globals.Args) PIRGraphInfo {
 		}
 	}
 
-	string_query, _ := bins.LoadQueries(args.DatasetsDirectory + "/msmarco/queries.jsonl")
+	string_query, _ := bins.LoadQueries(args.DatasetsDirectory + "/msmarco/queries.dev.small.jsonl")
 	queryMap := make(map[string][]float32)
 	for i := 0; i < q; i++ {
 		queryMap[string_query[i].ID] = queries[i]
