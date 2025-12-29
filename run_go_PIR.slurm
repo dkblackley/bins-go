@@ -70,7 +70,7 @@ srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
 # Head for sanity
 head -c 100 ./out.json
 
-python3 json_to_tsv.py ./out.json ./bins_out.tsv
+python3 json_to_tsv.py out.json bins_out.tsv
 
 head -c 100 ./bins_out.tsv
 
