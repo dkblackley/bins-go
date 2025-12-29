@@ -116,7 +116,7 @@ func main() {
 
 	decodedAnswers := Decode(answers, config)
 
-	// sortedAnswers := bins.BasicReRank(decodedAnswers, config)
+	bins.BasicReRank(decodedAnswers, config)
 
 	writeAnswers(decodedAnswers, config)
 

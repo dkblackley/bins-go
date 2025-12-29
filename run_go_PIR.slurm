@@ -64,8 +64,8 @@ ldd ./app | egrep 'ngt|hnsw' || true
 
 
 # default flags are MS marco expected to be found in the ../datasets directory
-# srun ./app -n 8841823 -t Pacmann -filename msmarco -k 100
-srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
+srun ./app -n 8841823 -t Pacmann -filename msmarco -k 100
+# srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
 
 # Head for sanity
 # head -c 100 ./out.json
