@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/blugelabs/bluge"
-	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 
 	"github.com/kshedden/gonpy"
@@ -128,7 +127,7 @@ func LoadFloat32MatrixFromNpy(filename string, n int, dim int) ([][]float32, err
 		return nil, err
 	}
 
-	bar := progressbar.Default(int64(n), "Loading BM25 vectors")
+	//bar := progressbar.Default(int64(n), "Loading BM25 vectors")
 
 	// we now convert the data to a 2D slice
 	ret := make([][]float32, n)
@@ -137,10 +136,10 @@ func LoadFloat32MatrixFromNpy(filename string, n int, dim int) ([][]float32, err
 		for j := 0; j < dim; j++ {
 			ret[i][j] = float32(data[i*dim+j])
 		}
-		bar.Add64(int64(1))
+		//bar.Add64(int64(1))
 	}
 
-	bar.Finish()
+	//bar.Finish()
 
 	return ret, nil
 }

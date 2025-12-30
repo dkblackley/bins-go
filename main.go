@@ -112,9 +112,13 @@ func main() {
 	//answers := make(map[string][][]uint64, config.QueryNum)
 	answers := make(map[string][]string, config.QueryNum)
 
+	bar := progressbar.Default(int64(len(encodedAnswers)), "Decoding stuff")
 	for qid, encodedAnswer := range encodedAnswers {
 		answers[qid] = encodedAnswer.Decode(config)
+		bar.Add(1)
 	}
+
+	bar.Finish()
 
 	//stringAnwsers := Decode(answers, config)
 
