@@ -1,8 +1,8 @@
 #!/bin/bash -l
-#SBATCH --job-name=go_job
+#SBATCH --job-name=pacmann_pir
 #SBATCH --partition=bigmem
-#SBATCH --output=go.out
-#SBATCH --error=go.err
+#SBATCH --output=pir.out
+#SBATCH --error=pir.err
 #SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
