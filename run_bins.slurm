@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem=500G
-#SBATCH --time=2-00:30:00
+#SBATCH --mem=650G
+#SBATCH --time=0-06:30:00
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
@@ -63,7 +63,7 @@ echo "Linked libs:"
 ldd ./app | egrep 'ngt|hnsw' || true
 
 
-srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
+srun ./app -n 8841823 -t bins -filename msmarco -k 1000 -save -thresh 5
 python3 json_to_tsv.py bins_out.json bins_out.tsv
 
 

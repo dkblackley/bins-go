@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem=500G
-#SBATCH --time=2-00:30:00
+#SBATCH --mem=650G
+#SBATCH --time=0-06:30:00
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
@@ -62,16 +62,25 @@ ldd ./app | egrep 'ngt|hnsw' || true
 
 
 
-srun ./app -n 8841823 -t Pacmann -filename msmarco -k 100
+srun ./app -n 8841823 -t Pacmann -filename msmarco -k 1000
 python3 json_to_tsv.py pacmann.json pacmann_out.tsv
 
 
 
-# srun ./app -n 8841823 -d 192 -m 32 -k 100 -q 1000 \
-#   -input ../datasets/Son/my_vectors_192_f64.npy \
-#   -query ../datasets/Son/query_192_f64.npy \
-#   -step  10 -parallel 3 -rtt 50 \
-#   -output  msmarco_embeddings_8841823_192_32_output.txt \
-#   -report  msmarco_embeddings_8841823_192_32_report.txt
+set -e
+
+source /home/dblackle/miniconda3/etc/profile.d/conda.sh
+
+export CONDA_ENVS_PATH=/scratch/dblackle/conda/envs
+export CONDA_PKGS_DIRS=/scratch/dblackle/conda/pkgs
+
+conda activate /home/dblackle/.conda/envs/main
 
 
+
+# conda install -c conda-forge sentencepiece -y
+
+echo "CONDA DONE"
+
+
+python3 re_rank.py --qrels ../datasets/msmarco/qrels/dev.tsv --step3-output bins_out.tsv --queries ../datasets/msmarco/queries.dev.small.tsv --documents ../datasets/msmarco/collection.tsv --k 1000
