@@ -3,6 +3,7 @@ package globals
 type Args struct {
 	DatasetsDirectory string
 	K                 uint
+	SearchType        string
 	DataName          string
 	Vectors           bool
 	Dimensions        uint
@@ -17,4 +18,9 @@ type Args struct {
 	RTT               uint
 	OutFile           string
 	QueryNum          uint
+}
+
+// Hacky interface
+type Decodable interface {
+	Decode(config Args) []string
 }

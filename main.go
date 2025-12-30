@@ -1,17 +1,11 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/dkblackley/bins-go/Pacmann"
@@ -26,7 +20,7 @@ import (
 
 type PIRImpliment interface {
 	GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR
-	DoSearch(QID string, k int) ([][]uint64, error)
+	DoSearch(QID string, k int) (globals.Decodable, error)
 	Preprocess()
 }
 
@@ -54,6 +48,7 @@ func main() {
 	config := globals.Args{
 		DatasetsDirectory: *datasetsDirectory,
 		K:                 *topK,
+		SearchType:        *searchType,
 		DataName:          *dbFileName,
 		Vectors:           *vectors,
 		Threshold:         *thresh,
@@ -110,15 +105,22 @@ func main() {
 	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
 
 	start = time.Now()
-	answers := doPIRSearch(PIRImplemented, qids, int(config.K))
+	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K))
 	end = time.Now()
 	logrus.Infof("Answers finished in %s seconds", end.Sub(start))
 
-	decodedAnswers := Decode(answers, config)
+	//answers := make(map[string][][]uint64, config.QueryNum)
+	answers := make(map[string][]string, config.QueryNum)
 
-	bins.BasicReRank(decodedAnswers, config)
+	for qid, encodedAnswer := range encodedAnswers {
+		answers[qid] = encodedAnswer.Decode(config)
+	}
 
-	writeAnswers(decodedAnswers, config)
+	//stringAnwsers := Decode(answers, config)
+
+	bins.BasicReRank(answers, config)
+
+	writeAnswers(answers, config)
 
 }
 
@@ -155,12 +157,12 @@ func getQIDS(config globals.Args) []string {
 
 }
 
-func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string][][]uint64 {
+func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]globals.Decodable {
 
 	numQueries := len(qids)
 	//numQueries := 300
 
-	answers := make(map[string][][]uint64, numQueries)
+	decodables := make(map[string]globals.Decodable)
 	maintainenceTime := time.Duration(0)
 	PIR := PIRImplimented.GetBatchPIRInfo()
 
@@ -185,7 +187,7 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string][
 			continue
 		}
 
-		answers[q] = results
+		decodables[q] := results
 
 		if PIR.FinishedBatchNum >= PIR.SupportBatchNum {
 			// in this case we need to re-run the preprocessing
@@ -200,147 +202,7 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string][
 		log.Fatal(err)
 	}
 
-	return answers
-}
-
-func Decode(answers map[string][][]uint64, config globals.Args) map[string][]string {
-	// Each input here is going to be a map of QID to a 2d array of uint64s. We want to produce a map of QID to top-k
-	// (larger than k in our case) docIDs.
-
-	metaData := bins.GetDatasets(config.DatasetsDirectory, config.DataName)
-
-	IDLookup := make(map[string]int)
-	// TODO: THE BELOW LINE MAY NOT WORK IF USING ANN/PACMANN!!
-	vectors, err := bins.LoadFloat32MatrixFromNpy(metaData.Vectors, int(config.DBSize), int(config.Dimensions))
-	bins.Must(err)
-	for i := 0; i < len(vectors); i++ {
-		ID := HashFloat32s(vectors[i])
-		IDLookup[ID] = i
-	}
-
-	docIDs := make(map[string][]string)
-	empty := 0
-
-	logrus.Debugf("Decoding answers with %d items", len(answers))
-
-	for qid, results := range answers {
-		for i := 0; i < len(results); i++ {
-			singleResult := results[i]
-			if len(singleResult) == 1 {
-				logrus.Warnf("Got an empty result: %v - Possibly missed and entry", singleResult)
-				empty++
-				if empty == len(results) {
-					logrus.Errorf("All results were empty!!!!")
-
-				}
-				continue
-			}
-			multipleVectors, err := DecodeEntryToVectors(singleResult, int(config.Dimensions))
-			bins.Must(err)
-
-			// TODO: Remove this when not debug
-			//if len(multipleVectors) > 0 {
-			//	// Check if the first vector is all zeros
-			//	isZero := true
-			//	for _, val := range multipleVectors[0] {
-			//		if val != 0 {
-			//			isZero = false
-			//			break
-			//		}
-			//	}
-			//	if isZero {
-			//		logrus.Warnf("WARNING: Decoded vector is ALL ZEROS for QID %s", qid)
-			//	}
-			//}
-
-			for j := 0; j < len(multipleVectors); j++ {
-				ID := HashFloat32s(multipleVectors[j])
-				docID, ok := IDLookup[ID]
-				if !ok {
-					logrus.Warnf("Vector hash not found: %s", ID)
-					continue
-				}
-				docIDs[qid] = append(docIDs[qid], strconv.Itoa(docID))
-
-			}
-		}
-	}
-
-	logrus.Debugf("Number of empty: %d over all  %d", empty, len(answers))
-	return docIDs
-
-}
-
-func DecodeEntryToVectors(entry []uint64, Dim int) ([][]float32, error) {
-	if Dim <= 0 {
-		return nil, errors.New("DecodeEntryToVectors: Dim must be > 0")
-	}
-	if len(entry) == 0 {
-		return nil, errors.New("DecodeEntryToVectors: empty entry")
-	}
-
-	wordsPerVec := (Dim + 1) / 2 // 2 float32 per uint64
-	if len(entry)%wordsPerVec != 0 {
-		return nil, fmt.Errorf(
-			"decodeEntryToVectors: len(entry)=%d not divisible by wordsPerVec=%d (Dim=%d). "+
-				"Wrong Dim or PIR entry sizing mismatch",
-			len(entry), wordsPerVec, Dim,
-		)
-	}
-
-	maxRowSize := len(entry) / wordsPerVec
-
-	// Trim trailing *all-zero vectors* (not trailing zero words)
-	actualRows := maxRowSize
-	for actualRows > 0 {
-		start := (actualRows - 1) * wordsPerVec
-		end := start + wordsPerVec
-
-		allZero := true
-		for _, w := range entry[start:end] {
-			if w != 0 {
-				allZero = false
-				break
-			}
-		}
-		if !allZero {
-			break
-		}
-		actualRows--
-	}
-
-	// Decode only the non-padding vectors
-	out := make([][]float32, actualRows)
-	pos := 0
-	for r := 0; r < actualRows; r++ {
-		row := make([]float32, Dim)
-		d := 0
-		for d < Dim {
-			w := entry[pos]
-			pos++
-
-			row[d] = math.Float32frombits(uint32(w))
-			d++
-			if d < Dim {
-				row[d] = math.Float32frombits(uint32(w >> 32))
-				d++
-			}
-		}
-		out[r] = row
-	}
-
-	return out, nil
-}
-
-func HashFloat32s(xs []float32) string {
-	buf := make([]byte, 4*len(xs))
-	for i, f := range xs {
-		bits := math.Float32bits(f)
-		binary.LittleEndian.PutUint32(buf[i*4:], bits)
-	}
-
-	sum := sha256.Sum256(buf)
-	return hex.EncodeToString(sum[:])
+	return decodables
 }
 
 // For degugging, return the first n elements.

@@ -79,7 +79,75 @@ func (v VecBins) Preprocess() {
 	v.PIR.Preprocessing()
 }
 
-func (v VecBins) DoSearch(QID string, _ int) ([][]uint64, error) {
+type DBentry struct {
+	entry [][]uint64
+}
+
+func (d DBentry) Decode(config globals.Args) []string {
+
+	results := d.entry // This might literally always be of size 1. But hey, it works I guess
+	empty := 0
+
+	docIDs := make([]string, 0)
+
+	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
+
+	IDLookup := make(map[string]int)
+	// TODO: THE BELOW LINE MAY NOT WORK IF USING ANN/PACMANN!!
+	vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors, int(config.DBSize), int(config.Dimensions))
+	Must(err)
+	for i := 0; i < len(vectors); i++ {
+		ID := HashFloat32s(vectors[i])
+		IDLookup[ID] = i
+	}
+
+	for i := 0; i < len(results); i++ {
+		singleResult := results[i]
+		if len(singleResult) == 1 {
+			logrus.Warnf("Got an empty result: %v - Possibly missed and entry", singleResult)
+			empty++
+			if empty == len(results) {
+				logrus.Errorf("All results were empty!!!!")
+
+			}
+			continue
+		}
+		//if config.SearchType == "Pacmann" {
+		//	multipleVectors = // TODO: DOES SINGLERESULT ONLY HAVE ONE VECTOR??
+		//} else {
+		multipleVectors, err := DecodeEntryToVectors(singleResult, int(config.Dimensions))
+		Must(err)
+
+		// TODO: Remove this when not debug
+		//if len(multipleVectors) > 0 {
+		//	// Check if the first vector is all zeros
+		//	isZero := true
+		//	for _, val := range multipleVectors[0] {
+		//		if val != 0 {
+		//			isZero = false
+		//			break
+		//		}
+		//	}
+		//	if isZero {
+		//		logrus.Warnf("WARNING: Decoded vector is ALL ZEROS for QID %s", qid)
+		//	}
+		//}
+
+		for j := 0; j < len(multipleVectors); j++ {
+			ID := HashFloat32s(multipleVectors[j])
+			docID, ok := IDLookup[ID]
+			if !ok {
+				logrus.Warnf("Vector hash not found: %s", ID)
+				continue
+			}
+			docIDs = append(docIDs, strconv.Itoa(docID))
+
+		}
+	}
+	return docIDs
+}
+
+func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	indices := v.MakeIndices(QID)
 
 	if uint64(len(indices)) >= 32 { // TODO: pass batchsize in args to checl
@@ -88,7 +156,9 @@ func (v VecBins) DoSearch(QID string, _ int) ([][]uint64, error) {
 	results, err := v.PIR.Query(indices)
 
 	//TODO: something with K
-	return results, err
+	return DBentry{
+		results,
+	}, err
 }
 
 func (v VecBins) MakeIndices(QID string) []uint64 {

@@ -1,9 +1,7 @@
 package Pacmann
 
 import (
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,7 +10,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -345,57 +342,15 @@ type PIRGraphInfo struct {
 	frontend      graphann.GraphANNFrontend
 }
 
-func HashFloat32s(vec []float32) string {
-	buf := make([]byte, 4*len(vec))
-	for i, f := range vec {
-		bits := math.Float32bits(f)
-		binary.LittleEndian.PutUint32(buf[i*4:], bits)
-	}
-
-	sum := sha256.Sum256(buf)
-	return hex.EncodeToString(sum[:])
+type vertexIDs struct {
+	vertices []int
 }
 
-func (g *PIRGraphInfo) Decode(answers map[string][][]uint64, config globals.Args) map[string][]string {
-	// This is actually just the same as for the bins method, so we do a little jank to re-use the same code...
-
-	vectorFile := config.DatasetsDirectory + "/Son/my_vectors_192.npy"
-
-	IDLookup := make(map[string]int)
-	bm25Vectors, _ := graphann.LoadFloat32Matrix(vectorFile, int(config.DBSize), int(config.Dimensions))
-
-	for i := 0; i < len(bm25Vectors); i++ {
-		ID := HashFloat32s(bm25Vectors[i])
-		IDLookup[ID] = i
-	}
-
-	docIDs := make(map[string][]string)
-
-	for qid, results := range answers {
-		for i := 0; i < len(results); i++ {
-			entry := results[i]
-
-			entryBytes := make([]byte, len(entry)*8)
-			for i := 0; i < len(entry); i++ {
-				binary.LittleEndian.PutUint64(entryBytes[i*8:], entry[i])
-			}
-
-			// for the first vectorSize*4 bytes, we convert it to a float32 slice
-			vector := make([]float32, config.Dimensions)
-			for i := 0; i < int(config.Dimensions); i++ {
-				vector[i] = math.Float32frombits(binary.LittleEndian.Uint32(entryBytes[i*4:]))
-			}
-			ID := HashFloat32s(vector)
-			docID := IDLookup[ID]
-			docIDs[qid] = append(docIDs[qid], strconv.Itoa(docID))
-
-		}
-	}
-
-	return docIDs
+func (v vertexIDs) Decode(config globals.Args) []string {
+	return nil
 }
 
-func (g *PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
+func (g *PIRGraphInfo) DoSearch(QID string, k int) (globals.Decodable, error) {
 	frontend := g.frontend
 
 	//qIdx, err := strconv.Atoi(QID)
@@ -418,58 +373,60 @@ func (g *PIRGraphInfo) DoSearch(QID string, k int) ([][]uint64, error) {
 
 	vertexIds, _ := frontend.SearchKNN(query, k, 15, pianopir.ThreadNum, false)
 
+	return vertexIDs{vertexIds}, nil
+
 	// Turn vertices back into DB entries (silly but shouldn't take too much time per Q)
 	// convert the vertexIds to uint64. TODO: Is this a massive burden? Could remove it from final comp time
 
 	// Drop bad vertices (-1 if we failed the search)
-	filtered := vertexIds[:0]
-	for _, id := range vertexIds {
-		if id >= 0 && id < g.N {
-			filtered = append(filtered, id)
-		}
-	}
-	vertexIds = filtered
-
-	g.NonPrivateMode = true
-
-	vertices, err := g.GetVertexInfo(vertexIds)
-
-	if err != nil {
-		return nil, err
-	}
-
-	Dim := g.Dim
-	M := g.M
-	DBEntryByteNum := g.DBEntryByteNum
-	responses := make([][]uint64, len(vertices))
-
-	for i, vertex := range vertices {
-		vector := vertex.Vector
-		vectorBytes := make([]byte, Dim*4)
-		for j := 0; j < Dim; j++ {
-			binary.LittleEndian.PutUint32(vectorBytes[j*4:], math.Float32bits(vector[j]))
-		}
-		// we also convert the graph row to a byte slice
-		neighbors := g.graph[vertex.Id]
-		neighborsBytes := make([]byte, M*4)
-		for j := 0; j < M; j++ {
-			binary.LittleEndian.PutUint32(neighborsBytes[j*4:], uint32(neighbors[j]))
-		}
-
-		// then we concatenate the two byte slices
-		entryBytes := append(vectorBytes, neighborsBytes...)
-
-		// then we convert the byte slice to a uint64 slice
-		entry := make([]uint64, DBEntryByteNum/8)
-		for j := uint64(0); j < DBEntryByteNum/8; j++ {
-			entry[j] = binary.LittleEndian.Uint64(entryBytes[j*8:])
-		}
-		responses[i] = entry
-	}
-
-	g.NonPrivateMode = false
-
-	return responses, err
+	//filtered := vertexIds[:0]
+	//for _, id := range vertexIds {
+	//	if id >= 0 && id < g.N {
+	//		filtered = append(filtered, id)
+	//	}
+	//}
+	//vertexIds = filtered
+	//
+	//g.NonPrivateMode = true
+	//
+	//vertices, err := g.GetVertexInfo(vertexIds)
+	//
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//Dim := g.Dim
+	//M := g.M
+	//DBEntryByteNum := g.DBEntryByteNum
+	//responses := make([][]uint64, len(vertices))
+	//
+	//for i, vertex := range vertices {
+	//	vector := vertex.Vector
+	//	vectorBytes := make([]byte, Dim*4)
+	//	for j := 0; j < Dim; j++ {
+	//		binary.LittleEndian.PutUint32(vectorBytes[j*4:], math.Float32bits(vector[j]))
+	//	}
+	//	// we also convert the graph row to a byte slice
+	//	neighbors := g.graph[vertex.Id]
+	//	neighborsBytes := make([]byte, M*4)
+	//	for j := 0; j < M; j++ {
+	//		binary.LittleEndian.PutUint32(neighborsBytes[j*4:], uint32(neighbors[j]))
+	//	}
+	//
+	//	// then we concatenate the two byte slices
+	//	entryBytes := append(vectorBytes, neighborsBytes...)
+	//
+	//	// then we convert the byte slice to a uint64 slice
+	//	entry := make([]uint64, DBEntryByteNum/8)
+	//	for j := uint64(0); j < DBEntryByteNum/8; j++ {
+	//		entry[j] = binary.LittleEndian.Uint64(entryBytes[j*8:])
+	//	}
+	//	responses[i] = entry
+	//}
+	//
+	//g.NonPrivateMode = false
+	//
+	//return responses, err
 }
 
 func (g *PIRGraphInfo) GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR {
