@@ -187,7 +187,7 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]g
 			continue
 		}
 
-		decodables[q] := results
+		decodables[q] = results
 
 		if PIR.FinishedBatchNum >= PIR.SupportBatchNum {
 			// in this case we need to re-run the preprocessing

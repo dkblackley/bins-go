@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -347,7 +348,17 @@ type vertexIDs struct {
 }
 
 func (v vertexIDs) Decode(config globals.Args) []string {
-	return nil
+	// Because we build the graph in the same order as wel laod the vertices, the vertex IDs SHOULD be the same as the
+	// matching docID at the same row..... In msmarco they're labelled in ascending order, so we just assume they're correct!!
+
+	finalIDs := make([]string, len(v.vertices))
+
+	for i, vertex := range v.vertices {
+		finalIDs[i] = strconv.Itoa(vertex)
+	}
+
+	return finalIDs
+
 }
 
 func (g *PIRGraphInfo) DoSearch(QID string, k int) (globals.Decodable, error) {
