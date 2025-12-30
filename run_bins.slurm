@@ -1,8 +1,8 @@
 #!/bin/bash -l
-#SBATCH --job-name=go_job
+#SBATCH --job-name=bins_pir
 #SBATCH --partition=bigmem
-#SBATCH --output=go.out
-#SBATCH --error=go.err
+#SBATCH --output=bins.out
+#SBATCH --error=bins.err
 #SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -63,12 +63,8 @@ echo "Linked libs:"
 ldd ./app | egrep 'ngt|hnsw' || true
 
 
-
-srun ./app -n 8841823 -t Pacmann -filename msmarco -k 100
-python3 json_to_tsv.py out.json pacmann_out.tsv
-
-#srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
-#python3 json_to_tsv.py out.json bins_out.tsv
+srun ./app -n 8841823 -t bins -filename msmarco -k 100 -save -thresh 5
+python3 json_to_tsv.py bins_out.json bins_out.tsv
 
 
 # srun ./app -n 8841823 -d 192 -m 32 -k 100 -q 1000 \
