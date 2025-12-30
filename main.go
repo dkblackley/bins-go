@@ -197,6 +197,9 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]g
 			maintainenceTime += end.Sub(start)
 		}
 	}
+
+	logrus.Infof("Total maintainence time: %s seconds", maintainenceTime)
+
 	err := bar.Finish()
 	if err != nil {
 		log.Fatal(err)

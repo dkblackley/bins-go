@@ -182,7 +182,7 @@ func (p *SimpleBatchPianoPIR) Preprocessing() {
 
 	endTime := time.Now()
 	prepTime := endTime.Sub(startTime).Seconds()
-	log.Printf("Preprocessing time = %v\n", endTime.Sub(startTime))
+	logrus.Debugf("Preprocessing time = %v\n", endTime.Sub(startTime))
 
 	p.RecordStats(prepTime)
 }
