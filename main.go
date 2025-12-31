@@ -100,6 +100,16 @@ func main() {
 
 	flag.Parse()
 
+	meta := GetDatasets(*datasetsDirectory, *dbFileName)
+
+	var IDLookup map[string]int
+
+	if *searchType == "bins" {
+		IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
+	} else {
+		IDLookup = make(map[string]int) // empty lookup
+	}
+
 	config := globals.Args{
 		DatasetsDirectory: *datasetsDirectory,
 		K:                 *topK,
@@ -118,7 +128,8 @@ func main() {
 		Dimensions:        *dimensions,
 		OutFile:           *outFile,
 		QueryNum:          0,
-		DatasetMeta:       GetDatasets(*datasetsDirectory, *dbFileName),
+		DatasetMeta:       meta,
+		IDLookup:          IDLookup,
 	}
 
 	switch *debugLevel {

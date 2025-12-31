@@ -19,6 +19,7 @@ type Args struct {
 	OutFile           string
 	QueryNum          uint
 	DatasetMeta       DatasetMetadata
+	IDLookup          map[string]int
 }
 
 type Vectors struct {

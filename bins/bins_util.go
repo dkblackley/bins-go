@@ -500,20 +500,23 @@ func WriteCSV(path string, data [][]string) error {
 	return w.Error()
 }
 
-func Decode(answers map[string][][]uint64, config globals.Args) map[string][]string {
-	// Each input here is going to be a map of QID to a 2d array of uint64s. We want to produce a map of QID to top-k
-	// (larger than k in our case) docIDs.
-
-	metaData := config.DatasetMeta
+func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[string]int {
 
 	IDLookup := make(map[string]int)
 	// TODO: THE BELOW LINE MAY NOT WORK IF USING ANN/PACMANN!!
-	vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors.CorpusVec, int(config.DBSize), int(config.Dimensions))
+	vectors, err := LoadFloat32MatrixFromNpy(meta.Vectors.CorpusVec, dbsize, dimensions)
 	Must(err)
 	for i := 0; i < len(vectors); i++ {
 		ID := HashFloat32s(vectors[i])
 		IDLookup[ID] = i
 	}
+
+	return IDLookup
+}
+
+func Decode(answers map[string][][]uint64, config globals.Args) map[string][]string {
+	// Each input here is going to be a map of QID to a 2d array of uint64s. We want to produce a map of QID to top-k
+	// (larger than k in our case) docIDs.
 
 	docIDs := make(map[string][]string)
 	empty := 0
@@ -538,7 +541,7 @@ func Decode(answers map[string][][]uint64, config globals.Args) map[string][]str
 			//if config.SearchType == "Pacmann" {
 			//	multipleVectors = // TODO: DOES SINGLERESULT ONLY HAVE ONE VECTOR??
 			//} else {
-			multipleVectors, err = DecodeEntryToVectors(singleResult, int(config.Dimensions))
+			multipleVectors, err := DecodeEntryToVectors(singleResult, int(config.Dimensions))
 			Must(err)
 
 			// TODO: Remove this when not debug
@@ -558,7 +561,7 @@ func Decode(answers map[string][][]uint64, config globals.Args) map[string][]str
 
 			for j := 0; j < len(multipleVectors); j++ {
 				ID := HashFloat32s(multipleVectors[j])
-				docID, ok := IDLookup[ID]
+				docID, ok := config.IDLookup[ID]
 				if !ok {
 					logrus.Warnf("Vector hash not found: %s", ID)
 					continue
