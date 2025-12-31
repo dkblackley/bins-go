@@ -144,11 +144,6 @@ func main() {
 
 	logrus.Debugf("Config: %v", config)
 
-	if *searchType == "bins" {
-		IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
-		config.IDLookup = IDLookup
-	}
-
 	qids := getQIDS(config)
 	config.QueryNum = uint(len(qids))
 
@@ -175,6 +170,11 @@ func main() {
 
 	//answers := make(map[string][][]uint64, config.QueryNum)
 	answers := make(map[string][]string, config.QueryNum)
+
+	if *searchType == "bins" {
+		IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
+		config.IDLookup = IDLookup
+	}
 
 	bar := progressbar.Default(int64(len(encodedAnswers)), "Decoding stuff")
 	for qid, encodedAnswer := range encodedAnswers {
