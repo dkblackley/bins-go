@@ -57,17 +57,17 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 
 	metaData := config.DatasetMeta
 
-	err := FilterJSONLByIDs(metaData.OriginalDir, "./temp_doc.jsonl", docIDs)
+	err := FilterJSONLByIDs(metaData.OriginalDir, config.SearchType+"temp_doc.jsonl", docIDs)
 	Must(err)
-	err = FilterJSONLByIDs(metaData.Queries, "./temp_q.jsonl", qids)
+	err = FilterJSONLByIDs(metaData.Queries, config.SearchType+"temp_q.jsonl", qids)
 	Must(err)
 
 	// NEW: build a real Bluge index directory from temp_doc.jsonl
-	err = BuildBlugeIndexFromJSONL("./temp_doc.jsonl", "./temp_doc")
+	err = BuildBlugeIndexFromJSONL(config.SearchType+"temp_doc.jsonl", config.SearchType+"temp_doc")
 	Must(err)
 
 	// Now do BLUGE on the remaining items
-	qs, err := LoadQueries("./temp_q.jsonl")
+	qs, err := LoadQueries(config.SearchType + "temp_q.jsonl")
 	Must(err)
 	rels, err := loadQrels(metaData.Qrels)
 	Must(err)
@@ -75,7 +75,7 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 	bar := progressbar.Default(int64(len(qs)), fmt.Sprintf("BM25 eval %s", config.DataName))
 
 	// NEW: open the DIRECTORY, not the jsonl file
-	reader, err := bluge.OpenReader(bluge.DefaultConfig("./temp_doc"))
+	reader, err := bluge.OpenReader(bluge.DefaultConfig(config.SearchType + "temp_doc"))
 	Must(err)
 	defer reader.Close()
 
@@ -145,8 +145,8 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 	logrus.Infof("MRR (post BM25 search): %f", sumRR/float64(len(rels)))
 
 	// old temp jsonl cleanup is fine
-	Must(os.Remove("./temp_doc.jsonl"))
-	Must(os.Remove("./temp_q.jsonl"))
+	Must(os.Remove(config.SearchType + "temp_doc.jsonl"))
+	Must(os.Remove(config.SearchType + "temp_q.jsonl"))
 
 	// TODO: Fix this
 	// Must(os.Remove("./temp_doc"))
