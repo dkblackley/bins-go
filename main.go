@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -239,7 +238,11 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]g
 	//start := time.Now()
 
 	// TODO REMOVE THIS (?)
-	bar := progressbar.Default(int64(numQueries), fmt.Sprintf("Answering Queries"))
+	bar := progressbar.NewOptions64(
+		int64(numQueries),
+		progressbar.OptionSetDescription("Answering Queries"),
+		progressbar.OptionShowElapsedTimeOnFinish(),
+	)
 	for i := 0; i < numQueries; i++ {
 
 		err := bar.Add(1)
@@ -267,10 +270,10 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]g
 			maintainenceTime += end.Sub(start)
 		}
 	}
+	err := bar.Finish()
 
 	logrus.Infof("Total maintainence time: %s seconds", maintainenceTime)
 
-	err := bar.Finish()
 	if err != nil {
 		log.Fatal(err)
 	}
