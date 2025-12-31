@@ -505,11 +505,16 @@ func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[string
 	IDLookup := make(map[string]int)
 	// TODO: THE BELOW LINE MAY NOT WORK IF USING ANN/PACMANN!!
 	vectors, err := LoadFloat32MatrixFromNpy(meta.Vectors.CorpusVec, dbsize, dimensions)
+
+	bar := progressbar.Default(int64(len(vectors)), fmt.Sprintf("Making map"))
 	Must(err)
 	for i := 0; i < len(vectors); i++ {
 		ID := HashFloat32s(vectors[i])
 		IDLookup[ID] = i
+		bar.Add(1)
 	}
+
+	bar.Finish()
 
 	return IDLookup
 }

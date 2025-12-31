@@ -102,13 +102,7 @@ func main() {
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
 
-	var IDLookup map[string]int
-
-	if *searchType == "bins" {
-		IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
-	} else {
-		IDLookup = make(map[string]int) // empty lookup
-	}
+	IDLookup := make(map[string]int) // empty lookup
 
 	config := globals.Args{
 		DatasetsDirectory: *datasetsDirectory,
@@ -150,7 +144,10 @@ func main() {
 
 	logrus.Debugf("Config: %v", config)
 
-	flag.Parse()
+	if *searchType == "bins" {
+		IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
+		config.IDLookup = IDLookup
+	}
 
 	qids := getQIDS(config)
 	config.QueryNum = uint(len(qids))
