@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/blugelabs/bluge"
 	"github.com/dkblackley/bins-go/globals"
@@ -196,7 +197,7 @@ func FilterJSONLByIDs(inputPath, outputPath string, docIDs []string) error {
 	}(writer)
 
 	for scanner.Scan() {
-		line := scanner.Bytes()
+		line := append([]byte(nil), scanner.Bytes()...)
 
 		var obj struct {
 			ID      string `json:"_id"`
@@ -247,10 +248,6 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 	if err != nil {
 		return err
 	}
-	// Close explicitly so you can catch errors
-	defer func() {
-		_ = w.Close()
-	}()
 
 	f, err := os.Open(jsonlPath)
 	if err != nil {
@@ -278,15 +275,19 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 			continue
 		}
 
-		doc := bluge.NewDocument(d.ID)
-		if d.Title != "" {
-			doc.AddField(bluge.NewTextField("title", d.Title))
+		title := strings.Clone(d.Title)
+		text := strings.Clone(d.Text)
+		id := strings.Clone(d.ID)
+
+		doc := bluge.NewDocument(id)
+		if title != "" {
+			doc.AddField(bluge.NewTextField("title", title))
 		}
-		if d.Text != "" {
-			doc.AddField(bluge.NewTextField("body", d.Text))
+		if text != "" {
+			doc.AddField(bluge.NewTextField("body", text))
 		}
 		// store _id so your VisitStoredFields logic still works
-		doc.AddField(bluge.NewKeywordField("_id", d.ID).StoreValue())
+		doc.AddField(bluge.NewKeywordField("_id", id).StoreValue())
 
 		batch.Insert(doc)
 		batchCount++
