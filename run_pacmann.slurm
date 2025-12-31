@@ -62,5 +62,5 @@ ldd ./app | egrep 'ngt|hnsw' || true
 
 
 
-srun ./app -n 8841823 -t Pacmann -filename msmarco -k 1000
+srun ./app -n 8841823 -t Pacmann -name msmarco -k 1000
 python3 json_to_tsv.py pacmann.json pacmann_out.tsv
