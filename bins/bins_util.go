@@ -268,16 +268,16 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 	for sc.Scan() {
 		var d beirDoc
 		if err := json.Unmarshal(sc.Bytes(), &d); err != nil {
-
 			logrus.Tracef("json unmarshal failed: %w", err)
 		}
-		if d.ID == "" {
+
+		id := strings.Clone(d.ID)
+		if id == "" {
 			continue
 		}
 
 		title := strings.Clone(d.Title)
 		text := strings.Clone(d.Text)
-		id := strings.Clone(d.ID)
 
 		doc := bluge.NewDocument(id)
 		if title != "" {

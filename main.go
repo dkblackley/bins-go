@@ -191,9 +191,9 @@ func main() {
 
 	//stringAnwsers := Decode(answers, config)
 
-	if config.DataName != "debug" {
-		bins.BasicReRank(answers, config)
-	}
+	//if config.DataName != "debug" {
+	bins.BasicReRank(answers, config)
+	//}
 
 }
 
