@@ -78,9 +78,9 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 	neighborNum := 32
 	outputNum := args.K
 	queryNum := args.QueryNum //TODO: make this a command line argument?
-	inputFile := args.DatasetsDirectory + "/Son/my_vectors_192_f64.npy"
-	graphFile := args.DatasetsDirectory + "/Son/my_vectors_192_f64_8841823_192_32_graph.npy"
-	queryFile := args.DatasetsDirectory + "/Son/query_192_f64.npy"
+	inputFile := args.DatasetMeta.Vectors.CorpusVec64
+	graphFile := args.DatasetMeta.Vectors.Graph
+	queryFile := args.DatasetMeta.Vectors.QueryVec64
 	//outputFile := args.DatasetsDirectory + "_pacmann_output.npy"
 	//gndFile := "" //TODO: we don't need this for MSmarco/test datasets
 	//reportFile := "pacmann_report.txt"
@@ -182,7 +182,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 		}
 	}
 
-	string_query, _ := bins.LoadQueries(args.DatasetsDirectory + "/msmarco/queries.dev.small.jsonl")
+	string_query, _ := bins.LoadQueries(args.DatasetMeta.Queries)
 	queryMap := make(map[string][]float32)
 	for i := 0; i < q; i++ {
 		queryMap[string_query[i].ID] = queries[i]

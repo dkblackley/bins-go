@@ -18,6 +18,24 @@ type Args struct {
 	RTT               uint
 	OutFile           string
 	QueryNum          uint
+	DatasetMeta       DatasetMetadata
+}
+
+type Vectors struct {
+	CorpusVec   string
+	CorpusVec64 string
+	QueryVec    string
+	QueryVec64  string
+	Graph       string
+}
+
+type DatasetMetadata struct {
+	Name        string
+	IndexDir    string
+	OriginalDir string
+	Queries     string
+	Qrels       string
+	Vectors     Vectors
 }
 
 // Hacky interface

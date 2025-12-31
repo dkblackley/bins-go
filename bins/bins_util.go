@@ -55,7 +55,7 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 		}
 	}
 
-	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
+	metaData := config.DatasetMeta
 
 	err := FilterJSONLByIDs(metaData.OriginalDir, "./temp_doc.jsonl", docIDs)
 	Must(err)
@@ -504,11 +504,11 @@ func Decode(answers map[string][][]uint64, config globals.Args) map[string][]str
 	// Each input here is going to be a map of QID to a 2d array of uint64s. We want to produce a map of QID to top-k
 	// (larger than k in our case) docIDs.
 
-	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
+	metaData := config.DatasetMeta
 
 	IDLookup := make(map[string]int)
 	// TODO: THE BELOW LINE MAY NOT WORK IF USING ANN/PACMANN!!
-	vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors, int(config.DBSize), int(config.Dimensions))
+	vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors.CorpusVec, int(config.DBSize), int(config.Dimensions))
 	Must(err)
 	for i := 0; i < len(vectors); i++ {
 		ID := HashFloat32s(vectors[i])

@@ -24,11 +24,66 @@ type PIRImpliment interface {
 	Preprocess()
 }
 
+func GetDatasets(root, name string) globals.DatasetMetadata {
+	vectors := globals.Vectors{
+		root + "/Son/my_vectors_192.npy",
+		root + "/Son/my_vectors_192_f64.npy",
+		root + "/Son/query_192_float32.npy",
+		root + "/Son/query_192_f64.npy",
+		root + "my_vectors_192_f64_8841823_192_32_graph.npy"}
+
+	if name == "msmarco" {
+		return globals.DatasetMetadata{
+			"Marco",
+			"index_marco",
+			root + "/msmarco/corpus.jsonl",
+			root + "/msmarco/queries.dev.small.jsonl",
+			root + "/msmarco/qrels/dev.tsv",
+			vectors,
+		}
+	} else if name == "scifact" {
+		return globals.DatasetMetadata{
+			"SciFact",
+			"index_scifact", // index folders created earlier
+			root + "/scifact/corpus.jsonl",
+			root + "/scifact/queries.jsonl",
+			root + "/scifact/qrels/test.tsv",
+			vectors,
+		}
+	} else if name == "debug" {
+		logrus.Debugf("Using debug dataset")
+
+		vectors.CorpusVec = root + "/Son/my_vectors_192_debug.npy"
+		vectors.CorpusVec64 = root + "/Son/my_vectors_192_f64_debug.npy"
+		vectors.QueryVec = root + "/Son/query_192_float32.npy"
+		vectors.QueryVec64 = root + "/Son/query_192_f64_debug.npy"
+		vectors.Graph = root + "/debug_graph.npy"
+
+		return globals.DatasetMetadata{
+			"Marco",
+			"index_marco",
+			root + "/msmarco/corpus_debug.jsonl",
+			root + "/msmarco/queries.dev.small_debug.jsonl",
+			root + "/msmarco/qrels/dev.tsv",
+			vectors,
+		}
+	} else {
+		return globals.DatasetMetadata{
+			"TREC-COVID",
+			"index_trec_covid",
+			root + "/trec-covid/corpus.jsonl",
+			root + "/trec-covid/queries.jsonl",
+			root + "/trec-covid/qrels/test.tsv",
+			vectors,
+		}
+	}
+}
+
 func main() {
 
 	DBSize := flag.Uint("n", 8841823, "Number of items/vectors in DB")
 	searchType := flag.String("t", "bins", "Search type, current options are 'bins'|'Pacmann'")
-	dbFileName := flag.String("filename", "msmarco", "Identifier for the dataset to be loaded")
+	dbFileName := flag.String("name", "msmarco", "Identifier for the dataset to be loaded")
 	datasetsDirectory := flag.String("dataset", "../datasets", "Where to look for the dataset/data")
 	topK := flag.Uint("k", 5, "K many items to return in search")
 	vectors := flag.Bool("vectors", true, "Use npy vectors for retrieval or raw text")
@@ -63,6 +118,7 @@ func main() {
 		Dimensions:        *dimensions,
 		OutFile:           *outFile,
 		QueryNum:          0,
+		DatasetMeta:       GetDatasets(*datasetsDirectory, *dbFileName),
 	}
 
 	switch *debugLevel {
@@ -122,7 +178,9 @@ func main() {
 
 	//stringAnwsers := Decode(answers, config)
 
-	bins.BasicReRank(answers, config)
+	if config.DataName != "debug" {
+		bins.BasicReRank(answers, config)
+	}
 
 	writeAnswers(answers, config)
 
@@ -150,7 +208,7 @@ func writeAnswers(answers map[string][]string, config globals.Args) {
 
 func getQIDS(config globals.Args) []string {
 
-	meta := bins.GetDatasets(config.DatasetsDirectory, config.DataName)
+	meta := config.DatasetMeta
 	queries, _ := bins.LoadQueries(meta.Queries)
 
 	ids := make([]string, len(queries))

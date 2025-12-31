@@ -37,15 +37,6 @@ type beirDoc struct {
 	Metadata string `json:"metadata"`
 }
 
-type DatasetMetadata struct {
-	Name        string
-	IndexDir    string
-	OriginalDir string
-	Queries     string
-	Qrels       string
-	Vectors     string
-}
-
 //func LoadBeirJSONL(path, indexDir string) {
 //	f, err := os.Open(path)
 //	Must(err)

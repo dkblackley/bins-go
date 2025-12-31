@@ -14,48 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func GetDatasets(root, name string) DatasetMetadata {
-
-	if name == "msmarco" {
-		return DatasetMetadata{
-			"Marco",
-			"index_marco",
-			root + "/msmarco/corpus.jsonl",
-			root + "/msmarco/queries.dev.small.jsonl",
-			root + "/msmarco/qrels/dev.tsv",
-			root + "/Son/my_vectors_192.npy", // Change this when debugging as it's a big file
-		}
-	} else if name == "scifact" {
-		return DatasetMetadata{
-			"SciFact",
-			"index_scifact", // index folders created earlier
-			root + "/scifact/corpus.jsonl",
-			root + "/scifact/queries.jsonl",
-			root + "/scifact/qrels/test.tsv",
-			"",
-		}
-	} else if name == "debug" {
-		logrus.Debugf("Using debug dataset")
-		return DatasetMetadata{
-			"Marco",
-			"index_marco",
-			root + "/msmarco/corpus_debug.jsonl",
-			root + "/msmarco/queries.dev.small.jsonl",
-			root + "/msmarco/qrels/dev.tsv",
-			root + "/Son/my_vectors_192_debug.npy",
-		}
-	} else {
-		return DatasetMetadata{
-			"TREC-COVID",
-			"index_trec_covid",
-			root + "/trec-covid/corpus.jsonl",
-			root + "/trec-covid/queries.jsonl",
-			root + "/trec-covid/qrels/test.tsv",
-			"",
-		}
-	}
-}
-
 type VecBins struct {
 	N                    int              // Number of Bins
 	Dimensions           int              // Dimension of vectors
@@ -90,11 +48,10 @@ func (d DBentry) Decode(config globals.Args) []string {
 
 	docIDs := make([]string, 0)
 
-	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
+	metaData := config.DatasetMeta
 
 	IDLookup := make(map[string]int)
-	// TODO: THE BELOW LINE MAY NOT WORK IF USING ANN/PACMANN!!
-	vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors, int(config.DBSize), int(config.Dimensions))
+	vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors.CorpusVec, int(config.DBSize), int(config.Dimensions))
 	Must(err)
 	for i := 0; i < len(vectors); i++ {
 		ID := HashFloat32s(vectors[i])
@@ -181,13 +138,13 @@ func (v VecBins) MakeIndices(QID string) []uint64 {
 // binsDB.
 func MakeVecDb(config globals.Args) VecBins {
 
-	metaData := GetDatasets(config.DatasetsDirectory, config.DataName)
+	metaData := config.DatasetMeta
 
-	logrus.Debugf("Loading data from: %s and %s", metaData.Vectors, metaData.IndexDir)
+	logrus.Debugf("Loading data from: %s and %s", metaData.Vectors.CorpusVec, metaData.IndexDir)
 
 	// TODO: Uncomment when back
-	//if config.Vectors { // If we want to lead npy vectors
-	bm25Vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors, int(config.DBSize), int(config.Dimensions))
+	//if config.CorpusVec { // If we want to lead npy vectors
+	bm25Vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors.CorpusVec, int(config.DBSize), int(config.Dimensions))
 	logrus.Infof("Size of vectors: %d", len(bm25Vectors))
 	Must(err)
 	var DB [][]string
@@ -274,7 +231,7 @@ func MakeVecDb(config globals.Args) VecBins {
 	//
 	//logrus.Infof("Preprocessing took %s", end.Sub(start))
 
-	meta := GetDatasets(config.DatasetsDirectory, config.DataName)
+	meta := config.DatasetMeta
 	queires, err := LoadQueries(meta.Queries)
 	Must(err)
 	queryMap := make(map[string]Query)
