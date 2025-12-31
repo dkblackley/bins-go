@@ -187,13 +187,13 @@ func main() {
 
 	bar.Finish()
 
+	writeAnswers(answers, config)
+
 	//stringAnwsers := Decode(answers, config)
 
 	if config.DataName != "debug" {
 		bins.BasicReRank(answers, config)
 	}
-
-	writeAnswers(answers, config)
 
 }
 
@@ -215,6 +215,8 @@ func writeAnswers(answers map[string][]string, config globals.Args) {
 	if err := enc.Encode(answers); err != nil {
 		panic(err)
 	}
+
+	logrus.Infof("Wrote answers to %s", config.OutFile)
 }
 
 func getQIDS(config globals.Args) []string {
