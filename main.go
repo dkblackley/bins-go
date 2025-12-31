@@ -57,7 +57,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 		vectors.CorpusVec64 = root + "/Son/my_vectors_192_f64_debug.npy"
 		vectors.QueryVec = root + "/Son/query_192_float32.npy"
 		vectors.QueryVec64 = root + "/Son/query_192_f64_debug.npy"
-		vectors.Graph = root + "/debug_graph.npy"
+		vectors.Graph = root + "/Son/debug_graph.npy"
 
 		return globals.DatasetMetadata{
 			"Marco",
