@@ -60,7 +60,7 @@ go build -v -o app ./main.go
 echo "Linked libs:"
 ldd ./app | egrep 'ngt|hnsw' || true
 
-srun ./app -n 200 -t Pacmann -name debug -outFile pacmann_debug.json
+srun ./app -n 199 -t Pacmann -name debug -outFile pacmann_debug.json
 python3 json_to_tsv.py pacmann_debug.json pacmann_debug_out.tsv
 
 #srun ./app -n 8841823 -t Pacmann -name msmarco -k 1000 -outFile pacmann.json
