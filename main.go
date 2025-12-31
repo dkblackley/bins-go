@@ -175,7 +175,11 @@ func main() {
 		config.IDLookup = IDLookup
 	}
 
-	bar := progressbar.Default(int64(len(encodedAnswers)), "Decoding stuff")
+	bar := progressbar.NewOptions64(
+		int64(len(encodedAnswers)),
+		progressbar.OptionSetDescription("Decoding stuff"),
+		progressbar.OptionShowElapsedTimeOnFinish(),
+	)
 	for qid, encodedAnswer := range encodedAnswers {
 		answers[qid] = encodedAnswer.Decode(config)
 		bar.Add(1)
