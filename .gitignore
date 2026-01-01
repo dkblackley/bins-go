@@ -45,4 +45,6 @@ go.work.sum
 *.out
 *.json
 
+*.tsv
+
 app
