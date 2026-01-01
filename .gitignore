@@ -43,7 +43,7 @@ go.work.sum
 
 *.err
 *.out
-*.json
+*.jsonl
 
 *.tsv
 
