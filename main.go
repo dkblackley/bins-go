@@ -34,7 +34,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 	if name == "msmarco" {
 		return globals.DatasetMetadata{
 			"Marco",
-			root + "index_marco",
+			root + "/index_marco",
 			root + "/msmarco/corpus.jsonl",
 			root + "/msmarco/queries.dev.small.jsonl",
 			root + "/msmarco/qrels/dev.tsv",
@@ -43,7 +43,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 	} else if name == "scifact" {
 		return globals.DatasetMetadata{
 			"SciFact",
-			root + "index_scifact", // index folders created earlier
+			root + "/index_scifact", // index folders created earlier
 			root + "/scifact/corpus.jsonl",
 			root + "/scifact/queries.jsonl",
 			root + "/scifact/qrels/test.tsv",
@@ -60,7 +60,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 
 		return globals.DatasetMetadata{
 			"Marco",
-			root + "index_marco",
+			root + "/index_marco",
 			root + "/msmarco/corpus_debug.jsonl",
 			root + "/msmarco/queries.dev.small_debug.jsonl",
 			root + "/msmarco/qrels/dev.tsv",
@@ -69,7 +69,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 	} else {
 		return globals.DatasetMetadata{
 			"TREC-COVID",
-			root + "index_trec_covid",
+			root + "/index_trec_covid",
 			root + "/trec-covid/corpus.jsonl",
 			root + "/trec-covid/queries.jsonl",
 			root + "/trec-covid/qrels/test.tsv",
