@@ -63,7 +63,9 @@ ldd ./app | egrep 'ngt|hnsw' || true
 #srun ./app -n 199 -t Pacmann -name debug -outFile pacmann_debug.json
 #python3 json_to_tsv.py pacmann_debug.json pacmann_debug_out.tsv
 
-K_VALUES=(50)
+RESULTS_BASE="../results"
+K_VALUES=(10 50 100 500 1000)
+#K_VALUES=(50)
 
 for k in "${K_VALUES[@]}"; do
   outdir="${RESULTS_BASE}/pacmann_${k}"
