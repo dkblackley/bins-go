@@ -101,7 +101,7 @@ func main() {
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
 
-	IDLookup := make(map[string]int) // empty lookup
+	IDLookup := make(map[string]string) // empty lookup
 
 	config := globals.Args{
 		DatasetsDirectory: *datasetsDirectory,
