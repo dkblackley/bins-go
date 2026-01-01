@@ -19,8 +19,10 @@ type Args struct {
 	OutFile           string
 	QueryNum          uint
 	DatasetMeta       DatasetMetadata
-	IDLookup          map[string]int
+	IDLookup          map[[32]byte]string
 }
+
+// strconv.Itoa(docID)
 
 type Vectors struct {
 	CorpusVec   string

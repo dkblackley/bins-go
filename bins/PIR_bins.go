@@ -48,15 +48,7 @@ func (d DBentry) Decode(config globals.Args) []string {
 
 	docIDs := make([]string, 0)
 
-	metaData := config.DatasetMeta
-
-	IDLookup := make(map[string]int)
-	vectors, err := LoadFloat32MatrixFromNpy(metaData.Vectors.CorpusVec, int(config.DBSize), int(config.Dimensions))
-	Must(err)
-	for i := 0; i < len(vectors); i++ {
-		ID := HashFloat32s(vectors[i])
-		IDLookup[ID] = i
-	}
+	IDLookup := config.IDLookup
 
 	for i := 0; i < len(results); i++ {
 		singleResult := results[i]
@@ -97,7 +89,7 @@ func (d DBentry) Decode(config globals.Args) []string {
 				logrus.Warnf("Vector hash not found: %s", ID)
 				continue
 			}
-			docIDs = append(docIDs, strconv.Itoa(docID))
+			docIDs = append(docIDs, docID)
 
 		}
 	}

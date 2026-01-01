@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/csv"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -501,9 +500,9 @@ func WriteCSV(path string, data [][]string) error {
 	return w.Error()
 }
 
-func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[string]int {
+func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[[32]byte]string {
 
-	IDLookup := make(map[string]int)
+	IDLookup := make(map[[32]byte]string)
 	// TODO: THE BELOW LINE MAY NOT WORK IF USING ANN/PACMANN!!
 	vectors, err := LoadFloat32MatrixFromNpy(meta.Vectors.CorpusVec, dbsize, dimensions)
 
@@ -515,76 +514,13 @@ func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[string
 	Must(err)
 	for i := 0; i < len(vectors); i++ {
 		ID := HashFloat32s(vectors[i])
-		IDLookup[ID] = i
+		IDLookup[ID] = strconv.Itoa(i)
 		bar.Add(1)
 	}
 
 	bar.Finish()
 
 	return IDLookup
-}
-
-func Decode(answers map[string][][]uint64, config globals.Args) map[string][]string {
-	// Each input here is going to be a map of QID to a 2d array of uint64s. We want to produce a map of QID to top-k
-	// (larger than k in our case) docIDs.
-
-	docIDs := make(map[string][]string)
-	empty := 0
-
-	logrus.Debugf("Decoding answers with %d items", len(answers))
-
-	for qid, results := range answers {
-		for i := 0; i < len(results); i++ {
-			singleResult := results[i]
-			if len(singleResult) == 1 {
-				logrus.Warnf("Got an empty result: %v - Possibly missed and entry", singleResult)
-				empty++
-				if empty == len(results) {
-					logrus.Errorf("All results were empty!!!!")
-
-				}
-				continue
-			}
-
-			var multipleVectors [][]float32
-
-			//if config.SearchType == "Pacmann" {
-			//	multipleVectors = // TODO: DOES SINGLERESULT ONLY HAVE ONE VECTOR??
-			//} else {
-			multipleVectors, err := DecodeEntryToVectors(singleResult, int(config.Dimensions))
-			Must(err)
-
-			// TODO: Remove this when not debug
-			//if len(multipleVectors) > 0 {
-			//	// Check if the first vector is all zeros
-			//	isZero := true
-			//	for _, val := range multipleVectors[0] {
-			//		if val != 0 {
-			//			isZero = false
-			//			break
-			//		}
-			//	}
-			//	if isZero {
-			//		logrus.Warnf("WARNING: Decoded vector is ALL ZEROS for QID %s", qid)
-			//	}
-			//}
-
-			for j := 0; j < len(multipleVectors); j++ {
-				ID := HashFloat32s(multipleVectors[j])
-				docID, ok := config.IDLookup[ID]
-				if !ok {
-					logrus.Warnf("Vector hash not found: %s", ID)
-					continue
-				}
-				docIDs[qid] = append(docIDs[qid], strconv.Itoa(docID))
-
-			}
-		}
-	}
-
-	logrus.Debugf("Number of empty: %d over all  %d", empty, len(answers))
-	return docIDs
-
 }
 
 func DecodeEntryToVectors(entry []uint64, Dim int) ([][]float32, error) {
@@ -648,7 +584,7 @@ func DecodeEntryToVectors(entry []uint64, Dim int) ([][]float32, error) {
 	return out, nil
 }
 
-func HashFloat32s(xs []float32) string {
+func HashFloat32s(xs []float32) [32]byte {
 	buf := make([]byte, 4*len(xs))
 	for i, f := range xs {
 		bits := math.Float32bits(f)
@@ -656,5 +592,5 @@ func HashFloat32s(xs []float32) string {
 	}
 
 	sum := sha256.Sum256(buf)
-	return hex.EncodeToString(sum[:])
+	return sum
 }
