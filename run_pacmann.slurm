@@ -7,7 +7,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=750G
-#SBATCH --time=0-06:30:00
+#SBATCH --time=2-06:30:00
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
