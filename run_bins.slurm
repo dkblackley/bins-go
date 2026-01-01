@@ -63,24 +63,64 @@ echo "Linked libs:"
 ldd ./app | egrep 'ngt|hnsw' || true
 
 
-srun ./app -n 8841823 -t bins -name msmarco -k 1000 -save -thresh 5 -outFile bins_out.json
-python3 json_to_tsv.py bins_out.json bins_out.tsv
+RESULTS_BASE="../results"
+# K_VALUES=(10 50 100 500 1000)
+K_VALUES=(50)
+
+for k in "${K_VALUES[@]}"; do
+  outdir="${RESULTS_BASE}/bins_${k}"
+  mkdir -p "${outdir}"
+
+  json_out="${outdir}/bins_out_k${k}.json"
+  tsv_out="${outdir}/bins_out_k${k}.tsv"
+
+  echo "=== k=${k} ==="
+
+  # 1) Run Go app (write JSON directly into the results directory)
+  srun ./app -n 8841823 -t bins -name msmarco -k "${k}" -save -thresh 5 -outFile "${json_out}"
+
+  # 2) Convert JSON -> TSV (write TSV directly into the results directory)
+  python3 json_to_tsv.py "${json_out}" "${tsv_out}"
+
+  # 3) Re-rank (log stdout/stderr into the results directory so it’s kept per-k)
+  python3 re_rank.py \
+    --qrels ../datasets/msmarco/qrels/dev.tsv \
+    --step3-output "${tsv_out}" \
+    --queries ../datasets/msmarco/queries.dev.small.tsv \
+    --documents ../datasets/msmarco/collection.tsv \
+    --k "${k}"
+
+  # 4) Copy bins.err / bins.out into the results directory with k-specific names
+  [[ -f bins.err ]] || { echo "ERROR: bins.err not found in $(pwd)";  }
+  [[ -f bins.out ]] || { echo "ERROR: bins.out not found in $(pwd)"; }
+
+  cp -f bins.err "${outdir}/bins_${k}.err"
+  cp -f bins.out "${outdir}/bins_${k}.out"
+
+  echo "Saved: ${outdir}"
+done
+
+echo "All done."
 
 
-set -e
-
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-
-export CONDA_ENVS_PATH=/scratch/dblackle/conda/envs
-export CONDA_PKGS_DIRS=/scratch/dblackle/conda/pkgs
-
-conda activate /home/dblackle/.conda/envs/main
-
-
-
-# conda install -c conda-forge sentencepiece -y
-
-echo "CONDA DONE"
-
-
-python3 re_rank.py --qrels ../datasets/msmarco/qrels/dev.tsv --step3-output bins_out.tsv --queries ../datasets/msmarco/queries.dev.small.tsv --documents ../datasets/msmarco/collection.tsv --k 1000
+#srun ./app -n 8841823 -t bins -name msmarco -k 1000 -save -thresh 5 -outFile bins_out.json
+#python3 json_to_tsv.py bins_out.json bins_out.tsv
+#
+#
+#set -e
+#
+#source /home/dblackle/miniconda3/etc/profile.d/conda.sh
+#
+#export CONDA_ENVS_PATH=/scratch/dblackle/conda/envs
+#export CONDA_PKGS_DIRS=/scratch/dblackle/conda/pkgs
+#
+#conda activate /home/dblackle/.conda/envs/main
+#
+#
+#
+## conda install -c conda-forge sentencepiece -y
+#
+#echo "CONDA DONE"
+#
+#
+#python3 re_rank.py --qrels ../datasets/msmarco/qrels/dev.tsv --step3-output bins_out.tsv --queries ../datasets/msmarco/queries.dev.small.tsv --documents ../datasets/msmarco/collection.tsv --k 1000

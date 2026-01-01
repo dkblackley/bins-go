@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem=650G
+#SBATCH --mem=750G
 #SBATCH --time=0-06:30:00
 
 set -euo pipefail
@@ -63,5 +63,32 @@ ldd ./app | egrep 'ngt|hnsw' || true
 #srun ./app -n 199 -t Pacmann -name debug -outFile pacmann_debug.json
 #python3 json_to_tsv.py pacmann_debug.json pacmann_debug_out.tsv
 
-srun ./app -n 8841823 -t Pacmann -name msmarco -k 10 -outFile pacmann_10.json
-python3 json_to_tsv.py pacmann_10.json pacmann_out_10.tsv
+K_VALUES=(50)
+
+for k in "${K_VALUES[@]}"; do
+  outdir="${RESULTS_BASE}/pacmann_${k}"
+  mkdir -p "${outdir}"
+
+  json_out="${outdir}/pacmann_out_k${k}.json"
+  tsv_out="${outdir}/pacmann_out_k${k}.tsv"
+
+  echo "=== k=${k} ==="
+
+  # 1) Run Go app (write JSON directly into the results directory)
+  srun ./app -n 8841823 -t Pacmann -name msmarco -k "${k}"-outFile "${json_out}"
+
+  # 2) Convert JSON -> TSV (write TSV directly into the results directory)
+  python3 json_to_tsv.py "${json_out}" "${tsv_out}"
+
+
+  # 4) Copy pacmann.err / pacmann.out into the results directory with k-specific names
+  [[ -f pac.err ]] || { echo "ERROR: pac.err not found in $(pwd)";  }
+  [[ -f pac.out ]] || { echo "ERROR: pac.out not found in $(pwd)"; }
+
+  cp -f pac.err "${outdir}/pac_${k}.err"
+  cp -f pac.out "${outdir}/pac_${k}.out"
+
+  echo "Saved: ${outdir}"
+done
+
+echo "All done."
