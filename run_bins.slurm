@@ -77,10 +77,10 @@ for k in "${K_VALUES[@]}"; do
   echo "=== k=${k} ==="
 
   # 1) Run Go app (write JSON directly into the results directory)
-  srun ./app -n 8841823 -t bins -name msmarco -k "${k}" -save -thresh 1 -outFile "${json_out}"
+  # srun ./app -n 8841823 -t bins -name msmarco -k "${k}" -save -thresh 1 -outFile "${json_out}"
 
   # 2) Convert JSON -> TSV (write TSV directly into the results directory)
-  python3 json_to_tsv.py "${json_out}" "${tsv_out}"
+ #  python3 json_to_tsv.py "${json_out}" "${tsv_out}"
 
   # 3) Re-rank (log stdout/stderr into the results directory so it’s kept per-k)
   python3 re_rank.py \
@@ -94,8 +94,10 @@ for k in "${K_VALUES[@]}"; do
   [[ -f bins.err ]] || { echo "ERROR: bins.err not found in $(pwd)";  }
   [[ -f bins.out ]] || { echo "ERROR: bins.out not found in $(pwd)"; }
 
-  cp -f bins.err "${outdir}/bins_${k}.err"
-  cp -f bins.out "${outdir}/bins_${k}.out"
+  mv step4_reranked_output.tsv "${outdir}/reranked_bins_k${k}.tsv"
+
+#  cp -f bins.err "${outdir}/bins_${k}.err"
+#  cp -f bins.out "${outdir}/bins_${k}.out"
 
   echo "Saved: ${outdir}"
 done
