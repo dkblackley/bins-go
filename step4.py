@@ -11,7 +11,7 @@ def load_qrels(qrels_path):
     qrels = {}
     with open(qrels_path, 'r') as f:
         for line in f:
-            qid, _, docid, rel = line.strip().split()
+            qid, docid, rel = line.strip().split()
             if int(rel) > 0:
                 if qid not in qrels:
                     qrels[qid] = set()
