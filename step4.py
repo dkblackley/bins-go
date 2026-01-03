@@ -9,8 +9,12 @@ import faiss
 from sentence_transformers import SentenceTransformer
 def load_qrels(qrels_path):
     qrels = {}
+    first = True
     with open(qrels_path, 'r') as f:
         for line in f:
+            if first:
+                first = False
+                continue
             qid, docid, rel = line.strip().split()
             if int(rel) > 0:
                 if qid not in qrels:
