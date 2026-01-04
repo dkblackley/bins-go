@@ -68,7 +68,7 @@ def main(args):
 
     # Load PCA transform
     print("Loading PCA transform...")
-    pca = faiss.read_VectorTransform("pca_768_to_192.faiss")
+    pca = faiss.read_VectorTransform("../datasets/Son/pca_768_to_192.faiss")
     print(f"PCA: {pca.d_in} -> {pca.d_out} dimensions")
 
     # 2) Preallocate a memmapped .npy file for 192-dim embeddings

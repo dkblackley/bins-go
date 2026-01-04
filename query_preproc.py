@@ -33,7 +33,7 @@ def main(args):
     model = SentenceTransformer('sentence-transformers/msmarco-MiniLM-L-6-v3', device=device)
     query_ids = list(queries.keys())
     out = open_memmap(args.output, mode='w+', dtype=np.float32, shape=(len(query_ids), 192))
-    pca = faiss.read_VectorTransform("pca_768_to_192.faiss")
+    pca = faiss.read_VectorTransform("../datasets/Son/pca_768_to_192.faiss")
     batch_size = 256  # Increased for efficiency
     for i, (buf_ids, buf_txt) in enumerate(tqdm(iter_queries(queries, batch_size=batch_size))):
         embeddings = model.encode(buf_txt, convert_to_numpy=True)
