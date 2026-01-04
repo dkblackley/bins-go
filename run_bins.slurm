@@ -83,19 +83,19 @@ for k in "${K_VALUES[@]}"; do
  #  python3 json_to_tsv.py "${json_out}" "${tsv_out}"
 
   # 3) Re-rank (log stdout/stderr into the results directory so it’s kept per-k)
-#  python3 re_rank.py \
-#    --qrels ../datasets/msmarco/qrels/dev.tsv \
-#    --step3-output "${tsv_out}" \
-#    --queries ../datasets/msmarco/queries.dev.small.tsv \
-#    --documents ../datasets/msmarco/collection.tsv \
-#    --k "${k}"
-
-python3 step4.py \
+  python3 re_rank.py \
     --qrels ../datasets/msmarco/qrels/dev.tsv \
     --step3-output "${tsv_out}" \
     --queries ../datasets/msmarco/queries.dev.small.tsv \
     --documents ../datasets/msmarco/collection.tsv \
     --k "${k}"
+
+#python3 step4.py \
+#    --qrels ../datasets/msmarco/qrels/dev.tsv \
+#    --step3-output "${tsv_out}" \
+#    --queries ../datasets/msmarco/queries.dev.small.tsv \
+#    --documents ../datasets/msmarco/collection.tsv \
+#    --k "${k}"
 
   # 4) Copy bins.err / bins.out into the results directory with k-specific names
   [[ -f bins.err ]] || { echo "ERROR: bins.err not found in $(pwd)";  }
