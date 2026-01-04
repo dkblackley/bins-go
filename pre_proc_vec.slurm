@@ -66,12 +66,12 @@ mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE" "$HF_DATASETS_CACHE"
 
 
 
-python collection_preproc.py \
-    --documents "../datasets/msmarco/collection.tsv" \
-    --output "../datasets/Son/local_collection.npy"
+# python collection_preproc.py \
+#     --documents "../datasets/msmarco/collection.tsv" \
+#     --output "../datasets/Son/local_collection.npy"
 
 python query_preproc.py \
-    --documents "../datasets/msmarco/query.dev.small.tsv" \
+    --queries "../datasets/msmarco/queries.dev.small.tsv" \
     --output "../datasets/Son/local_query.npy"
 
 
