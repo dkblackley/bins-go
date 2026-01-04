@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=rag_eval
+#SBATCH --job-name=rag_pre-proc
 #SBATCH --qos=gpu
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:A100.80gb:1
-#SBATCH --output=eval.out
-#SBATCH --error=eval.err
+#SBATCH --output=pre.out
+#SBATCH --error=pre.err
 #SBATCH --cpus-per-task=4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
