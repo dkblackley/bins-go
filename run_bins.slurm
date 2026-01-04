@@ -64,8 +64,8 @@ ldd ./app | egrep 'ngt|hnsw' || true
 
 
 RESULTS_BASE="../results"
-K_VALUES=(10 50 100 500 1000)
-#K_VALUES=(50)
+#K_VALUES=(10 50 100 500 1000)
+K_VALUES=(1000)
 
 for k in "${K_VALUES[@]}"; do
   outdir="${RESULTS_BASE}/bins_${k}"
