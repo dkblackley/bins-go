@@ -317,7 +317,7 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 	logrus.Errorf("PIR BatchNumNeeded: %d", PIR.Config().BatchNumNeeded)
 	logrus.Errorf("PIR SupportBatchNum: %d", PIR.SupportBatchNum)
 	logrus.Errorf("PIR FinishedBatchNum: %d", PIR.FinishedBatchNum)
-	logrus.Errorf("QIDS: %v", qids)
+	//logrus.Errorf("QIDS: %v", qids)
 	logrus.Errorf("config: %v", config)
 	panic("Not enough queries answered")
 	//}
