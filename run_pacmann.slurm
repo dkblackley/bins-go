@@ -87,6 +87,8 @@ for k in "${K_VALUES[@]}"; do
   [[ -f pac.err ]] || { echo "ERROR: pac.err not found in $(pwd)";  }
   [[ -f pac.out ]] || { echo "ERROR: pac.out not found in $(pwd)"; }
 
+  mv "Pacmann_${k}_metadata.json" "${outdir}/Pacmann_${k}_metadata.json"
+
   cp -f pac.err "${outdir}/pac_${k}.err"
   cp -f pac.out "${outdir}/pac_${k}.out"
 
