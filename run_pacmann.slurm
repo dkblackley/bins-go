@@ -77,7 +77,7 @@ for k in "${K_VALUES[@]}"; do
   echo "=== k=${k} ==="
 
   # 1) Run Go app (write JSON directly into the results directory)
-  srun ./app -n 8841823 -t Pacmann -name msmarco -k "${k}" -outFile "${json_out}"
+  srun ./app -n 8841823 -t pacmann -name msmarco -k "${k}" -outFile "${json_out}"
 
   # 2) Convert JSON -> TSV (write TSV directly into the results directory)
   python3 json_to_tsv.py "${json_out}" "${tsv_out}"

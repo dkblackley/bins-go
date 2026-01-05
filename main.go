@@ -80,7 +80,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 func main() {
 
 	DBSize := flag.Uint("n", 8841823, "Number of items/vectors in DB")
-	searchType := flag.String("t", "bins", "Search type, current options are 'bins'|'Pacmann'")
+	searchType := flag.String("t", "bins", "Search type, current options are 'bins'|'pacmann'")
 	dbFileName := flag.String("name", "msmarco", "Identifier for the dataset to be loaded")
 	datasetsDirectory := flag.String("dataset", "../datasets", "Where to look for the dataset/data")
 	topK := flag.Uint("k", 5, "K many items to return in search")
@@ -156,7 +156,7 @@ func main() {
 
 	if *searchType == "bins" {
 		PIRImplemented = bins.MakeVecDb(config)
-	} else if *searchType == "Pacmann" {
+	} else if *searchType == "pacmann" {
 		PIRImplemented = Pacmann.PacmannMain(config)
 	} else {
 		logrus.Errorf("Invalid search type: %s", *searchType)
@@ -308,19 +308,6 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 
 	logrus.Infof("Total maintainence time: %s", maintainenceTime)
 	config.Metadata["MaintainenceTime"] = maintainenceTime.String()
-
-	//if len(decodables) < 6980 {
-	logrus.Errorf("Only %d queries were answered, expected %d", len(decodables), numQueries)
-
-	logrus.Errorf("Decodables: %v", decodables)
-	logrus.Errorf("PIR size: %d", PIR.Config().DBSize)
-	logrus.Errorf("PIR BatchNumNeeded: %d", PIR.Config().BatchNumNeeded)
-	logrus.Errorf("PIR SupportBatchNum: %d", PIR.SupportBatchNum)
-	logrus.Errorf("PIR FinishedBatchNum: %d", PIR.FinishedBatchNum)
-	//logrus.Errorf("QIDS: %v", qids)
-	logrus.Errorf("config: %v", config)
-	panic("Not enough queries answered")
-	//}
 
 	if err != nil {
 		log.Fatal(err)
