@@ -309,6 +309,18 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 	logrus.Infof("Total maintainence time: %s", maintainenceTime)
 	config.Metadata["MaintainenceTime"] = maintainenceTime.String()
 
+	if len(decodables) < 6980 {
+		logrus.Errorf("Only %d queries were answered, expected %d", len(decodables), numQueries)
+
+		logrus.Errorf("Decodables: %v", decodables)
+		logrus.Errorf("PIR size: %d", PIR.Config().DBSize)
+		logrus.Errorf("PIR BatchNumNeeded: %d", PIR.Config().BatchNumNeeded)
+		logrus.Errorf("PIR SupportBatchNum: %d", PIR.SupportBatchNum)
+		logrus.Errorf("PIR FinishedBatchNum: %d", PIR.FinishedBatchNum)
+		logrus.Errorf("config: %v", config)
+		panic("Not enough queries answered")
+	}
+
 	if err != nil {
 		log.Fatal(err)
 	}
