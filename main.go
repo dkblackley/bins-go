@@ -30,7 +30,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 
 		root + "/Son/my_vectors_192.npy",
 		root + "/Son/query_192_float32.npy",
-		root + "my_vectors_192_8841823_192_32_graph.npy"}
+		root + "/Son/my_vectors_192_8841823_192_32_graph.npy"}
 
 	if name == "msmarco" {
 		return globals.DatasetMetadata{
