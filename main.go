@@ -25,6 +25,7 @@ type PIRImpliment interface {
 
 func GetDatasets(root, name string) globals.DatasetMetadata {
 	vectors := globals.Vectors{
+
 		root + "/Son/my_vectors_192.npy",
 		root + "/Son/my_vectors_192_f64.npy",
 		root + "/Son/query_192_float32.npy",
@@ -37,7 +38,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 			root + "/index_marco",
 			root + "/msmarco/corpus.jsonl",
 			root + "/msmarco/queries.dev.small.jsonl",
-			root + "/msmarco/qrels/dev.tsv",
+			root + "/msmarco/qrels/qrels.dev.tsv",
 			vectors,
 		}
 	} else if name == "scifact" {
@@ -63,7 +64,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 			root + "/index_marco",
 			root + "/msmarco/corpus_debug.jsonl",
 			root + "/msmarco/queries.dev.small_debug.jsonl",
-			root + "/msmarco/qrels/dev.tsv",
+			root + "/msmarco/qrels/qrels.dev.tsv",
 			vectors,
 		}
 	} else {
