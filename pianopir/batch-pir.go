@@ -157,10 +157,10 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	fmt.Printf("DBSize: %v, DBEntryByteNum: %v, DBEntrySize: %v, ChunkSize: %v, SetSize: %v, ThreadNum: %v, FailureProbLog2: %v\n", PIR.config.DBSize, PIR.config.DBEntryByteNum, PIR.config.MaxDBEntrySize, PIR.config.ChunkSize, PIR.config.SetSize, PIR.config.ThreadNum, PIR.config.FailureProbLog2)
 	fmt.Printf("-----------------------------\n")
 
-	metadata["DBSizeInBytes"] = fmt.Sprintf("%v", DBSizeInBytes)
+	metadata["DBSizeInBytesMB"] = fmt.Sprintf("%v", DBSizeInBytes/1024/1024)
 	metadata["FailureProbLog2"] = fmt.Sprintf("%v", PIR.config.FailureProbLog2)
-	metadata["ClientStorage"] = fmt.Sprintf("%v", p.LocalStorageSize())
-	metadata["CommCostPerBatch"] = fmt.Sprintf("%v", p.CommCostPerBatchOnline())
+	metadata["ClientStorageMB"] = fmt.Sprintf("%v", p.LocalStorageSize()/1024/1024)
+	metadata["CommCostPerBatchKB"] = fmt.Sprintf("%v", p.CommCostPerBatchOnline()/1024)
 
 	return metadata
 }

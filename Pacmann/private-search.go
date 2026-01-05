@@ -491,7 +491,7 @@ func (g *PIRGraphInfo) Preprocess() {
 	}
 
 	g.rawDB = rawDB
-	fmt.Println("DB size: ", len(rawDB))
+	//fmt.Println("DB size: ", len(rawDB))
 	g.DBEntryByteNum = DBEntryByteNum
 	g.DBTotalSize = uint64(N) * DBEntryByteNum
 

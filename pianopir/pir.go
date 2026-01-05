@@ -8,6 +8,8 @@ import (
 	"math"
 	"math/rand"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -687,7 +689,7 @@ func (p *PianoPIR) DummyPreprocessing() {
 func (p *PianoPIR) Query(idx uint64, realQuery bool) ([]uint64, error) {
 
 	if p.client.FinishedQueryNum == p.client.MaxQueryNum {
-		fmt.Printf("exceed the maximum number of queries %v and redo preprocessing\n", p.client.MaxQueryNum)
+		logrus.Warnf("exceed the maximum number of queries %v and redo preprocessing\n", p.client.MaxQueryNum)
 		p.client.Preprocessing(p.server.rawDB)
 	}
 
