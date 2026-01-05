@@ -77,14 +77,14 @@ for k in "${K_VALUES[@]}"; do
   echo "=== k=${k} ==="
 
   # 1) Run Go app (write JSON directly into the results directory)
-  srun ./app -n 8841823 -t bins -name msmarco -k "${k}" -save -thresh 1 -outFile "${json_out}"
+  # srun ./app -n 8841823 -t bins -name msmarco -k "${k}" -save -thresh 1 -outFile "${json_out}"
 
   # 2) Convert JSON -> TSV (write TSV directly into the results directory)
-   python3 json_to_tsv.py "${json_out}" "${tsv_out}"
+  # python3 json_to_tsv.py "${json_out}" "${tsv_out}"
 
   # 3) Re-rank (log stdout/stderr into the results directory so it’s kept per-k)
   python3 re_rank.py \
-    --qrels ../datasets/msmarco/qrels/dev.tsv \
+    --qrels ../datasets/msmarco/qrels/qrels.dev.tsv \
     --step3-output "${tsv_out}" \
     --queries ../datasets/msmarco/queries.dev.small.tsv \
     --documents ../datasets/msmarco/collection.tsv \
