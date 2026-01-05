@@ -312,6 +312,7 @@ func ProcessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]floa
 		16,
 		rawDB,
 		40,
+		16,
 	)
 
 	//TODO: Remove this when not debugging

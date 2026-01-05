@@ -334,6 +334,7 @@ type PIRGraphInfo struct {
 	DBTotalSize    uint64 // in bytes
 	rawDB          [][]uint64
 	PIR            *pianopir.SimpleBatchPianoPIR
+	stepN          int // number of steps while searching
 
 	// some stats
 	totalQueryNum int
@@ -382,7 +383,7 @@ func (g *PIRGraphInfo) DoSearch(QID string, k int) (globals.Decodable, error) {
 		return nil, errors.New("query not found")
 	}
 
-	vertexIds, _ := frontend.SearchKNN(query, k, 15, pianopir.ThreadNum, false)
+	vertexIds, _ := frontend.SearchKNN(query, k, g.stepN, pianopir.ThreadNum, false)
 
 	return vertexIDs{vertexIds}, nil
 
@@ -495,7 +496,8 @@ func (g *PIRGraphInfo) Preprocess() {
 	g.DBTotalSize = uint64(N) * DBEntryByteNum
 
 	// now we set up the PIR
-	g.PIR = pianopir.NewSimpleBatchPianoPIR(uint64(g.N), uint64(len(g.rawDB[0])), g.DBEntryByteNum, uint64(len(g.graph[0])), g.rawDB, 40)
+	g.PIR = pianopir.NewSimpleBatchPianoPIR(uint64(g.N), uint64(len(g.rawDB[0])), g.DBEntryByteNum,
+		uint64(len(g.graph[0])), g.rawDB, 40, uint64(g.stepN)*uint64(pianopir.ThreadNum)+10)
 
 	if g.skipPrep {
 		g.PIR.DummyPreprocessing()

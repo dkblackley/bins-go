@@ -28,6 +28,7 @@ type SimpleBatchPianoPIRConfig struct {
 	PartitionSize   uint64
 	ThreadNum       uint64
 	FailureProbLog2 uint64
+	BatchNumNeeded  uint64
 }
 
 // it's a simple batch PIR client
@@ -55,7 +56,8 @@ type SimpleBatchPianoPIR struct {
 	commCostPerBatchOffline uint64  // bytes
 }
 
-func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum uint64, BatchSize uint64, rawDB [][]uint64, FailureProbLog2 uint64) *SimpleBatchPianoPIR {
+func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum uint64, BatchSize uint64,
+	rawDB [][]uint64, FailureProbLog2 uint64, BatchNumNeeded uint64) *SimpleBatchPianoPIR {
 	//DBEntrySize := DBEntryByteNum / 8
 	//if len(rawDB) != int(DBSize*DBEntrySize) {
 	//	log.Fatalf("BatchPIR: len(rawDB) = %v; want %v", len(rawDB), DBSize*DBEntrySize)
@@ -75,6 +77,7 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 		PartitionSize:   PartitionSize,
 		ThreadNum:       ThreadNum,
 		FailureProbLog2: FailureProbLog2,
+		BatchNumNeeded:  BatchNumNeeded,
 	}
 
 	subPIR := make([]*PianoPIR, PartitionNum)
@@ -120,11 +123,26 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 	}
 }
 
-func (p *SimpleBatchPianoPIR) PrintInfo() {
+func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
+
+	metadata := make(map[string]string)
+
 	fmt.Printf("-----------BatchPIR config --------\n")
-	DBSizeInBytes := float64(p.config.DBSize) * float64(p.config.DBEntryByteNum)
+
+	DBSizeInBytes := 0
+
+	for i := uint64(0); i < p.config.PartitionNum; i++ {
+
+		rawDB := p.subPIR[i].server.rawDB
+		for _, v := range rawDB {
+			DBSizeInBytes += len(v) * 8
+		}
+	}
+
 	fmt.Printf("DB size in MB = %v\n", DBSizeInBytes/1024/1024)
-	fmt.Printf("DBSize: %v, DBEntryByteNum: %v, BatchSize: %v, PartitionNum: %v, PartitionSize: %v, ThreadNum: %v, FailureProbLog2: %v\n", p.config.DBSize, p.config.DBEntryByteNum, p.config.BatchSize, p.config.PartitionNum, p.config.PartitionSize, p.config.ThreadNum, p.config.FailureProbLog2)
+	fmt.Printf("DBSize: %v, DBEntryByteNum: %v, BatchSize: %v, PartitionNum: %v, PartitionSize: %v, ThreadNum: %v,"+
+		" FailureProbLog2: %v\n", DBSizeInBytes/8, p.config.DBEntryByteNum, p.config.BatchSize, p.config.PartitionNum,
+		p.config.PartitionSize, p.config.ThreadNum, p.config.FailureProbLog2)
 	maxQuery := p.subPIR[0].client.MaxQueryNum / QueryPerPartition
 	fmt.Printf("max query num = %v\n", maxQuery)
 	fmt.Printf("max query per chunk = %v\n", p.subPIR[0].client.maxQueryPerChunk)
@@ -138,6 +156,13 @@ func (p *SimpleBatchPianoPIR) PrintInfo() {
 	fmt.Printf("-----------PIR config --------\n")
 	fmt.Printf("DBSize: %v, DBEntryByteNum: %v, DBEntrySize: %v, ChunkSize: %v, SetSize: %v, ThreadNum: %v, FailureProbLog2: %v\n", PIR.config.DBSize, PIR.config.DBEntryByteNum, PIR.config.MaxDBEntrySize, PIR.config.ChunkSize, PIR.config.SetSize, PIR.config.ThreadNum, PIR.config.FailureProbLog2)
 	fmt.Printf("-----------------------------\n")
+
+	metadata["DBSizeInBytes"] = fmt.Sprintf("%v", DBSizeInBytes)
+	metadata["FailureProbLog2"] = fmt.Sprintf("%v", PIR.config.FailureProbLog2)
+	metadata["ClientStorage"] = fmt.Sprintf("%v", p.LocalStorageSize())
+	metadata["CommCostPerBatch"] = fmt.Sprintf("%v", p.CommCostPerBatchOnline())
+
+	return metadata
 }
 
 func (p *SimpleBatchPianoPIR) RecordStats(prepTime float64) {
@@ -149,8 +174,8 @@ func (p *SimpleBatchPianoPIR) RecordStats(prepTime float64) {
 	p.commCostPerBatchOffline = uint64(float64(DBSizeInBytes) / float64(p.SupportBatchNum)) // bytes
 }
 
-func (p *SimpleBatchPianoPIR) Preprocessing() {
-	p.PrintInfo()
+func (p *SimpleBatchPianoPIR) Preprocessing() time.Duration {
+	// p.PrintInfo()
 
 	// now we do the preprocessing
 	// we need to clock the time
@@ -185,6 +210,8 @@ func (p *SimpleBatchPianoPIR) Preprocessing() {
 	logrus.Debugf("Preprocessing time = %v\n", endTime.Sub(startTime))
 
 	p.RecordStats(prepTime)
+
+	return endTime.Sub(startTime)
 }
 
 func (p *SimpleBatchPianoPIR) DummyPreprocessing() {

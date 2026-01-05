@@ -124,6 +124,7 @@ func main() {
 		QueryNum:          0,
 		DatasetMeta:       meta,
 		IDLookup:          IDLookup,
+		Metadata:          make(map[string]string),
 	}
 
 	switch *debugLevel {
@@ -158,10 +159,14 @@ func main() {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return
 	}
+
+	config.Metadata = PIRImplemented.GetBatchPIRInfo().PrintInfo()
+
 	start := time.Now()
 	PIRImplemented.Preprocess()
 	end := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
+	config.Metadata["PreprocessingTime"] = end.Sub(start).String()
 
 	start = time.Now()
 	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K))
@@ -258,6 +263,11 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]g
 		}
 		q := qids[i]
 
+		if PIR.FinishedBatchNum+PIR.Config().BatchNumNeeded >= PIR.SupportBatchNum { // Do we have enough for the next batch
+			// re-run the preprocessing
+			maintainenceTime += PIR.Preprocessing()
+		}
+
 		// Results should be a 2d array, each item in the first dimension should be a single result and then the lower
 		//dimension is an item in the DB
 		results, err := PIRImplimented.DoSearch(q, k)
@@ -269,17 +279,10 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]g
 
 		decodables[q] = results
 
-		if PIR.FinishedBatchNum >= PIR.SupportBatchNum {
-			// in this case we need to re-run the preprocessing
-			start := time.Now()
-			PIR.Preprocessing()
-			end := time.Now()
-			maintainenceTime += end.Sub(start)
-		}
 	}
 	err := bar.Finish()
 
-	logrus.Infof("Total maintainence time: %s seconds", maintainenceTime)
+	logrus.Infof("Total maintainence time: %s", maintainenceTime)
 
 	if err != nil {
 		log.Fatal(err)

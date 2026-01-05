@@ -20,6 +20,7 @@ type Args struct {
 	QueryNum          uint
 	DatasetMeta       DatasetMetadata
 	IDLookup          map[[32]byte]string
+	Metadata          map[string]string
 }
 
 // strconv.Itoa(docID)
