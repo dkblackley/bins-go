@@ -102,6 +102,7 @@ for k in "${K_VALUES[@]}"; do
   [[ -f bins.out ]] || { echo "ERROR: bins.out not found in $(pwd)"; }
 
   mv step4_reranked_output.tsv "${outdir}/reranked_bins_k${k}.tsv"
+  mv "bins_${k}_metadata.json" "${outdir}/bins_${k}_metadata.json"
 
 #  cp -f bins.err "${outdir}/bins_${k}.err"
 #  cp -f bins.out "${outdir}/bins_${k}.out"
