@@ -32,11 +32,11 @@ type Args struct {
 // strconv.Itoa(docID)
 
 type Vectors struct {
-	CorpusVec   string
-	CorpusVec64 string
-	QueryVec    string
-	QueryVec64  string
-	Graph       string
+	CorpusVec string
+	//CorpusVec64 string
+	QueryVec string
+	//QueryVec64  string
+	Graph string
 }
 
 type DatasetMetadata struct {

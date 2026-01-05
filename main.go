@@ -29,10 +29,8 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 	vectors := globals.Vectors{
 
 		root + "/Son/my_vectors_192.npy",
-		root + "/Son/my_vectors_192_f64.npy",
 		root + "/Son/query_192_float32.npy",
-		root + "/Son/query_192_f64.npy",
-		root + "my_vectors_192_f64_8841823_192_32_graph.npy"}
+		root + "my_vectors_192_8841823_192_32_graph.npy"}
 
 	if name == "msmarco" {
 		return globals.DatasetMetadata{
@@ -56,9 +54,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 		logrus.Debugf("Using debug dataset")
 
 		vectors.CorpusVec = root + "/Son/my_vectors_192_debug.npy"
-		vectors.CorpusVec64 = root + "/Son/my_vectors_192_f64_debug.npy"
 		vectors.QueryVec = root + "/Son/query_192_float32.npy"
-		vectors.QueryVec64 = root + "/Son/query_192_f64_debug.npy"
 		vectors.Graph = root + "/Son/debug_graph.npy"
 
 		return globals.DatasetMetadata{
