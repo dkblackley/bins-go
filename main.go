@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/dkblackley/bins-go/Pacmann"
@@ -167,11 +169,13 @@ func main() {
 	end := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
 	config.Metadata["PreprocessingTime"] = end.Sub(start).String()
+	config.Metadata["NumQueries"] = strconv.Itoa(int(config.QueryNum))
 
 	start = time.Now()
-	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K))
+	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K), config)
 	end = time.Now()
 	logrus.Infof("Answers finished in %s seconds", end.Sub(start))
+	config.Metadata["TotalAnswerTime"] = end.Sub(start).String()
 
 	//answers := make(map[string][][]uint64, config.QueryNum)
 	answers := make(map[string][]string, config.QueryNum)
@@ -223,6 +227,26 @@ func writeAnswers(answers map[string][]string, config globals.Args) {
 	}
 
 	logrus.Infof("Wrote answers to %s", config.OutFile)
+
+	f, err = os.Create(fmt.Sprintf("%s_%d_metadata.json", config.SearchType, config.K))
+	if err != nil {
+		panic(err)
+	}
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(f)
+
+	enc = json.NewEncoder(f)
+	enc.SetIndent("", "  ") // optional
+
+	if err := enc.Encode(config.Metadata); err != nil {
+		panic(err)
+	}
+
+	logrus.Infof("Wrote answers to metadata.json")
 }
 
 func getQIDS(config globals.Args) []string {
@@ -238,7 +262,7 @@ func getQIDS(config globals.Args) []string {
 
 }
 
-func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]globals.Decodable {
+func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globals.Args) map[string]globals.Decodable {
 
 	numQueries := len(qids)
 	//numQueries := 300
@@ -283,6 +307,7 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int) map[string]g
 	err := bar.Finish()
 
 	logrus.Infof("Total maintainence time: %s", maintainenceTime)
+	config.Metadata["MaintainenceTime"] = maintainenceTime.String()
 
 	if err != nil {
 		log.Fatal(err)
