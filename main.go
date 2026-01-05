@@ -150,6 +150,11 @@ func main() {
 	qids := getQIDS(config)
 	config.QueryNum = uint(len(qids))
 
+	if config.QueryNum <= 19 {
+		logrus.Errorf("Only %d queries, skipping loaded from %s", config.QueryNum, config.DatasetMeta.Queries)
+		return
+	}
+
 	var PIRImplemented PIRImpliment
 	// TODO: is it sensible to start the 'pre-processing' timer here? If so replace if with switch case!
 
