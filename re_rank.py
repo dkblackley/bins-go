@@ -9,18 +9,18 @@ import faiss
 from sentence_transformers import SentenceTransformer
 def load_qrels(qrels_path):
     qrels = {}
-    first_line = True
     with open(qrels_path, 'r') as f:
         for line in f:
-            if first_line: # Remove the words in the first row
-                first_line = False
-                continue
-            qid, docid, rel = line.strip().split()
+            qid, _, docid, rel = line.strip().split()
             if int(rel) > 0:
                 if qid not in qrels:
                     qrels[qid] = set()
                 qrels[qid].add(docid)
     return qrels
+
+def load_ids(ids_path):
+    with open(ids_path, 'r') as f:
+        return [line.strip() for line in f if line.strip()]
 
 def load_output(step3_output_path):
     output = defaultdict(list)
@@ -98,12 +98,15 @@ def main(args):
     else:
         print("No queries with relevant documents were evaluated.")
 
-    root = "../datasets/Son/"
+    root = "../../../datasets/Son/"
     # step 4: load embeddings and rerank
     # pca = faiss.read_VectorTransform("pca_768_to_192.faiss")
     # query_embeddings, _ = load_queries_embeddings(root+'local_query.npy')#, 'queries_768.npy.ids')
     query_embeddings, _ = load_queries_embeddings(root+'query_192_float32.npy')#, 'queries_768.npy.ids')
+    query_id_list = list(queries.keys())
+    qid_to_row = {qid: idx for idx, qid in enumerate(query_id_list)}
     mrrs = []
+    mrrs_pre = []
     # document_embeddings, idmap = load_embeddings(root+'local_collection.npy', root+'my_vectors_768.npy.ids')
     document_embeddings, idmap = load_embeddings(root+'my_vectors_192.npy', root+'my_vectors_768.npy.ids')
 
@@ -111,14 +114,15 @@ def main(args):
     database = {}
     for id, embedding in tqdm(zip(idmap, document_embeddings), total=len(idmap)):
         database[str(id)] = embedding
-    i = 0
+    # i = 0
     for qid, docids in tqdm(step3.items()):
         # print(docids,qid)
         gold = qrels.get(qid, set())
         if not gold:
             continue
         # t = time.time()
-        topk_embeddings = [database[docid] for docid in docids if docid in database]
+        present_docids = [docid for docid in docids if docid in database]
+        topk_embeddings = [database[docid] for docid in present_docids]
         # print("Time taken to fetch doc embeddings:", time.time()-t)
         if not topk_embeddings:
             assert False, f"No embeddings found for docids: {docids}"
@@ -128,21 +132,36 @@ def main(args):
         #query_embedding = model.encode([queries[qid]], convert_to_numpy=True)[0]
         # pca transform
         #query_embedding = pca.apply_py(query_embedding.reshape(1, -1))[0]
-        query_embedding = query_embeddings[i]#np.where(query_idmap == qid)[0][0]]
-        i+=1
+        # query_embedding = query_embeddings[i]#np.where(query_idmap == qid)[0][0]]
+        # i+=1
+        row = qid_to_row.get(qid)
+        if row is None:
+            continue
+        query_embedding = query_embeddings[row]
         # compute cosine similarity
         # t = time.time()
         query_embedding_norm = query_embedding / np.linalg.norm(query_embedding)
         topk_embeddings_norm = [emb / np.linalg.norm(emb) for emb in topk_embeddings]
         sims = [np.dot(query_embedding_norm, emb_norm) for emb_norm in topk_embeddings_norm]
         # rerank docids by sims
-        scored_docids = list(zip(docids, sims))
+        scored_docids = list(zip(present_docids, sims))
         scored_docids.sort(key=lambda x: x[1], reverse=True)
-        reranked_docids = [docid for docid, score in scored_docids]
+        reranked_present = [docid for docid, score in scored_docids]
+        missing_docids = [d for d in docids if d not in database]
+        reranked_docids = reranked_present + missing_docids
         step3[qid] = reranked_docids  # update with reranked
         # print("Time taken to rerank:", time.time()-t)
         mrr = calculate_mrr_at_k(reranked_docids, gold, k=args.k)
+        mrr_pre = calculate_mrr_at_k(docids, gold, k=args.k)
         mrrs.append(mrr)
+        mrrs_pre.append(mrr_pre)
+        if qid == list(step3.keys())[0]:  # first query only
+            print("[DEBUG] first qid:", qid)
+            print("pre :", docids[:10])
+            print("post:", reranked_docids[:10])
+            print("top scored:", scored_docids[:5])
+
+    print(f"Mean MRR@{args.k}: {np.mean(mrrs_pre):.4f} BEFORE re-ranking!!")
     print(f"Mean MRR@{args.k}: {np.mean(mrrs):.4f}")
 
     # save reranked results
