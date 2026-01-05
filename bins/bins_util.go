@@ -503,8 +503,7 @@ func WriteCSV(path string, data [][]string) error {
 func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[[32]byte]string {
 
 	IDLookup := make(map[[32]byte]string)
-	// TODO: THE BELOW LINE MAY NOT WORK IF USING ANN/PACMANN!!
-	vectors, err := LoadFloat32MatrixFromNpy(meta.Vectors.CorpusVec, dbsize, dimensions)
+	vectors, err := globals.LoadFloat32MatrixFromNpy(meta.Vectors.CorpusVec, dbsize, dimensions)
 
 	bar := progressbar.NewOptions64(
 		int64(len(vectors)),

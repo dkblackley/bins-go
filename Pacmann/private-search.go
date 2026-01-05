@@ -78,9 +78,9 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 	neighborNum := 32
 	outputNum := args.K
 	queryNum := args.QueryNum //TODO: make this a command line argument?
-	inputFile := args.DatasetMeta.Vectors.CorpusVec64
+	inputFile := args.DatasetMeta.Vectors.CorpusVec
 	graphFile := args.DatasetMeta.Vectors.Graph
-	queryFile := args.DatasetMeta.Vectors.QueryVec64
+	queryFile := args.DatasetMeta.Vectors.QueryVec
 	//outputFile := args.DatasetsDirectory + "_pacmann_output.npy"
 	//gndFile := "" //TODO: we don't need this for MSmarco/test datasets
 	//reportFile := "pacmann_report.txt"
@@ -120,7 +120,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 		// it means we need to read the file
 		log.Print("Loading vectors from file: ", inputFile)
 		var err error
-		vectors, err = graphann.LoadFloat32Matrix(inputFile, n, dim)
+		vectors, err = globals.LoadFloat32MatrixFromNpy(inputFile, n, dim)
 		if err != nil {
 			log.Fatalf("Error reading the input file: %v", err)
 		}
@@ -176,7 +176,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 		}
 		log.Print("Loading queries from file: ", queryFile)
 		var err error
-		queries, err = graphann.LoadFloat32Matrix(queryFile, q, dim)
+		queries, err = globals.LoadFloat32MatrixFromNpy(queryFile, q, dim)
 		if err != nil {
 			log.Fatalf("Error reading the query file: %v", err)
 		}
