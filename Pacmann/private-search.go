@@ -84,7 +84,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 	//outputFile := args.DatasetsDirectory + "_pacmann_output.npy"
 	//gndFile := "" //TODO: we don't need this for MSmarco/test datasets
 	//reportFile := "pacmann_report.txt"
-	//stepN := 15
+	stepN := 15
 	//parallelN := pianopir.ThreadNum
 	//benchmarking := false // always run in test mode
 	//rtt := args.RTT
@@ -206,6 +206,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 		PIR:            nil,
 		queries:        queries,
 		queryMap:       queryMap,
+		stepN:          stepN,
 	}
 
 	return queryEngine
