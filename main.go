@@ -162,12 +162,11 @@ func main() {
 		return
 	}
 
-	config.Metadata = PIRImplemented.GetBatchPIRInfo().PrintInfo()
-
 	start := time.Now()
 	PIRImplemented.Preprocess()
 	end := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
+	config.Metadata = PIRImplemented.GetBatchPIRInfo().PrintInfo()
 	config.Metadata["PreprocessingTime"] = end.Sub(start).String()
 	config.Metadata["NumQueries"] = strconv.Itoa(int(config.QueryNum))
 
