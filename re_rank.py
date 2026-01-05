@@ -98,7 +98,7 @@ def main(args):
     else:
         print("No queries with relevant documents were evaluated.")
 
-    root = "../../../datasets/Son/"
+    root = "../datasets/Son/"
     # step 4: load embeddings and rerank
     # pca = faiss.read_VectorTransform("pca_768_to_192.faiss")
     query_embeddings, _ = load_queries_embeddings(root+'local_query.npy')#, 'queries_768.npy.ids')
