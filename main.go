@@ -97,6 +97,39 @@ func main() {
 	RTT := flag.Uint("RTT", 50, "RTT for the network")
 	outFile := flag.String("outFile", "out.json", "Where to save the answers")
 
+	// Flags for tree method
+	index := flag.String("index", "", "Path to Lucene index")
+	queries := flag.String("queries", "", "Path to queries.tsv file")
+	B := flag.Int("B", 32, "Block size")
+	r := flag.Int("r", 128, "Arity of the conceptual tree for Round 1")
+	L := flag.Int("L", 200, "Beam width for Round 1")
+	s := flag.Int("s", 8, "Sub-block size for Round 2")
+	k := flag.Int("k", 200, "Final number of documents to retrieve for recall@k")
+	kCandidates := flag.Int("k_candidates", 200, "Number of candidate sub-blocks to select in Round 2")
+	maxQueries := flag.Int("max-queries", 200, "Maximum number of queries to run")
+	k1 := flag.Float64("k1", 0.9, "BM25 k1 parameter")
+	bParam := flag.Float64("b", 0.4, "BM25, b parameter")
+	qrels := flag.String("qrels", "", "Path to qrels file for evaluation")
+	precompute := flag.Bool("precompute", false, "If set, load precomputed layout and stats from storage")
+	stage1DataBin := flag.String("stage1-data-bin", "", "Path to Stage-1, data.bin")
+	stage1IdmapBin := flag.String("stage1-idmap-bin", "", "Path to Stage-1, idmap.bin")
+	vocab := flag.String("vocab", "", "Path to vocab.json")
+	scale := flag.Float64("scale", 10.0, "Scale factor")
+	pirBatchSize := flag.Int64("pir-batch-size", 1024, "Batch size for PIR queries (larger = fewer partitions but more memory)")
+
+	// Stage3 (dense rerank) flags
+	docEmbed := flag.String("doc-embed", "", "Path to document embeddings (npy float32 file)")
+	docIDMap := flag.String("doc-id-map", "", "Path to document ID map (one ID per line)")
+	queryEmbed := flag.String("query-embed", "", "Path to query embeddings (npy float32 file)")
+	embedDim := flag.Int("embed-dim", 192, "Embedding dimensionality for Stage3 reranker")
+	debug := flag.Bool("debug", false, "Enable debug logging")
+	queryWords := flag.Int("query-words", 8, "Fixed number of words in query (pad with dummy if needed)")
+
+	// Stage2 hit load/save flags for Stage3-only runs
+	loadStage2Hits := flag.String("load-stage2-hits", "", "Path to JSON file containing saved Stage2 hitSubs (map qid->[]HitSubBlock)")
+	saveStage2Hits := flag.String("save-stage2-hits", "", "If set, save computed Stage2 hitSubs to this JSON file")
+	skipStage2 := flag.Bool("skip-stage2", false, "If set, do not initialize Stage2 DB (use --load-stage2-hits to provide hits)")
+
 	flag.Parse()
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
@@ -124,6 +157,45 @@ func main() {
 		DatasetMeta:       meta,
 		IDLookup:          IDLookup,
 		Metadata:          make(map[string]string),
+
+		BinsConf: globals.BinsConf{
+			Index:   *index,
+			Queries: *queries,
+			B:       *B,
+			R:       *r,
+			L:       *L,
+			S:       *s,
+			K:       *k,
+
+			KCandidates: *kCandidates,
+			MaxQueries:  *maxQueries,
+
+			K1:     *k1,
+			BParam: *bParam,
+
+			Qrels: *qrels,
+
+			Precompute:     *precompute,
+			Stage1DataBin:  *stage1DataBin,
+			Stage1IdmapBin: *stage1IdmapBin,
+
+			Vocab: *vocab,
+			Scale: *scale,
+
+			PIRBatchSize: *pirBatchSize,
+
+			DocEmbed:   *docEmbed,
+			DocIDMap:   *docIDMap,
+			QueryEmbed: *queryEmbed,
+			EmbedDim:   *embedDim,
+
+			Debug:      *debug,
+			QueryWords: *queryWords,
+
+			LoadStage2Hits: *loadStage2Hits,
+			SaveStage2Hits: *saveStage2Hits,
+			SkipStage2:     *skipStage2,
+		},
 	}
 
 	switch *debugLevel {
@@ -160,7 +232,7 @@ func main() {
 	} else if *searchType == "pacmann" {
 		PIRImplemented = Pacmann.PacmannMain(config)
 	} else if *searchType == "tree" {
-		PIRImplemented =
+		PIRImplemented = run_tree.Runtree(config)
 	} else {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return

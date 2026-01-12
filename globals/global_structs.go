@@ -25,8 +25,54 @@ type Args struct {
 	OutFile           string
 	QueryNum          uint
 	DatasetMeta       DatasetMetadata
+	BinsConf          BinsConf
 	IDLookup          map[[32]byte]string
 	Metadata          map[string]string
+}
+
+type BinsConf struct {
+	// Stage0 / I/O
+	Index   string
+	Queries string
+	Qrels   string
+	Vocab   string
+
+	// Stage1/2 params
+	B           int
+	R           int
+	L           int
+	S           int
+	K           int
+	KCandidates int
+	MaxQueries  int
+	Scale       float64
+
+	// BM25 params
+	K1     float64
+	BParam float64
+
+	// Precompute / bins
+	Precompute     bool
+	Stage1DataBin  string
+	Stage1IdmapBin string
+
+	// PIR
+	PIRBatchSize int64
+
+	// Stage3 (dense rerank)
+	DocEmbed   string
+	DocIDMap   string
+	QueryEmbed string
+	EmbedDim   int
+
+	// Debug / query shaping
+	Debug      bool
+	QueryWords int
+
+	// Stage2 hit load/save for Stage3-only runs
+	LoadStage2Hits string
+	SaveStage2Hits string
+	SkipStage2     bool
 }
 
 // strconv.Itoa(docID)
