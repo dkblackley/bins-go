@@ -159,6 +159,8 @@ func main() {
 		PIRImplemented = bins.MakeVecDb(config)
 	} else if *searchType == "pacmann" {
 		PIRImplemented = Pacmann.PacmannMain(config)
+	} else if *searchType == "tree" {
+		PIRImplemented =
 	} else {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return

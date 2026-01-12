@@ -221,7 +221,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 //	// windowSize := queryEngine.PIR.SupportBatchNum / (uint64(stepN) * uint64(parallelN))
 //	//expectedMaintainenceTime := prepTime.Seconds() / float64(windowSize)
 //
-//	//TODO: this outside/in main.go
+//	//TODO: this outside/in tree_main.go
 //	end = time.Now()
 //	searchTime := end.Sub(start) - maintainenceTime
 //	avgTime := searchTime.Seconds() / float64(q)
