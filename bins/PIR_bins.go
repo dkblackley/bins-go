@@ -43,10 +43,6 @@ func (v VecBins) GetMetaData() map[string]string {
 	return v.PIR.PrintInfo()
 }
 
-func (v VecBins) GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR {
-	return v.PIR
-}
-
 func (v VecBins) Preprocess() {
 	v.PIR.Preprocessing()
 }
