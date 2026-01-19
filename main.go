@@ -12,7 +12,6 @@ import (
 	"github.com/dkblackley/bins-go/Pacmann"
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
-	"github.com/dkblackley/bins-go/pianopir"
 	"github.com/dkblackley/bins-go/tree/cmd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
@@ -21,9 +20,11 @@ import (
 // const MAX_UINT32 = ^uint32(0)
 
 type PIRImpliment interface {
-	GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR
+	GetMetaData() map[string]string
 	DoSearch(QID string, k int) (globals.Decodable, error)
 	Preprocess()
+	PIRPreprocess() time.Duration
+	GetBatchNums() (uint64, uint64, uint64)
 }
 
 func GetDatasets(root, name string) globals.DatasetMetadata {
@@ -242,7 +243,7 @@ func main() {
 	PIRImplemented.Preprocess()
 	end := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
-	config.Metadata = PIRImplemented.GetBatchPIRInfo().PrintInfo()
+	config.Metadata = PIRImplemented.GetMetaData()
 	config.Metadata["PreprocessingTime"] = end.Sub(start).String()
 	config.Metadata["NumQueries"] = strconv.Itoa(int(config.QueryNum))
 
@@ -344,7 +345,8 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 
 	decodables := make(map[string]globals.Decodable)
 	maintainenceTime := time.Duration(0)
-	PIR := PIRImplimented.GetBatchPIRInfo()
+
+	finishedBatchNum, batchNumNeeded, supportBatchNum := PIRImplimented.GetBatchNums()
 
 	//start := time.Now()
 
@@ -362,9 +364,9 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 		}
 		q := qids[i]
 
-		if PIR.FinishedBatchNum+PIR.Config().BatchNumNeeded >= PIR.SupportBatchNum { // Do we have enough for the next batch
+		if finishedBatchNum+batchNumNeeded >= supportBatchNum {
 			// re-run the preprocessing
-			maintainenceTime += PIR.Preprocessing()
+			maintainenceTime += PIRImplimented.PIRPreprocess()
 		}
 
 		// Results should be a 2d array, each item in the first dimension should be a single result and then the lower

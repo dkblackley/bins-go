@@ -345,6 +345,19 @@ type PIRGraphInfo struct {
 	frontend      graphann.GraphANNFrontend
 }
 
+func (g *PIRGraphInfo) PIRPreprocess() time.Duration {
+	return g.PIR.Preprocessing()
+}
+
+func (g *PIRGraphInfo) GetBatchNums() (uint64, uint64, uint64) {
+	pir := g.PIR
+	return pir.FinishedBatchNum, pir.Config().BatchNumNeeded, pir.SupportBatchNum
+}
+
+func (g *PIRGraphInfo) GetMetaData() map[string]string {
+	return g.PIR.PrintInfo()
+}
+
 type vertexIDs struct {
 	vertices []int
 }

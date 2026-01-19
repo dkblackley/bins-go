@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
@@ -15,18 +16,31 @@ import (
 )
 
 type VecBins struct {
-	N                    int              // Number of Bins
-	Dimensions           int              // Dimension of vectors
-	EntrySize            int              // number of vectors in a row (Size of one entry)
-	DBEntrySize          uint64           // Number of bytes in an entry
-	DBTotalSize          uint64           // in bytes
-	Queries              map[string]Query // A mapping from QID to query
+	N                    int                      // Number of Bins
+	Dimensions           int                      // Dimension of vectors
+	EntrySize            int                      // number of vectors in a row (Size of one entry)
+	DBEntrySize          uint64                   // Number of bytes in an entry
+	DBTotalSize          uint64                   // in bytes
+	Queries              map[string]globals.Query // A mapping from QID to query
 	EnglishTokenAnalyzer *analysis.Analyzer
 	PIR                  *pianopir.SimpleBatchPianoPIR
 	MaxRowSize           uint
 
 	rawDB  [][]uint64
 	config globals.Args
+}
+
+func (v VecBins) PIRPreprocess() time.Duration {
+	return v.PIR.Preprocessing()
+}
+
+func (v VecBins) GetBatchNums() (uint64, uint64, uint64) {
+	pir := v.PIR
+	return pir.FinishedBatchNum, pir.Config().BatchNumNeeded, pir.SupportBatchNum
+}
+
+func (v VecBins) GetMetaData() map[string]string {
+	return v.PIR.PrintInfo()
 }
 
 func (v VecBins) GetBatchPIRInfo() *pianopir.SimpleBatchPianoPIR {
@@ -226,7 +240,7 @@ func MakeVecDb(config globals.Args) VecBins {
 	meta := config.DatasetMeta
 	queires, err := LoadQueries(meta.Queries)
 	Must(err)
-	queryMap := make(map[string]Query)
+	queryMap := make(map[string]globals.Query)
 	for q := range len(queires) {
 		qid := queires[q].ID
 		queryMap[qid] = queires[q]

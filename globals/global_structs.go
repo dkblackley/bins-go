@@ -99,6 +99,14 @@ type Decodable interface {
 	Decode(config Args) []string
 }
 
+type Query struct {
+	ID      string `json:"_id"`
+	AltID   string `json:"id"`       // Add this to catch "id"
+	QueryID string `json:"query_id"` // Add this to catch "query_id"
+	Text    string `json:"text"`
+	// Metadata string `json:"metadata"`
+}
+
 // Taken from graphann package. I think dim should be 192 and n should be 8841823 (ms marco size)
 func LoadFloat32MatrixFromNpy(filename string, n int, dim int) ([][]float32, error) {
 	r, err := gonpy.NewFileReader(filename)

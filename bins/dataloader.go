@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/blugelabs/bluge"
+	"github.com/dkblackley/bins-go/globals"
 	"github.com/sirupsen/logrus"
 )
 
@@ -135,15 +136,7 @@ func LoadCorpus(path string) ([]beirDoc, error) {
 	return ds, sc.Err()
 }
 
-type Query struct {
-	ID      string `json:"_id"`
-	AltID   string `json:"id"`       // Add this to catch "id"
-	QueryID string `json:"query_id"` // Add this to catch "query_id"
-	Text    string `json:"text"`
-	// Metadata string `json:"metadata"`
-}
-
-func LoadQueries(query_path string) ([]Query, error) {
+func LoadQueries(query_path string) ([]globals.Query, error) {
 
 	f, err := os.Open(query_path)
 
@@ -154,12 +147,12 @@ func LoadQueries(query_path string) ([]Query, error) {
 
 	var counter = 0
 
-	var qs []Query
+	var qs []globals.Query
 	sc := bufio.NewScanner(f)
 	// allow long queries
 	sc.Buffer(make([]byte, 1024), 1024*1024)
 	for sc.Scan() {
-		var q Query
+		var q globals.Query
 
 		if err := json.Unmarshal(sc.Bytes(), &q); err == nil {
 
