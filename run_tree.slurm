@@ -77,7 +77,7 @@ for k in "${K_VALUES[@]}"; do
   echo "=== k=${k} ==="
 
   # 1) Run Go app (write JSON directly into the results directory)
-  srun ./app --n 8841823 --t tree --name msmarco --k "${k}" --outFile "${json_out}" --dataset ../../../datasets --qrels ../../../datasets/tree/qrels.dev.small.tsv --index ../../../datasets/tree/msmarco_reordered --queries ../../../datasets/tree/queries.dev.small.tsv --max-queries 6980 --precompute --doc-embed ../../../datasets/tree/stage3_doc_aligned_shuffle.npy --doc-id-map ../../../datasets/tree/stage3_doc_aligned.npy.ids --query-embed ../../../datasets/tree/stage3_query.npy --embed-dim 192 --stage1-data-bin ../../../datasets/tree/stage1_data.bin --stage1-idmap-bin ../../../datasets/tree/stage1/stage1_idmap.bin --vocab ../../../datasets/tree/stage1_vocab.json --query-words 8 --pir-batch-size 128 2>&1 | grep "ms\|MRR"
+  srun ./app --n 8841823 --t tree --name msmarco --k "${k}" --outFile "${json_out}" --dataset ../../../datasets --qrels ../../../datasets/tree/qrels.dev.small.tsv --index ../../../datasets/tree/msmarco_reordered --queries ../../../datasets/tree/queries.dev.small.tsv --max-queries 6980 --precompute --doc-embed ../../../datasets/tree/stage3_doc_aligned_shuffle.npy --doc-id-map ../../../datasets/tree/stage3_doc_aligned.npy.ids --query-embed ../../../datasets/tree/stage3_query.npy --embed-dim 192 --stage1-data-bin ../../../datasets/tree/stage1_data.bin --stage1-idmap-bin ../../../datasets/tree/stage1/stage1_idmap.bin --vocab ../../../datasets/tree/stage1_vocab.json --query-words 8 --pir-batch-size 128 # 2>&1 | grep "ms\|MRR"
   # 2) Convert JSON -> TSV (write TSV directly into the results directory)
   python3 json_to_tsv.py "${json_out}" "${tsv_out}"
 
