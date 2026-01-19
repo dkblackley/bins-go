@@ -52,11 +52,11 @@ export GOTOOLCHAIN=local
 test -f "${NGT_PREFIX}/lib/libngt.so"  || { echo "Missing libngt.so";  exit 1; }
 test -f "${HNSW_PREFIX}/lib/libhnsw.so" || { echo "Missing libhnsw.so"; exit 1; }
 
-
-go mod tidy
-
-# Build & run your main.go
-go build -v -o app ./main.go
+# Just do this outside instead of in the slurm script to avoid headaches
+#go mod tidy
+#
+## Build & run your main.go
+#go build -v -o app ./main.go
 
 # sanity: confirm both libs resolve
 echo "Linked libs:"
