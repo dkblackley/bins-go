@@ -105,9 +105,8 @@ func main() {
 	r := flag.Int("r", 128, "Arity of the conceptual tree for Round 1")
 	L := flag.Int("L", 200, "Beam width for Round 1")
 	s := flag.Int("s", 8, "Sub-block size for Round 2")
-	k := flag.Int("k", 200, "Final number of documents to retrieve for recall@k")
 	kCandidates := flag.Int("k_candidates", 200, "Number of candidate sub-blocks to select in Round 2")
-	maxQueries := flag.Int("max-queries", 200, "Maximum number of queries to run")
+	maxQueries := flag.Int("max-queries", 25, "Maximum number of queries to run")
 	k1 := flag.Float64("k1", 0.9, "BM25 k1 parameter")
 	bParam := flag.Float64("b", 0.4, "BM25, b parameter")
 	qrels := flag.String("qrels", "", "Path to qrels file for evaluation")
@@ -123,7 +122,6 @@ func main() {
 	docIDMap := flag.String("doc-id-map", "", "Path to document ID map (one ID per line)")
 	queryEmbed := flag.String("query-embed", "", "Path to query embeddings (npy float32 file)")
 	embedDim := flag.Int("embed-dim", 192, "Embedding dimensionality for Stage3 reranker")
-	debug := flag.Bool("debug", false, "Enable debug logging")
 	queryWords := flag.Int("query-words", 8, "Fixed number of words in query (pad with dummy if needed)")
 
 	// Stage2 hit load/save flags for Stage3-only runs
@@ -166,7 +164,7 @@ func main() {
 			R:       *r,
 			L:       *L,
 			S:       *s,
-			K:       *k,
+			K:       int(*topK),
 
 			KCandidates: *kCandidates,
 			MaxQueries:  *maxQueries,
@@ -190,7 +188,7 @@ func main() {
 			QueryEmbed: *queryEmbed,
 			EmbedDim:   *embedDim,
 
-			Debug:      *debug,
+			Debug:      *debugLevel,
 			QueryWords: *queryWords,
 
 			LoadStage2Hits: *loadStage2Hits,

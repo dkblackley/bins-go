@@ -66,7 +66,7 @@ type BinsConf struct {
 	EmbedDim   int
 
 	// Debug / query shaping
-	Debug      bool
+	Debug      int
 	QueryWords int
 
 	// Stage2 hit load/save for Stage3-only runs
