@@ -93,7 +93,7 @@ func main() {
 	binSize := flag.Uint("binSize", 8841823/100, "The number of bins to use")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
-	debugLevel := flag.Int("debug", 1, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
+	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
 	checkPointFolder := flag.String("checkpoint", "checkPoint", "Where to look for the checkpoint data")
 	RTT := flag.Uint("RTT", 50, "RTT for the network")
 	outFile := flag.String("outFile", "out.json", "Where to save the answers")
