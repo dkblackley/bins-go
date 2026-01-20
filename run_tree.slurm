@@ -53,14 +53,14 @@ test -f "${NGT_PREFIX}/lib/libngt.so"  || { echo "Missing libngt.so";  exit 1; }
 test -f "${HNSW_PREFIX}/lib/libhnsw.so" || { echo "Missing libhnsw.so"; exit 1; }
 
 # Just do this outside instead of in the slurm script to avoid headaches
-#go mod tidy
+go mod tidy
 #
 ## Build & run your main.go
-#go build -v -o app ./main.go
+go build -v -o tree ./main.go
 
 # sanity: confirm both libs resolve
 echo "Linked libs:"
-ldd ./app | egrep 'ngt|hnsw' || true
+ldd ./tree | egrep 'ngt|hnsw' || true
 
 
 RESULTS_BASE="../results"
@@ -77,7 +77,9 @@ for k in "${K_VALUES[@]}"; do
   echo "=== k=${k} ==="
 
   # 1) Run Go app (write JSON directly into the results directory)
-  srun ./app --n 8841823 --t tree --name msmarco --k "${k}" --outFile "${json_out}" --dataset ../../../datasets --qrels ../../../datasets/tree/qrels.dev.small.tsv --index ../../../datasets/tree/msmarco_reordered --queries ../../../datasets/tree/queries.dev.small.tsv --max-queries 6980 --precompute --doc-embed ../../../datasets/tree/stage3_doc_aligned_shuffle.npy --doc-id-map ../../../datasets/tree/stage3_doc_aligned.npy.ids --query-embed ../../../datasets/tree/stage3_query.npy --embed-dim 192 --stage1-data-bin ../../../datasets/tree/stage1_data.bin --stage1-idmap-bin ../../../datasets/tree/stage1/stage1_idmap.bin --vocab ../../../datasets/tree/stage1_vocab.json --query-words 8 --pir-batch-size 128 # 2>&1 | grep "ms\|MRR"
+  # srun ./tree --n 8841823 --t tree --name msmarco --k "${k}" --outFile "${json_out}" --dataset ../../../datasets --qrels ../../../datasets/tree/qrels.dev.small.tsv --index ../../../datasets/tree/msmarco_reordered --queries ../../../datasets/tree/queries.dev.small.tsv --max-queries 6980 --precompute --doc-embed ../../../datasets/tree/stage3_doc_aligned_shuffle.npy --doc-id-map ../../../datasets/tree/stage3_doc_aligned.npy.ids --query-embed ../../../datasets/tree/stage3_query.npy --embed-dim 192 --stage1-data-bin ../../../datasets/tree/stage1_data.bin --stage1-idmap-bin ../../../datasets/tree/stage1/stage1_idmap.bin --vocab ../../../datasets/tree/stage1_vocab.json --query-words 8 --pir-batch-size 128 2>&1 | grep "ms\|MRR"
+  srun ./tree --n 8841823 --t tree --name msmarco --k "${k}" --outFile "${json_out}" --dataset ../../../datasets --qrels ../../../datasets/tree/qrels.dev.small.tsv --index ../../../datasets/tree/msmarco_reordered --queries ../../../datasets/tree/queries.dev.small.tsv --max-queries 6980 --precompute --doc-embed ../../../datasets/tree/stage3_doc_aligned_shuffle.npy --doc-id-map ../../../datasets/tree/stage3_doc_aligned.npy.ids --query-embed ../../../datasets/tree/stage3_query.npy --embed-dim 192 --stage1-data-bin ../../../datasets/tree/stage1_data.bin --stage1-idmap-bin ../../../datasets/tree/stage1/stage1_idmap.bin --vocab ../../../datasets/tree/stage1_vocab.json --query-words 8 --pir-batch-size 128
+
   # 2) Convert JSON -> TSV (write TSV directly into the results directory)
   python3 json_to_tsv.py "${json_out}" "${tsv_out}"
 
