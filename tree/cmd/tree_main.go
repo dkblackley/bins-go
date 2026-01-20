@@ -309,14 +309,16 @@ func Runtree(config globals.Args) *PIRTree {
 		os.Exit(1)
 	}
 
-	var analyzedQuery AnalyzedQuery
-	if err := json.Unmarshal(data, &analyzedQuery); err != nil {
+	var analyzedQueries []AnalyzedQuery
+	if err := json.Unmarshal(data, &analyzedQueries); err != nil {
 		logrus.Errorf("Error parsing analyzed queries JSON: %v\n", err)
 		os.Exit(1)
 	}
 
 	var queryMap map[string]AnalyzedQuery
-	queryMap[analyzedQuery.ID] = analyzedQuery
+	for _, query := range analyzedQueries {
+		queryMap[query.ID] = query
+	}
 
 	// Load qrels (optional) for evaluation and MRR calculation
 	var qrelsMap map[string]map[string]bool
