@@ -314,9 +314,8 @@ func Runtree(config globals.Args) *PIRTree {
 		logrus.Errorf("Error parsing analyzed queries JSON: %v\n", err)
 		os.Exit(1)
 	}
-	logrus.Errorf("Loaded %d analyzed queries from: %s\n", len(analyzedQueries), analyzedQueriesPath)
 
-	var queryMap map[string]AnalyzedQuery
+	queryMap := make(map[string]AnalyzedQuery)
 	for _, query := range analyzedQueries {
 		queryMap[query.ID] = query
 	}
