@@ -2,6 +2,8 @@ package pianopir
 
 import (
 	"fmt"
+	"os"
+
 	//"encoding/binary"
 
 	"log"
@@ -688,9 +690,11 @@ func (p *PianoPIR) DummyPreprocessing() {
 
 func (p *PianoPIR) Query(idx uint64, realQuery bool) ([]uint64, error) {
 
-	if p.client.FinishedQueryNum == p.client.MaxQueryNum {
-		logrus.Warnf("exceed the maximum number of queries %v and redo preprocessing\n", p.client.MaxQueryNum)
-		p.client.Preprocessing(p.server.rawDB)
+	if p.client.FinishedQueryNum >= p.client.MaxQueryNum {
+		// This cannot happen dynamically as it will mess up our benchmarking
+		logrus.Errorf("exceed the maximum number of queries %v and redo preprocessing\n", p.client.MaxQueryNum)
+		//p.client.Preprocessing(p.server.rawDB)
+		os.Exit(1)
 	}
 
 	return p.client.Query(idx, p.server, realQuery)
