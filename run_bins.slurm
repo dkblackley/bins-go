@@ -56,11 +56,11 @@ test -f "${HNSW_PREFIX}/lib/libhnsw.so" || { echo "Missing libhnsw.so"; exit 1; 
 go mod tidy
 
 # Build & run your main.go
-go build -v -o app ./main.go
+go build -v -o bins_bin ./main.go
 
 # sanity: confirm both libs resolve
 echo "Linked libs:"
-ldd ./app | egrep 'ngt|hnsw' || true
+ldd ./bins_bin | egrep 'ngt|hnsw' || true
 
 
 RESULTS_BASE="../results"
@@ -77,7 +77,7 @@ for k in "${K_VALUES[@]}"; do
   echo "=== k=${k} ==="
 
   # 1) Run Go app (write JSON directly into the results directory)
-  srun ./app -n 8841823 -t bins -name msmarco -k "${k}" -save -thresh 1 -outFile "${json_out}"
+  srun ./bins_bin -n 8841823 -t bins -name msmarco -k "${k}" -save -thresh 1 -outFile "${json_out}"
 
   # 2) Convert JSON -> TSV (write TSV directly into the results directory)
   python3 json_to_tsv.py "${json_out}" "${tsv_out}"
