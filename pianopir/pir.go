@@ -693,6 +693,7 @@ func (p *PianoPIR) Query(idx uint64, realQuery bool) ([]uint64, error) {
 	if p.client.FinishedQueryNum >= p.client.MaxQueryNum {
 		// This cannot happen dynamically as it will mess up our benchmarking
 		logrus.Errorf("exceed the maximum number of queries %v and redo preprocessing\n", p.client.MaxQueryNum)
+		logrus.Errorf("FinishedQueryNum: %d, MaxQueryNum: %d\n", p.client.FinishedQueryNum, p.client.MaxQueryNum)
 		//p.client.Preprocessing(p.server.rawDB)
 		os.Exit(1)
 	}
