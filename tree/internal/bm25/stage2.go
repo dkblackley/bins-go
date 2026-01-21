@@ -304,71 +304,112 @@ func (pre *Stage2Precomputed) SumBoundsForTermsWithPIR(terms []string, leafNodes
 		return acc
 	}
 
-	// Extract row indices for batch query
-	rowIndices := make([]uint64, len(requests))
-	for i, req := range requests {
-		rowIndices[i] = req.rowIdx
-	}
-
-	// BATCH QUERY - single call for all rows
-	responses, err := pre.Pir.Query(rowIndices)
-	if err != nil {
-		fmt.Printf("Stage2 batch query error: %v, falling back to direct read\n", err)
-		// Fallback: use direct method
-		return pre.SumBoundsForTerms(terms, leafNodes)
-	}
-
-	// Process responses
-	for i, req := range requests {
-		rowWords := responses[i]
-
-		// Handle miss (all zeros) by falling back to direct read
-		if allZeroResponseUint64(rowWords) {
-			rowWords = pre.readRowDirectUint64(req.rowIdx)
-			if allZeroResponseUint64(rowWords) {
-				// Still zero, treat as zero scores (all zeros)
-				// create empty words corresponding to ceil(pre.R/8) words
-				wordsPerRow := (pre.R + 7) / 8
-				rowWords = make([]uint64, wordsPerRow)
-			}
+	batchSize := int(pre.Pir.Config().BatchSize)
+	for i := 0; i < len(requests); i += batchSize {
+		end := i + batchSize
+		if end > len(requests) {
+			end = len(requests)
 		}
 
-		// Convert uint64 word(s) back to bytes
-		rowBytes := convertUint64ToBytes(rowWords)
-
-		// Debug: Compare PIR response with direct read for first few requests
-		if Debug && i < 3 {
-			start := int(req.rowIdx) * pre.R
-			end := start + pre.R
-			var directBytes []byte
-			if end <= len(pre.DataMmap) {
-				directBytes = make([]byte, pre.R)
-				copy(directBytes, pre.DataMmap[start:end])
-			} else {
-				directBytes = make([]byte, pre.R)
-			}
-
-			pirMatch := true
-			for j := 0; j < pre.R; j++ {
-				if rowBytes[j] != directBytes[j] {
-					pirMatch = false
-					break
-				}
-			}
-			if !pirMatch {
-				Debugf("Stage2 PIR MISMATCH: termID=%d, nodeID=%d, rowIdx=%d\n  PIR:    %v\n  Direct: %v",
-					req.termID, req.nodeID, req.rowIdx, rowBytes[:pre.R], directBytes[:pre.R])
-			} else {
-				Debugf("Stage2 PIR OK: termID=%d, nodeID=%d, rowIdx=%d, bytes match", req.termID, req.nodeID, req.rowIdx)
-			}
+		chunkRequests := requests[i:end]
+		rowIndices := make([]uint64, len(chunkRequests))
+		for j, req := range chunkRequests {
+			rowIndices[j] = req.rowIdx
 		}
 
-		// Use first pre.R bytes (each is one uint8 sub-block score)
-		for j := 0; j < pre.R && j < len(rowBytes); j++ {
-			acc[req.nodeID][j] += int(rowBytes[j])
+		responses, err := pre.Pir.Query(rowIndices)
+		if err != nil {
+			for _, req := range chunkRequests {
+				acc[req.nodeID] = pre.readRowDirectAdd(acc[req.nodeID], int(req.rowIdx))
+			}
+			continue
+		}
+
+		for j, req := range chunkRequests {
+			rowBytes := convertUint64ToBytes(responses[j])
+			for k := 0; k < pre.R && k < len(rowBytes); k++ {
+				acc[req.nodeID][k] += int(rowBytes[k])
+			}
 		}
 	}
 
+	//// Extract row indices for batch query
+	//rowIndices := make([]uint64, len(requests))
+	//for i, req := range requests {
+	//	rowIndices[i] = req.rowIdx
+	//}
+	//
+	//// BATCH QUERY - single call for all rows
+	//responses, err := pre.Pir.Query(rowIndices)
+	//if err != nil {
+	//	fmt.Printf("Stage2 batch query error: %v, falling back to direct read\n", err)
+	//	// Fallback: use direct method
+	//	return pre.SumBoundsForTerms(terms, leafNodes)
+	//}
+	//
+	//// Process responses
+	//for i, req := range requests {
+	//	rowWords := responses[i]
+	//
+	//	// Handle miss (all zeros) by falling back to direct read
+	//	if allZeroResponseUint64(rowWords) {
+	//		rowWords = pre.readRowDirectUint64(req.rowIdx)
+	//		if allZeroResponseUint64(rowWords) {
+	//			// Still zero, treat as zero scores (all zeros)
+	//			// create empty words corresponding to ceil(pre.R/8) words
+	//			wordsPerRow := (pre.R + 7) / 8
+	//			rowWords = make([]uint64, wordsPerRow)
+	//		}
+	//	}
+	//
+	//	// Convert uint64 word(s) back to bytes
+	//	rowBytes := convertUint64ToBytes(rowWords)
+	//
+	//	// Debug: Compare PIR response with direct read for first few requests
+	//	if Debug && i < 3 {
+	//		start := int(req.rowIdx) * pre.R
+	//		end := start + pre.R
+	//		var directBytes []byte
+	//		if end <= len(pre.DataMmap) {
+	//			directBytes = make([]byte, pre.R)
+	//			copy(directBytes, pre.DataMmap[start:end])
+	//		} else {
+	//			directBytes = make([]byte, pre.R)
+	//		}
+	//
+	//		pirMatch := true
+	//		for j := 0; j < pre.R; j++ {
+	//			if rowBytes[j] != directBytes[j] {
+	//				pirMatch = false
+	//				break
+	//			}
+	//		}
+	//		if !pirMatch {
+	//			Debugf("Stage2 PIR MISMATCH: termID=%d, nodeID=%d, rowIdx=%d\n  PIR:    %v\n  Direct: %v",
+	//				req.termID, req.nodeID, req.rowIdx, rowBytes[:pre.R], directBytes[:pre.R])
+	//		} else {
+	//			Debugf("Stage2 PIR OK: termID=%d, nodeID=%d, rowIdx=%d, bytes match", req.termID, req.nodeID, req.rowIdx)
+	//		}
+	//	}
+	//
+	//	// Use first pre.R bytes (each is one uint8 sub-block score)
+	//	for j := 0; j < pre.R && j < len(rowBytes); j++ {
+	//		acc[req.nodeID][j] += int(rowBytes[j])
+	//	}
+	//}
+
+	return acc
+}
+
+func (pre *Stage2Precomputed) readRowDirectAdd(acc []int, rowIdx int) []int {
+	start := rowIdx * pre.R
+	end := start + pre.R
+	if end <= len(pre.DataMmap) {
+		row := pre.DataMmap[start:end]
+		for j := 0; j < pre.R; j++ {
+			acc[j] += int(row[j])
+		}
+	}
 	return acc
 }
 

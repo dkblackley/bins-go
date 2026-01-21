@@ -187,60 +187,96 @@ func (db *Stage1PIRDB) GetScoreBatch(termIDs []int, nodeIDs []int) map[int]map[i
 		return make(map[int]map[int][]byte)
 	}
 
-	// Extract row indices for batch query
-	rowIndices := make([]uint64, len(requests))
-	for i, req := range requests {
-		rowIndices[i] = req.rowIdx
-	}
-
-	// Single batch PIR query
-	responses, err := db.Pir.Query(rowIndices)
-	if err != nil {
-		fmt.Printf("Stage1 batch query error: %v, falling back to direct read\n", err)
-		return db.getScoreDirect(termIDs, nodeIDs)
-	}
-
-	// Aggregate responses into result map
 	result := make(map[int]map[int][]byte)
-	for i, req := range requests {
-		if _, ok := result[req.termID]; !ok {
-			result[req.termID] = make(map[int][]byte)
+	batchSize := int(db.Pir.Config().BatchSize)
+
+	for i := 0; i < len(requests); i += batchSize {
+		end := i + batchSize
+		if end > len(requests) {
+			end = len(requests)
 		}
 
-		response := responses[i]
-
-		// Handle miss (all zeros) by falling back to direct read
-		if allZeroResponseUint64(response) {
-			response = db.readRowDirectUint64(req.rowIdx)
-			if allZeroResponseUint64(response) {
-				// Still zero, use zero response
-				response = make([]uint64, db.R)
-			}
+		chunkRequests := requests[i:end]
+		rowIndices := make([]uint64, len(chunkRequests))
+		for j, req := range chunkRequests {
+			rowIndices[j] = req.rowIdx
 		}
 
-		// Convert uint64 to byte array
-		row := convertUint64ToBytes(response)
-
-		// Debug: Compare PIR response with direct read for first few requests
-		if Debug && i < 3 {
-			directRow := db.readRowDirectByte(int(req.rowIdx))
-			pirMatch := true
-			for j := 0; j < min(len(row), len(directRow)); j++ {
-				if row[j] != directRow[j] {
-					pirMatch = false
-					break
+		responses, err := db.Pir.Query(rowIndices)
+		if err != nil {
+			// Fallback logic for just this chunk
+			for _, req := range chunkRequests {
+				if _, ok := result[req.termID]; !ok {
+					result[req.termID] = make(map[int][]byte)
 				}
+				result[req.termID][req.nodeID] = db.readRowDirectByte(int(req.rowIdx))
 			}
-			if !pirMatch {
-				Debugf("Stage1 PIR MISMATCH: termID=%d, nodeID=%d, rowIdx=%d\n  PIR:    %v\n  Direct: %v",
-					req.termID, req.nodeID, req.rowIdx, row[:min(10, len(row))], directRow[:min(10, len(directRow))])
-			} else {
-				Debugf("Stage1 PIR OK: termID=%d, nodeID=%d, rowIdx=%d, first 10 bytes match", req.termID, req.nodeID, req.rowIdx)
-			}
+			continue
 		}
 
-		result[req.termID][req.nodeID] = row
+		for j, response := range responses {
+			req := chunkRequests[j]
+			if _, ok := result[req.termID]; !ok {
+				result[req.termID] = make(map[int][]byte)
+			}
+			result[req.termID][req.nodeID] = convertUint64ToBytes(response)
+		}
 	}
+
+	//// Extract row indices for batch query
+	//rowIndices := make([]uint64, len(requests))
+	//for i, req := range requests {
+	//	rowIndices[i] = req.rowIdx
+	//}
+	//
+	//// Single batch PIR query
+	//responses, err := db.Pir.Query(rowIndices)
+	//if err != nil {
+	//	fmt.Printf("Stage1 batch query error: %v, falling back to direct read\n", err)
+	//	return db.getScoreDirect(termIDs, nodeIDs)
+	//}
+	//
+	//// Aggregate responses into result map
+	//result := make(map[int]map[int][]byte)
+	//for i, req := range requests {
+	//	if _, ok := result[req.termID]; !ok {
+	//		result[req.termID] = make(map[int][]byte)
+	//	}
+	//
+	//	response := responses[i]
+	//
+	//	// Handle miss (all zeros) by falling back to direct read
+	//	if allZeroResponseUint64(response) {
+	//		response = db.readRowDirectUint64(req.rowIdx)
+	//		if allZeroResponseUint64(response) {
+	//			// Still zero, use zero response
+	//			response = make([]uint64, db.R)
+	//		}
+	//	}
+	//
+	//	// Convert uint64 to byte array
+	//	row := convertUint64ToBytes(response)
+	//
+	//	// Debug: Compare PIR response with direct read for first few requests
+	//	if Debug && i < 3 {
+	//		directRow := db.readRowDirectByte(int(req.rowIdx))
+	//		pirMatch := true
+	//		for j := 0; j < min(len(row), len(directRow)); j++ {
+	//			if row[j] != directRow[j] {
+	//				pirMatch = false
+	//				break
+	//			}
+	//		}
+	//		if !pirMatch {
+	//			Debugf("Stage1 PIR MISMATCH: termID=%d, nodeID=%d, rowIdx=%d\n  PIR:    %v\n  Direct: %v",
+	//				req.termID, req.nodeID, req.rowIdx, row[:min(10, len(row))], directRow[:min(10, len(directRow))])
+	//		} else {
+	//			Debugf("Stage1 PIR OK: termID=%d, nodeID=%d, rowIdx=%d, first 10 bytes match", req.termID, req.nodeID, req.rowIdx)
+	//		}
+	//	}
+	//
+	//	result[req.termID][req.nodeID] = row
+	//}
 
 	return result
 }
