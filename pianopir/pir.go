@@ -543,9 +543,16 @@ func (c *PianoPIRClient) Query(idx uint64, server *PianoPIRServer, realQuery boo
 	offset := idx % c.config.ChunkSize
 
 	if c.QueryHistogram[chunkId] >= c.maxQueryPerChunk {
-		log.Printf("Too many queries in chunk %v", chunkId)
-		log.Printf("Max query per chunk = %v", c.maxQueryPerChunk)
-		return ret, fmt.Errorf("too many queries in chunk %v", chunkId)
+		// --- DEBUG START ---
+		logrus.Errorf("PIR ERROR: Chunk saturation reached.")
+		logrus.Errorf("  Chunk ID: %d", chunkId)
+		logrus.Errorf("  Current Usage (Histogram): %d", c.QueryHistogram[chunkId])
+		logrus.Errorf("  Limit (maxQueryPerChunk): %d", c.maxQueryPerChunk)
+		logrus.Errorf("  Global Query Progress: %d / %d", c.FinishedQueryNum, c.MaxQueryNum)
+		logrus.Errorf("  Did we just Preprocess? (Is histogram fresh?): %v", c.FinishedQueryNum == 0)
+		// --- DEBUG END ---
+
+		return ret, fmt.Errorf("too many queries in chunk %v (limit %d)", chunkId, c.maxQueryPerChunk)
 	}
 
 	// now we find the hit hint in the primary hint table

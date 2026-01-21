@@ -255,6 +255,45 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 	// we make a map from index to their responses
 	responses := make(map[uint64][]uint64)
 
+	// --- DEBUG START: Analyze Batch Distribution ---
+	for i := uint64(0); i < p.config.PartitionNum; i++ {
+		if len(partitionQueries[i]) == 0 {
+			continue
+		}
+
+		// Access the subPIR's config to get ChunkSize
+		chunkSize := p.subPIR[i].Config().ChunkSize
+		limit := p.subPIR[i].client.maxQueryPerChunk
+
+		// Count how many queries in THIS BATCH map to specific chunks
+		chunkCounts := make(map[uint64]int)
+		for _, globIdx := range partitionQueries[i] {
+			if globIdx == DefaultValue {
+				continue
+			}
+
+			// Convert global index to partition-local index
+			localIdx := globIdx - i*p.config.PartitionSize
+			chunkID := localIdx / chunkSize
+			chunkCounts[chunkID]++
+		}
+
+		// Report any hot chunks
+		for cID, count := range chunkCounts {
+			// Warning if a SINGLE batch uses more than 50% of the total lifetime budget for a chunk
+			if uint64(count) > limit/2 {
+				logrus.Warnf("⚠️ HOT CHUNK in Batch! Partition %d, Chunk %d", i, cID)
+				logrus.Warnf("   Requests in this batch: %d", count)
+				logrus.Warnf("   Max allowed per chunk (lifetime): %d", limit)
+
+				if uint64(count) >= limit {
+					logrus.Errorf("🚨 CRITICAL: Batch request count (%d) exceeds lifetime limit (%d)! This query will strictly fail.", count, limit)
+				}
+			}
+		}
+	}
+	// --- DEBUG END ---
+
 	for i := uint64(0); i < p.config.PartitionNum; i++ {
 		//start := i * p.config.PartitionSize
 		//end := min((i+1)*p.config.PartitionSize, p.config.DBSize)
