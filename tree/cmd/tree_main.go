@@ -474,7 +474,8 @@ func processAnalyzedQuery(
 	// Normalize query terms to fixed length (for PIR privacy) - This should no longer be an issue? TODO: Don't pad
 	// But track original length so padding doesn't affect scores
 	// query.Terms, query.OriginalLength = normalizeQueryTerms(query.Terms, queryWords)
-	realTerms := query.Terms[:query.OriginalLength] // Terms to use for actual scoring
+	//realTerms := query.Terms[:query.OriginalLength] // Terms to use for actual scoring
+	realTerms := query.Terms
 
 	if bm25.Debug || true {
 		fmt.Printf("  Original terms (%d): %v\n", query.OriginalLength, realTerms)
