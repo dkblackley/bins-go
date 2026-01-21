@@ -278,7 +278,15 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 					logrus.Errorf("the queries to this sub pir is: %v, the offset is %v\n", partitionQueries[i], partitionQueries[i][j]-i*p.config.PartitionSize)
 					logrus.Tracef("All the queries are %v\n", partitionQueries)
 					logrus.Errorf("SimpleBatchPianoPIR.Query: subPIR[%v].Query(%v) failed: %v\n", i, partitionQueries[i][j], err)
-					return nil, err
+
+					fmt.Printf("Redo preprocessing. Made %v batches (%v queries in a partition), redo the preprocessing\n", p.FinishedBatchNum, p.QueriesMadeInPartition)
+					p.Preprocessing()
+
+					query, err = p.subPIR[i].Query(partitionQueries[i][j]-i*p.config.PartitionSize, true)
+					if err != nil {
+						logrus.Errorf("Still did not work.... %v", err)
+						return nil, err
+					}
 				}
 				responses[partitionQueries[i][j]] = query
 			}
