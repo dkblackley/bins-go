@@ -194,7 +194,7 @@ func loadQrels(path string) (qrels, error) {
 		if len(line) < 3 {
 			continue
 		}
-		qid, docid, score := line[0], line[1], line[2]
+		qid, docid, score := line[0], line[2], line[3]
 		v, _ := strconv.Atoi(score)
 		if v <= 0 {
 			continue
