@@ -236,7 +236,7 @@ func main() {
 		logrus.SetLevel(logrus.ErrorLevel)
 	}
 	logrus.SetReportCaller(true)
-	logrus.AddHook(&StackHook{})
+	// logrus.AddHook(&StackHook{})
 
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
