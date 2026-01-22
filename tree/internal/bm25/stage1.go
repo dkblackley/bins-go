@@ -204,6 +204,8 @@ func (db *Stage1PIRDB) GetScoreBatch(termIDs []int, nodeIDs []int) map[int]map[i
 		}
 		logrus.Errorf("Stage1 PIR: Querying %d rows", len(rowIndices))
 		logrus.Errorf("Total queries to be made %d, start %d, end ,%d", len(requests), i, end)
+		logrus.Errorf("Chunk size %d", len(chunkRequests))
+		logrus.Errorf("batch size %d", batchSize)
 		responses, err := db.Pir.Query(rowIndices)
 		if err != nil {
 			// Fallback logic for just this chunk
