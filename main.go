@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -16,6 +17,33 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 )
+
+type StackHook struct{}
+
+func (h *StackHook) Levels() []logrus.Level {
+	// Only trigger for Errors and above
+	return []logrus.Level{logrus.ErrorLevel, logrus.FatalLevel, logrus.PanicLevel}
+}
+
+func (h *StackHook) Fire(entry *logrus.Entry) error {
+	pcs := make([]uintptr, 10)
+	n := runtime.Callers(6, pcs) // Skip internal logrus frames
+	if n == 0 {
+		return nil
+	}
+
+	frames := runtime.CallersFrames(pcs[:n])
+	stack := ""
+	for {
+		frame, more := frames.Next()
+		stack += frame.Function + "\n\t" + frame.File + ":" + string(rune(frame.Line)) + "\n"
+		if !more {
+			break
+		}
+	}
+	entry.Data["stacktrace"] = stack
+	return nil
+}
 
 // const MAX_UINT32 = ^uint32(0)
 
@@ -208,6 +236,7 @@ func main() {
 		logrus.SetLevel(logrus.ErrorLevel)
 	}
 	logrus.SetReportCaller(true)
+	logrus.AddHook(&StackHook{})
 
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
