@@ -598,7 +598,6 @@ func (sr *Stage3Reranker) Rerank(
 
 			resolved := false
 
-			// 1. Try Lucene Index
 			if luceneIdx != nil {
 				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
 					externalID = fmt.Sprintf("%d", extID)
@@ -606,7 +605,6 @@ func (sr *Stage3Reranker) Rerank(
 				}
 			}
 
-			// 2. Fallback to DocIDMap (if Lucene failed or wasn't present)
 			if !resolved {
 				logrus.Debugf("About to run the fix!!")
 				if bm25InternalID < len(sr.DocIDMap) {
@@ -626,7 +624,7 @@ func (sr *Stage3Reranker) Rerank(
 				})
 			} else {
 				// No embedding found for this doc - skip it
-				// fmt.Printf("WARNING: No embedding found for external ID %s (BM25 internal %d)\n", externalID, bm25InternalID)
+				fmt.Printf("WARNING: No embedding found for external ID %s (BM25 internal %d)\n", externalID, bm25InternalID)
 			}
 		}
 	}
