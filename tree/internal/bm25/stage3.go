@@ -583,16 +583,31 @@ func (sr *Stage3Reranker) Rerank(
 		for bm25InternalID := hit.Start; bm25InternalID < hit.End; bm25InternalID++ {
 			// Convert BM25 internal ID to external ID
 			var externalID string
+			//if luceneIdx != nil {
+			//	if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
+			//		externalID = fmt.Sprintf("%d", extID)
+			//	} else {
+			//		// Fallback: use internal ID as string
+			//		externalID = fmt.Sprintf("%d", bm25InternalID)
+			//	}
+			//} else {
+			//	// No luceneIdx, use internal ID as-is
+			//	externalID = fmt.Sprintf("%d", bm25InternalID)
+			//}
+
 			if luceneIdx != nil {
 				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
 					externalID = fmt.Sprintf("%d", extID)
 				} else {
-					// Fallback: use internal ID as string
 					externalID = fmt.Sprintf("%d", bm25InternalID)
 				}
 			} else {
-				// No luceneIdx, use internal ID as-is
-				externalID = fmt.Sprintf("%d", bm25InternalID)
+				// Use DocIDMap as fallback if available(?) TODO: Check this is fine
+				if bm25InternalID < len(sr.DocIDMap) {
+					externalID = sr.DocIDMap[bm25InternalID]
+				} else {
+					externalID = fmt.Sprintf("%d", bm25InternalID)
+				}
 			}
 
 			// Look up embedding index for this external ID
