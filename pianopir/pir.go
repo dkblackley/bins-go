@@ -112,6 +112,12 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 		// I think this is an update 'in place', so I shouldn't need to copy temp_ret[0]/do any fancy memory allocs
 		EntryXor(tempRet, entry)
 
+		// We could also do this by some fancy math - for every query we expect 'setsize' uint64's to be returned.
+		// Given how complicated some of our methods can be, I think this can work fine too
+		for _, row := range entry {
+			s.RetrievalCount += uint64(len(row))
+		}
+
 	}
 
 	return tempRet, nil

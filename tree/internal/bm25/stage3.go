@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/dkblackley/bins-go/pianopir"
+	"github.com/sirupsen/logrus"
 )
 
 // Stage3Reranker performs dense reranking using query/document embeddings
@@ -596,6 +597,7 @@ func (sr *Stage3Reranker) Rerank(
 			//}
 
 			if luceneIdx != nil {
+				logrus.Debugf("About to run the fix!!")
 				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
 					externalID = fmt.Sprintf("%d", extID)
 				} else {
