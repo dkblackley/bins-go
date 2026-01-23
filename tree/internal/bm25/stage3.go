@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/dkblackley/bins-go/pianopir"
+	"github.com/sirupsen/logrus"
 )
 
 // Stage3Reranker performs dense reranking using query/document embeddings
@@ -54,6 +55,8 @@ func NewStage3Reranker(
 	enablePIR bool,
 	batchSize uint64,
 ) (*Stage3Reranker, error) {
+
+	logrus.Debugf("Loading permutation from path: %v", permutationPath)
 	sr := &Stage3Reranker{
 		EmbedDim:     embedDim,
 		BytesPerElem: 0, // will be set from NPY header
