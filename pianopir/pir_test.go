@@ -125,7 +125,7 @@ func TestBatchPIRBasic(t *testing.T) {
 		rawDB[i] = entry
 	}
 
-	PIR := NewSimpleBatchPianoPIR(DBSize, MaxDBEntrySize, DBEntrySize, BatchSize, rawDB, 40)
+	PIR := NewSimpleBatchPianoPIR(DBSize, MaxDBEntrySize, DBEntrySize, BatchSize, rawDB, 40, BatchSize)
 
 	// print the config of the PIR
 	config := PIR.Config()
@@ -294,7 +294,7 @@ func TestBatchPIRPerf(t *testing.T) {
 		rawDB[i] = entry
 	}
 
-	PIR := NewSimpleBatchPianoPIR(DBSize, MaxDBEntrySize, DBEntrySize, BatchSize, rawDB, 40)
+	PIR := NewSimpleBatchPianoPIR(DBSize, MaxDBEntrySize, DBEntrySize, BatchSize, rawDB, 40, BatchSize)
 
 	// print the config of the PIR
 	config := PIR.Config()

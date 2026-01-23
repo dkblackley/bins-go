@@ -34,13 +34,16 @@ type PianoPIRServer struct {
 	// Different from the original implementation, we store the DB as a two dimensional array, the first
 	// Dimentions is the index and then the second is all the items stored at that index
 	rawDB [][]uint64
+
+	RetrievalCount uint64
 }
 
 // an initialization function for the server
 func NewPianoPIRServer(config *PianoPIRConfig, rawDB [][]uint64) *PianoPIRServer {
 	return &PianoPIRServer{
-		config: config,
-		rawDB:  rawDB,
+		config:         config,
+		rawDB:          rawDB,
+		RetrievalCount: 0,
 	}
 }
 

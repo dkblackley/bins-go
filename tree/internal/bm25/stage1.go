@@ -111,7 +111,7 @@ func NewStage1PIRDBWithPIR(dataBinPath, idmapBinPath, vocabPath string, r int, e
 		// DBSize is number of rows. Each row is r bytes = r/8 uint64 elements
 		entrySizeUint64 := uint64(r) / 8
 		db.DataUint64 = convertBytesToUint64(db.DataMmap, entrySizeUint64)
-		dbSize := uint64(len(db.DataUint64)) / entrySizeUint64
+		dbSize := uint64(len(db.DataUint64)) // / entrySizeUint64
 		db.Pir = pianopir.NewSimpleBatchPianoPIR(
 			uint64(len(db.DataUint64)),
 			uint64(len(db.DataUint64[0])),
