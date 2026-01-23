@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/dkblackley/bins-go/pianopir"
-	"github.com/sirupsen/logrus"
 )
 
 // Stage3Reranker performs dense reranking using query/document embeddings
@@ -598,21 +597,21 @@ func (sr *Stage3Reranker) Rerank(
 
 			resolved := false
 
-			if luceneIdx != nil {
+			if bm25InternalID < len(sr.DocIDMap) {
+				externalID = sr.DocIDMap[bm25InternalID]
+				resolved = true
+			}
+
+			if !resolved && luceneIdx != nil {
 				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
 					externalID = fmt.Sprintf("%d", extID)
 					resolved = true
 				}
 			}
 
+			// 3. Last resort
 			if !resolved {
-				logrus.Debugf("About to run the fix!!")
-				if bm25InternalID < len(sr.DocIDMap) {
-					externalID = sr.DocIDMap[bm25InternalID]
-				} else {
-					// 3. Last resort: raw integer string
-					externalID = fmt.Sprintf("%d", bm25InternalID)
-				}
+				externalID = fmt.Sprintf("%d", bm25InternalID)
 			}
 
 			// Look up embedding index for this external ID
