@@ -189,7 +189,7 @@ func (db *Stage1PIRDB) GetScoreBatch(termIDs []int, nodeIDs []int) map[int]map[i
 	}
 
 	result := make(map[int]map[int][]byte)
-	batchSize := int(db.Pir.Config().BatchSize) - 1
+	batchSize := int(db.Pir.Config().BatchSize)
 
 	for i := 0; i < len(requests); i += batchSize {
 		end := i + batchSize

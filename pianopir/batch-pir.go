@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -54,6 +55,8 @@ type SimpleBatchPianoPIR struct {
 	preprocessingTime       float64 // seconds
 	commCostPerBatchOnline  uint64  // bytes
 	commCostPerBatchOffline uint64  // bytes
+
+	permutation []uint64 // <--- ADD THIS LINE
 }
 
 func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum uint64, BatchSize uint64,
@@ -79,6 +82,29 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 		FailureProbLog2: FailureProbLog2,
 		BatchNumNeeded:  BatchNumNeeded,
 	}
+
+	// --- START INSERTION: Zero-Copy Shuffle Logic ---
+	logrus.Infof("Shuffling DB pointers to break spatial locality (Zero-Copy)...")
+	seed := int64(12345)
+	rng := rand.New(rand.NewSource(seed))
+
+	// 1. Create permutation map
+	permInts := rng.Perm(int(DBSize))
+	permutation := make([]uint64, DBSize)
+
+	// 2. Create shuffled VIEW of the DB (copies slice headers only, not data)
+	shuffledDB := make([][]uint64, DBSize)
+
+	for physicalIdx, logicalIdxInt := range permInts {
+		logicalID := uint64(logicalIdxInt)
+
+		// Store map for Query() function
+		permutation[logicalID] = uint64(physicalIdx)
+
+		// Point shuffled row to the EXISTING data row (no memory copy)
+		shuffledDB[physicalIdx] = rawDB[logicalID]
+	}
+	// --- END INSERTION ---
 
 	subPIR := make([]*PianoPIR, PartitionNum)
 
@@ -112,7 +138,8 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 			FailureProbLog2: FailureProbLog2,
 		}
 
-		subPIR[i] = NewPianoPIR(&subConfig, rawDB[start:end])
+		// subPIR[i] = NewPianoPIR(&subConfig, rawDB[start:end])
+		subPIR[i] = NewPianoPIR(&subConfig, shuffledDB[start:end])
 	}
 
 	return &SimpleBatchPianoPIR{
@@ -120,6 +147,7 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 		subPIR:                 subPIR,
 		FinishedBatchNum:       0,
 		QueriesMadeInPartition: 0,
+		permutation:            permutation,
 	}
 }
 
@@ -228,6 +256,18 @@ func (p *SimpleBatchPianoPIR) DummyPreprocessing() {
 /// TODO: optimize for multiple batch
 
 func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
+
+	// --- START INSERTION: Translate Logical -> Physical IDs ---
+	shuffledIdx := make([]uint64, len(idx))
+	for i, logicalID := range idx {
+		if logicalID < uint64(len(p.permutation)) {
+			shuffledIdx[i] = p.permutation[logicalID]
+		} else {
+			shuffledIdx[i] = 0 // Safety fallback
+		}
+	}
+	idx = shuffledIdx // Replace input with shuffled indices
+	// --- END INSERTION ---
 
 	// first identify in average how many queries in each partition we need to make
 
