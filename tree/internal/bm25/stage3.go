@@ -596,18 +596,23 @@ func (sr *Stage3Reranker) Rerank(
 			//	externalID = fmt.Sprintf("%d", bm25InternalID)
 			//}
 
+			resolved := false
+
+			// 1. Try Lucene Index
 			if luceneIdx != nil {
-				logrus.Debugf("About to run the fix!!")
 				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
 					externalID = fmt.Sprintf("%d", extID)
-				} else {
-					externalID = fmt.Sprintf("%d", bm25InternalID)
+					resolved = true
 				}
-			} else {
-				// Use DocIDMap as fallback if available(?) TODO: Check this is fine
+			}
+
+			// 2. Fallback to DocIDMap (if Lucene failed or wasn't present)
+			if !resolved {
+				logrus.Debugf("About to run the fix!!")
 				if bm25InternalID < len(sr.DocIDMap) {
 					externalID = sr.DocIDMap[bm25InternalID]
 				} else {
+					// 3. Last resort: raw integer string
 					externalID = fmt.Sprintf("%d", bm25InternalID)
 				}
 			}
