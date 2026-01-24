@@ -233,6 +233,29 @@ func NewStage3Reranker(
 		sr.pirUsable = true
 	}
 
+	if sr.pirUsable {
+		testIdxs := []int{0, 1, 7, 8, 123} // any in-range
+		for _, ei := range testIdxs {
+			b := uint64(ei / 8)
+			resp, err := sr.Pir.Query([]uint64{b})
+			if err != nil {
+				continue
+			}
+			raw := convertUint64ToBytes(resp[0])
+
+			embSize := sr.EmbedDim * sr.BytesPerElem
+			start := (ei % 8) * embSize
+			end := start + embSize
+
+			directStart := ei * embSize
+			directEnd := directStart + embSize
+
+			if !bytes.Equal(raw[start:end], sr.docEmbedMmap[directStart:directEnd]) {
+				logrus.Errorf("[Stage3 SELFTEST] mismatch at embeddingIdx=%d block=%d", ei, b)
+			}
+		}
+	}
+
 	logrus.Debugf("[Stage3 DEBUG] permLen=%d first10=%v",
 		len(sr.BlockPermutation),
 		sr.BlockPermutation[:min(10, len(sr.BlockPermutation))],
@@ -292,10 +315,9 @@ func parseQueryEmbeddings(data []byte, numQueries, embedDim, bytesPerElem int) [
 			}
 		}
 		embeddings[i] = emb
-		log.Printf("[Stage3] queryEmbeddings: rows=%d dim=%v", len(embeddings), len(embeddings[0]))
-		log.Printf("[Stage3] docEmbeddings: rows=%d dim=%v", len(embeddings), len(embeddings[0]))
-
 	}
+	log.Printf("[Stage3] queryEmbeddings: rows=%d dim=%v", len(embeddings), len(embeddings[0]))
+	log.Printf("[Stage3] docEmbeddings: rows=%d dim=%v", len(embeddings), len(embeddings[0]))
 	return embeddings
 }
 
@@ -349,15 +371,16 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	//	uniqueBlocks[uint64(physicalBlockID)] = true
 	//}
 	//
-	//// 2. Prepare block query list
-	//queryBlocks := make([]uint64, 0, len(uniqueBlocks))
-	//for bid := range uniqueBlocks {
-	//	queryBlocks = append(queryBlocks, bid)
-	//}
 
 	for _, idx := range docIndices {
 		blockID := idx / blockSize // idx is already physical (embeddingIdx)
 		uniqueBlocks[uint64(blockID)] = true
+	}
+
+	// 2. Prepare block query list
+	queryBlocks := make([]uint64, 0, len(uniqueBlocks))
+	for bid := range uniqueBlocks {
+		queryBlocks = append(queryBlocks, bid)
 	}
 
 	// 3. EXECUTE BATCHED QUERIES
@@ -433,7 +456,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 						if len(embBytes) < n {
 							n = len(embBytes)
 						}
-						Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
+						Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, blockID, offsetInBlock)
 						Debugf("  direct[:%d]=% x\n", n, directBytes[:n])
 						Debugf("  pir   [:%d]=% x\n", n, embBytes[:n])
 					}
