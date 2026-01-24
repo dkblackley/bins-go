@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"sync"
@@ -262,6 +263,9 @@ func parseQueryEmbeddings(data []byte, numQueries, embedDim, bytesPerElem int) [
 			}
 		}
 		embeddings[i] = emb
+		log.Printf("[Stage3] queryEmbeddings: rows=%d dim=%v", len(embeddings), len(embeddings[0]))
+		log.Printf("[Stage3] docEmbeddings: rows=%d dim=%v", len(embeddings), len(embeddings[0]))
+
 	}
 	return embeddings
 }
@@ -310,9 +314,9 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	for _, idx := range docIndices {
 		logicalBlockID := idx / blockSize
 		physicalBlockID := logicalBlockID
-		if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-			physicalBlockID = sr.BlockPermutation[logicalBlockID]
-		}
+		//if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+		//	physicalBlockID = sr.BlockPermutation[logicalBlockID]
+		//}
 		uniqueBlocks[uint64(physicalBlockID)] = true
 	}
 
@@ -361,9 +365,9 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 		offsetInBlock := (docIdx % blockSize)
 
 		physicalBlockID := logicalBlockID
-		if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-			physicalBlockID = sr.BlockPermutation[logicalBlockID]
-		}
+		//if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+		//	physicalBlockID = sr.BlockPermutation[logicalBlockID]
+		//}
 
 		// Check if we successfully retrieved this block via PIR
 		if rawBlock, ok := blockData[uint64(physicalBlockID)]; ok {
