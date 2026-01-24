@@ -339,20 +339,25 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	blockSize := 8
 	uniqueBlocks := make(map[uint64]bool)
 
-	// 1. Identify which PHYSICAL blocks we need
-	for _, idx := range docIndices {
-		logicalBlockID := idx / blockSize
-		physicalBlockID := logicalBlockID
-		if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-			physicalBlockID = sr.BlockPermutation[logicalBlockID]
-		}
-		uniqueBlocks[uint64(physicalBlockID)] = true
-	}
+	//// 1. Identify which PHYSICAL blocks we need
+	//for _, idx := range docIndices {
+	//	logicalBlockID := idx / blockSize
+	//	physicalBlockID := logicalBlockID
+	//	if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+	//		physicalBlockID = sr.BlockPermutation[logicalBlockID]
+	//	}
+	//	uniqueBlocks[uint64(physicalBlockID)] = true
+	//}
+	//
+	//// 2. Prepare block query list
+	//queryBlocks := make([]uint64, 0, len(uniqueBlocks))
+	//for bid := range uniqueBlocks {
+	//	queryBlocks = append(queryBlocks, bid)
+	//}
 
-	// 2. Prepare block query list
-	queryBlocks := make([]uint64, 0, len(uniqueBlocks))
-	for bid := range uniqueBlocks {
-		queryBlocks = append(queryBlocks, bid)
+	for _, idx := range docIndices {
+		blockID := idx / blockSize // idx is already physical (embeddingIdx)
+		uniqueBlocks[uint64(blockID)] = true
 	}
 
 	// 3. EXECUTE BATCHED QUERIES
@@ -392,67 +397,129 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 	// 5. Extract specific embeddings from retrieved blocks
 	for _, docIdx := range docIndices {
-		logicalBlockID := docIdx / blockSize
-		offsetInBlock := (docIdx % blockSize)
+		blockID := docIdx / blockSize // physical block
+		offsetInBlock := docIdx % blockSize
 
-		physicalBlockID := logicalBlockID
-
-		if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-			physicalBlockID = sr.BlockPermutation[logicalBlockID]
-		}
+		rawBlock, ok := blockData[uint64(blockID)]
 
 		if debugOnce {
 			debugOnce = false
-			Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
+			logrus.Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d\n", docIdx, offsetInBlock, blockID)
+			logrus.Debugf("res ok?: %v\n", ok)
+			logrus.Debugf("Doc embedding: %v\n", sr.GetDocEmbedding(docIdx))
 		}
 
-		// Check if we successfully retrieved this block via PIR
-		if rawBlock, ok := blockData[uint64(physicalBlockID)]; ok {
-			embSize := sr.EmbedDim * sr.BytesPerElem
-			start := offsetInBlock * embSize
-			end := start + embSize
-
-			if end <= len(rawBlock) {
-				embBytes := rawBlock[start:end]
-
-				if Debug {
-					embSize := sr.EmbedDim * sr.BytesPerElem
-					directStart := docIdx * embSize
-					directEnd := directStart + embSize
-					if directEnd <= len(sr.docEmbedMmap) {
-						directBytes := sr.docEmbedMmap[directStart:directEnd]
-						if !bytes.Equal(directBytes, embBytes) {
-							// print a small prefix so logs are readable
-							n := 16
-							if len(embBytes) < n {
-								n = len(embBytes)
-							}
-							Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
-							Debugf("  direct[:%d]=% x\n", n, directBytes[:n])
-							Debugf("  pir   [:%d]=% x\n", n, embBytes[:n])
-						}
-					}
-				}
-
-				emb := make([]float32, sr.EmbedDim)
-				for j := 0; j < sr.EmbedDim; j++ {
-					bOffset := j * sr.BytesPerElem
-					if sr.BytesPerElem == 4 {
-						emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(embBytes[bOffset : bOffset+4]))
-					} else {
-						emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(embBytes[bOffset : bOffset+8])))
-					}
-				}
-				result[docIdx] = emb
-			}
-		} else {
-			// Fallback: Block missing (likely PIR error on that chunk), use direct read
+		if !ok {
 			result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
+			continue
 		}
+
+		embSize := sr.EmbedDim * sr.BytesPerElem
+		start := offsetInBlock * embSize
+		end := start + embSize
+
+		if end <= len(rawBlock) {
+			embBytes := rawBlock[start:end]
+
+			if Debug {
+				embSize := sr.EmbedDim * sr.BytesPerElem
+				directStart := docIdx * embSize
+				directEnd := directStart + embSize
+				if directEnd <= len(sr.docEmbedMmap) {
+					directBytes := sr.docEmbedMmap[directStart:directEnd]
+					if !bytes.Equal(directBytes, embBytes) {
+						// print a small prefix so logs are readable
+						n := 16
+						if len(embBytes) < n {
+							n = len(embBytes)
+						}
+						Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
+						Debugf("  direct[:%d]=% x\n", n, directBytes[:n])
+						Debugf("  pir   [:%d]=% x\n", n, embBytes[:n])
+					}
+				}
+			}
+
+			emb := make([]float32, sr.EmbedDim)
+			for j := 0; j < sr.EmbedDim; j++ {
+				bOffset := j * sr.BytesPerElem
+				if sr.BytesPerElem == 4 {
+					emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(embBytes[bOffset : bOffset+4]))
+				} else {
+					emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(embBytes[bOffset : bOffset+8])))
+				}
+			}
+			result[docIdx] = emb
+		}
+
 	}
 	// --- BLOCKING & SHUFFLING LOGIC END ---
 
 	return result
+
+	//// 5. Extract specific embeddings from retrieved blocks
+	//for _, docIdx := range docIndices {
+	//	logicalBlockID := docIdx / blockSize
+	//	offsetInBlock := (docIdx % blockSize)
+	//
+	//	physicalBlockID := logicalBlockID
+	//
+	//	if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+	//		physicalBlockID = sr.BlockPermutation[logicalBlockID]
+	//	}
+	//
+	//	if debugOnce {
+	//		debugOnce = false
+	//		Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
+	//	}
+	//
+	//	// Check if we successfully retrieved this block via PIR
+	//	if rawBlock, ok := blockData[uint64(physicalBlockID)]; ok {
+	//		embSize := sr.EmbedDim * sr.BytesPerElem
+	//		start := offsetInBlock * embSize
+	//		end := start + embSize
+	//
+	//		if end <= len(rawBlock) {
+	//			embBytes := rawBlock[start:end]
+	//
+	//			if Debug {
+	//				embSize := sr.EmbedDim * sr.BytesPerElem
+	//				directStart := docIdx * embSize
+	//				directEnd := directStart + embSize
+	//				if directEnd <= len(sr.docEmbedMmap) {
+	//					directBytes := sr.docEmbedMmap[directStart:directEnd]
+	//					if !bytes.Equal(directBytes, embBytes) {
+	//						// print a small prefix so logs are readable
+	//						n := 16
+	//						if len(embBytes) < n {
+	//							n = len(embBytes)
+	//						}
+	//						Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
+	//						Debugf("  direct[:%d]=% x\n", n, directBytes[:n])
+	//						Debugf("  pir   [:%d]=% x\n", n, embBytes[:n])
+	//					}
+	//				}
+	//			}
+	//
+	//			emb := make([]float32, sr.EmbedDim)
+	//			for j := 0; j < sr.EmbedDim; j++ {
+	//				bOffset := j * sr.BytesPerElem
+	//				if sr.BytesPerElem == 4 {
+	//					emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(embBytes[bOffset : bOffset+4]))
+	//				} else {
+	//					emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(embBytes[bOffset : bOffset+8])))
+	//				}
+	//			}
+	//			result[docIdx] = emb
+	//		}
+	//	} else {
+	//		// Fallback: Block missing (likely PIR error on that chunk), use direct read
+	//		result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
+	//	}
+	//}
+	//// --- BLOCKING & SHUFFLING LOGIC END ---
+
+	// return result
 }
 
 //// GetDocEmbeddingBatch retrieves a batch of document embeddings using PIR if available
