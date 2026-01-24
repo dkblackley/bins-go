@@ -59,6 +59,7 @@ func NewStage3Reranker(
 ) (*Stage3Reranker, error) {
 
 	logrus.Debugf("Loading permutation from path: %v", permutationPath)
+
 	sr := &Stage3Reranker{
 		EmbedDim:     embedDim,
 		BytesPerElem: 0, // will be set from NPY header
@@ -232,6 +233,25 @@ func NewStage3Reranker(
 		sr.pirUsable = true
 	}
 
+	logrus.Debugf("[Stage3 DEBUG] permLen=%d first10=%v",
+		len(sr.BlockPermutation),
+		sr.BlockPermutation[:min(10, len(sr.BlockPermutation))],
+	)
+
+	seen := make([]bool, len(sr.BlockPermutation))
+	dups := 0
+	for _, v := range sr.BlockPermutation {
+		if v < 0 || v >= len(sr.BlockPermutation) {
+			logrus.Errorf("[Stage3 DEBUG] perm out of range: %d (len=%d)", v, len(sr.BlockPermutation))
+			break
+		}
+		if seen[v] {
+			dups++
+		}
+		seen[v] = true
+	}
+	logrus.Debugf("[Stage3 DEBUG] perm duplicates=%d", dups)
+
 	return sr, nil
 }
 
@@ -368,14 +388,22 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 		}
 	}
 
+	debugOnce := true
+
 	// 5. Extract specific embeddings from retrieved blocks
 	for _, docIdx := range docIndices {
 		logicalBlockID := docIdx / blockSize
 		offsetInBlock := (docIdx % blockSize)
 
 		physicalBlockID := logicalBlockID
+
 		if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
 			physicalBlockID = sr.BlockPermutation[logicalBlockID]
+		}
+
+		if debugOnce {
+			debugOnce = false
+			Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
 		}
 
 		// Check if we successfully retrieved this block via PIR
