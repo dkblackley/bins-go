@@ -479,6 +479,7 @@ func processAnalyzedQuery(
 	// query.Terms, query.OriginalLength = normalizeQueryTerms(query.Terms, queryWords)
 	//realTerms := query.Terms[:query.OriginalLength] // Terms to use for actual scoring
 	realTerms := query.Terms
+	query.OriginalLength = len(realTerms)
 
 	if bm25.Debug || true {
 		fmt.Printf("  Original terms (%d): %v\n", query.OriginalLength, realTerms)
