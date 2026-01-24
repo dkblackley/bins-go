@@ -824,7 +824,37 @@ func (sr *Stage3Reranker) Rerank(
 		}
 		if !goldFoundInPool {
 			Debugf("DEBUG Stage3: Gold doc NOT FOUND in candidate pool of %d docs\n", len(candidates))
+
+			var gold string
+			for k := range goldDocIDs {
+				gold = k
+				break
+			}
+
+			// however you store them; external docID
+			goldEmbIdx, ok := sr.DocIDReverseMap[gold]
+
+			if ok {
+				if goldEmbIdx < len(sr.DocIDMap) {
+					back := sr.DocIDMap[goldEmbIdx]
+					logrus.Debugf("[Stage3 DEBUG] roundtrip: gold=%d -> embIdx=%d -> back=%d", gold, goldEmbIdx, back)
+				}
+			}
+
+			logrus.Debugf("[Stage3 DEBUG] gold external=%d -> embIdx=%d (ok=%v)", gold, goldEmbIdx, ok)
+
+			// If your candidate pool is in embeddingIdx space:
+			foundEmb := false
+			for _, embIdx := range candidates { // docIndices are embeddingIdx
+				if embIdx.embeddingIdx == goldEmbIdx {
+					foundEmb = true
+					break
+				}
+			}
+			logrus.Debugf("[Stage3 DEBUG] gold embIdx=%d in docIndices? %v", goldEmbIdx, foundEmb)
+
 		}
+
 	}
 
 	// Fetch embeddings using embedding indices
