@@ -1,6 +1,7 @@
 package bm25
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -195,6 +196,14 @@ func NewStage3Reranker(
 
 		// Convert raw bytes to uint64 array for PIR
 		embedUint64 := convertBytesToUint64(sr.docEmbedMmap, dbEntrySizeUint64)
+		if Debug {
+			wordsPerBlock := 0
+			if len(embedUint64) > 0 {
+				wordsPerBlock = len(embedUint64[0])
+			}
+			logrus.Debugf("[Stage3 DEBUG] PIR init: numDocs=%d blockSize=8 dbSizeBlocks=%d embedUint64Blocks=%d wordsPerBlock=%d expectedWordsPerBlock=%d entrySizeBytes=%d\n",
+				numDocs, dbSize, len(embedUint64), wordsPerBlock, dbEntrySizeUint64, entrySizeBytes)
+		}
 
 		// PADDING: Ensure the array is exactly the size PIR expects.
 		// PIR expects (dbSize * entrySizeInUint64s)
@@ -314,9 +323,9 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	for _, idx := range docIndices {
 		logicalBlockID := idx / blockSize
 		physicalBlockID := logicalBlockID
-		//if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-		//	physicalBlockID = sr.BlockPermutation[logicalBlockID]
-		//}
+		if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+			physicalBlockID = sr.BlockPermutation[logicalBlockID]
+		}
 		uniqueBlocks[uint64(physicalBlockID)] = true
 	}
 
@@ -365,9 +374,9 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 		offsetInBlock := (docIdx % blockSize)
 
 		physicalBlockID := logicalBlockID
-		//if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-		//	physicalBlockID = sr.BlockPermutation[logicalBlockID]
-		//}
+		if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+			physicalBlockID = sr.BlockPermutation[logicalBlockID]
+		}
 
 		// Check if we successfully retrieved this block via PIR
 		if rawBlock, ok := blockData[uint64(physicalBlockID)]; ok {
@@ -377,6 +386,26 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 			if end <= len(rawBlock) {
 				embBytes := rawBlock[start:end]
+
+				if Debug {
+					embSize := sr.EmbedDim * sr.BytesPerElem
+					directStart := docIdx * embSize
+					directEnd := directStart + embSize
+					if directEnd <= len(sr.docEmbedMmap) {
+						directBytes := sr.docEmbedMmap[directStart:directEnd]
+						if !bytes.Equal(directBytes, embBytes) {
+							// print a small prefix so logs are readable
+							n := 16
+							if len(embBytes) < n {
+								n = len(embBytes)
+							}
+							Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
+							Debugf("  direct[:%d]=% x\n", n, directBytes[:n])
+							Debugf("  pir   [:%d]=% x\n", n, embBytes[:n])
+						}
+					}
+				}
+
 				emb := make([]float32, sr.EmbedDim)
 				for j := 0; j < sr.EmbedDim; j++ {
 					bOffset := j * sr.BytesPerElem
@@ -621,8 +650,33 @@ func (sr *Stage3Reranker) Rerank(
 				externalID = fmt.Sprintf("%d", bm25InternalID)
 			}
 
+			// DEBUG: compare DocIDMap vs Lucene docmap for the same internal ID
+			if Debug { // assuming your Debug/Debugf gating exists in-package
+				luceneExternal := "<nil-lucene>"
+				if luceneIdx != nil {
+					if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
+						luceneExternal = fmt.Sprintf("%d", extID)
+					} else {
+						luceneExternal = fmt.Sprintf("<err=%v extID=%d>", err, extID)
+					}
+				}
+				logrus.Debugf("[Stage3 DEBUG] internal=%d external(DocIDMap/choice)=%q external(lucene)=%q\n",
+					bm25InternalID, externalID, luceneExternal)
+			}
+
 			// Look up embedding index for this external ID
-			if embIdx, ok := sr.DocIDReverseMap[externalID]; ok {
+			embIdx, ok := sr.DocIDReverseMap[externalID]
+			if Debug {
+				if ok {
+					logrus.Debugf("[Stage3 DEBUG] externalID=%q -> embeddingIdx=%d (internal=%d)\n",
+						externalID, embIdx, bm25InternalID)
+				} else {
+					logrus.Debugf("[Stage3 DEBUG] externalID=%q missing from DocIDReverseMap (internal=%d)\n",
+						externalID, bm25InternalID)
+				}
+			}
+
+			if ok {
 				candidates = append(candidates, docCandidate{
 					bm25InternalID: bm25InternalID,
 					externalID:     externalID,
