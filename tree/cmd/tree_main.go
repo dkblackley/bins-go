@@ -443,6 +443,7 @@ func (r results) Decode(_ globals.Args) []string {
 			extID, err := r.luceneIdx.ConvertInternalToExternalID(docID)
 			if err != nil || extID == 0 {
 				// skip unmapped IDs
+				logrus.Warnf("Warning: failed to convert internal docID %d to external ID, skipping\n", docID)
 				continue
 			}
 			stringIDs = append(stringIDs, fmt.Sprintf("%d", docID))
@@ -756,6 +757,7 @@ func writeResults(qid string, hits []bm25.HitSubBlock, k int, luceneIdx *bm25.Lu
 			extID, err := luceneIdx.ConvertInternalToExternalID(docID)
 			if err != nil || extID == 0 {
 				// skip unmapped IDs
+				logrus.Warnf("Unable to convert internal docID %d to external ID when writing results, skipping")
 				continue
 			}
 			fmt.Fprintf(writer, "%s\t%d\t1.0\n", qid, extID)

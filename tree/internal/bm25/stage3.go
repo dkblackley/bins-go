@@ -619,36 +619,36 @@ func (sr *Stage3Reranker) Rerank(
 		for bm25InternalID := hit.Start; bm25InternalID < hit.End; bm25InternalID++ {
 			// Convert BM25 internal ID to external ID
 			var externalID string
+			if luceneIdx != nil {
+				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
+					externalID = fmt.Sprintf("%d", extID)
+				} else {
+					// Fallback: use internal ID as string
+					externalID = fmt.Sprintf("%d", bm25InternalID)
+				}
+			} else {
+				// No luceneIdx, use internal ID as-is
+				externalID = fmt.Sprintf("%d", bm25InternalID)
+			}
+
+			//resolved := false
+			//
 			//if luceneIdx != nil {
 			//	if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
 			//		externalID = fmt.Sprintf("%d", extID)
-			//	} else {
-			//		// Fallback: use internal ID as string
-			//		externalID = fmt.Sprintf("%d", bm25InternalID)
+			//		resolved = true
 			//	}
-			//} else {
-			//	// No luceneIdx, use internal ID as-is
+			//}
+			//
+			//if !resolved && bm25InternalID < len(sr.DocIDMap) {
+			//	externalID = sr.DocIDMap[bm25InternalID]
+			//	resolved = true
+			//}
+			//
+			//// 3. Last resort
+			//if !resolved {
 			//	externalID = fmt.Sprintf("%d", bm25InternalID)
 			//}
-
-			resolved := false
-
-			if bm25InternalID < len(sr.DocIDMap) {
-				externalID = sr.DocIDMap[bm25InternalID]
-				resolved = true
-			}
-
-			if !resolved && luceneIdx != nil {
-				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
-					externalID = fmt.Sprintf("%d", extID)
-					resolved = true
-				}
-			}
-
-			// 3. Last resort
-			if !resolved {
-				externalID = fmt.Sprintf("%d", bm25InternalID)
-			}
 
 			// DEBUG: compare DocIDMap vs Lucene docmap for the same internal ID
 			if Debug { // assuming your Debug/Debugf gating exists in-package
