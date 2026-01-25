@@ -730,6 +730,7 @@ func (sr *Stage3Reranker) Rerank(
 	queryIdx, err := sr.QueryIDMap[queryNum]
 	if err {
 		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryNum=%q not found in QueryIDMap", queryNum)
+		os.Exit(1)
 	}
 	if queryIdx < 0 || queryIdx >= len(sr.QueryEmbeddings) {
 		return nil, nil, 0
