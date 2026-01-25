@@ -67,7 +67,7 @@ func NewStage3Reranker(
 		QueryIDMap[qid] = i
 
 		if i < 3 {
-			logrus.Debugf("QueryIDMap[%d] = %s\n", i, qid)
+			logrus.Debugf("QueryIDMap[%s] = %d", qid, i)
 		}
 	}
 
@@ -330,7 +330,6 @@ func parseQueryEmbeddings(data []byte, numQueries, embedDim, bytesPerElem int) [
 		embeddings[i] = emb
 	}
 	log.Printf("[Stage3] queryEmbeddings: rows=%d dim=%v", len(embeddings), len(embeddings[0]))
-	log.Printf("[Stage3] docEmbeddings: rows=%d dim=%v", len(embeddings), len(embeddings[0]))
 	return embeddings
 }
 
@@ -737,6 +736,12 @@ func (sr *Stage3Reranker) Rerank(
 	}
 	// Should just be in order?
 	logrus.Debugf("[Stage3 DEBUG] queryNum=%q queryIdx=%d\n", queryNum, queryIdx)
+
+	if queryIdx == 0 {
+		// It seems to always return 0???
+		logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
+		os.Exit(1)
+	}
 
 	if queryIdx < 0 || queryIdx >= len(sr.QueryEmbeddings) {
 		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryIdx=%d out of range (len(QueryEmbeddings)=%d)", queryIdx, len(sr.QueryEmbeddings))

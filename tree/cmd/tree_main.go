@@ -119,19 +119,11 @@ func (P *PIRTree) DoSearch(QID string, k int) (globals.Decodable, error) {
 	return temp, nil
 }
 
-func (P PIRTree) Preprocess() {
+func (P *PIRTree) Preprocess() {
 
-	pirs := []*pianopir.SimpleBatchPianoPIR{
-
-		P.stage1DB.Pir,
-		P.stage2DB.Pir,
-		P.stage3.Pir,
-	}
-
-	for _, pir := range pirs {
-
-		pir.Preprocessing()
-	}
+	P.stage1DB.Pir.Preprocessing()
+	P.stage2DB.Pir.Preprocessing()
+	P.stage3.Pir.Preprocessing()
 
 }
 
