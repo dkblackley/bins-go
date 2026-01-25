@@ -440,7 +440,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 			debugOnce = false
 			logrus.Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d\n", docIdx, offsetInBlock, blockID)
 			logrus.Debugf("res ok?: %v\n", ok)
-			logrus.Debugf("Doc embedding: %v\n", sr.GetDocEmbedding(docIdx))
+			logrus.Tracef("Doc embedding: %v\n", sr.GetDocEmbedding(docIdx))
 		}
 
 		if !ok {
