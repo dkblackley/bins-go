@@ -64,10 +64,10 @@ func NewStage3Reranker(
 	QueryIDMap := make(map[string]int)
 
 	for i, qid := range queryList {
-		QueryIDMap["\\\""+qid+"\\\""] = i
+		QueryIDMap["\""+qid+"\""] = i
 
 		if i < 3 {
-			logrus.Debugf("QueryIDMap[%s] = %d", "\\\""+qid+"\\\"", i)
+			logrus.Debugf("QueryIDMap[%s] = %d", "\""+qid+"\"", i)
 		}
 	}
 
