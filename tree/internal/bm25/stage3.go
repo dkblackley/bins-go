@@ -737,11 +737,11 @@ func (sr *Stage3Reranker) Rerank(
 	// Should just be in order?
 	logrus.Debugf("[Stage3 DEBUG] queryNum=%q queryIdx=%d\n", queryNum, queryIdx)
 
-	if queryIdx == 0 {
-		// It seems to always return 0???
-		logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
-		os.Exit(1)
-	}
+	//if queryIdx == 0 {
+	//	// It seems to always return 0???
+	//	logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
+	//	os.Exit(1)
+	//}
 
 	if queryIdx < 0 || queryIdx >= len(sr.QueryEmbeddings) {
 		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryIdx=%d out of range (len(QueryEmbeddings)=%d)", queryIdx, len(sr.QueryEmbeddings))
