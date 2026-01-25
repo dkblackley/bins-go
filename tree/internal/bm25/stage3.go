@@ -529,9 +529,9 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 							if len(embBytes) < n {
 								n = len(embBytes)
 							}
-							Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
-							Debugf("  direct[:%d]=% x\n", n, directBytes[:n])
-							Debugf("  pir   [:%d]=% x\n", n, embBytes[:n])
+							logrus.Tracef("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
+							logrus.Tracef("  direct[:%d]=% x\n", n, directBytes[:n])
+							logrus.Tracef("  pir   [:%d]=% x\n", n, embBytes[:n])
 						}
 					}
 				}
