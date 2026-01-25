@@ -732,6 +732,7 @@ func (sr *Stage3Reranker) Rerank(
 	queryIdx, err := sr.QueryIDMap[queryNum]
 	if err {
 		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryNum=%q not found in QueryIDMap", queryNum)
+		logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
 		os.Exit(1)
 	}
 	// Should just be in order?
