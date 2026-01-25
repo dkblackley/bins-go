@@ -296,11 +296,11 @@ func Runtree(config globals.Args) *PIRTree {
 	}
 
 	var analyzedQueries []AnalyzedQuery
-	var stage3Idx = make([]string, len(analyzedQueries))
 	if err := json.Unmarshal(data, &analyzedQueries); err != nil {
 		logrus.Errorf("Error parsing analyzed queries JSON: %v\n", err)
 		os.Exit(1)
 	}
+	var stage3Idx = make([]string, len(analyzedQueries))
 
 	queryMap := make(map[string]AnalyzedQuery)
 	for i, query := range analyzedQueries {
