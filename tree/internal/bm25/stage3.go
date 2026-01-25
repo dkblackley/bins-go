@@ -800,7 +800,7 @@ func (sr *Stage3Reranker) Rerank(
 						luceneExternal = fmt.Sprintf("<err=%v extID=%d>", err, extID)
 					}
 				}
-				logrus.Debugf("[Stage3 DEBUG] internal=%d external(DocIDMap/choice)=%q external(lucene)=%q\n",
+				logrus.Tracef("[Stage3 DEBUG] internal=%d external(DocIDMap/choice)=%q external(lucene)=%q\n",
 					bm25InternalID, externalID, luceneExternal)
 			}
 
@@ -808,10 +808,10 @@ func (sr *Stage3Reranker) Rerank(
 			embIdx, ok := sr.DocIDReverseMap[externalID]
 			if Debug {
 				if ok {
-					logrus.Debugf("[Stage3 DEBUG] externalID=%q -> embeddingIdx=%d (internal=%d)\n",
+					logrus.Tracef("[Stage3 DEBUG] externalID=%q -> embeddingIdx=%d (internal=%d)\n",
 						externalID, embIdx, bm25InternalID)
 				} else {
-					logrus.Debugf("[Stage3 DEBUG] externalID=%q missing from DocIDReverseMap (internal=%d)\n",
+					logrus.Tracef("[Stage3 DEBUG] externalID=%q missing from DocIDReverseMap (internal=%d)\n",
 						externalID, bm25InternalID)
 				}
 			}
