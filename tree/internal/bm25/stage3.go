@@ -713,10 +713,15 @@ type RerankerResults struct {
 // Returns: reranked doc IDs with scores
 func (sr *Stage3Reranker) Rerank(
 	hitSubBlocks []HitSubBlock,
-	queryIdx int,
+	queryNum string,
 	goldDocIDs map[string]bool,
 	luceneIdx *LuceneIndex,
 ) ([]string, []float32, float32) {
+
+	queryIdx, err := sr.QueryIDMap[queryNum]
+	if err {
+		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryNum=%q not found in QueryIDMap", queryNum)
+	}
 	if queryIdx < 0 || queryIdx >= len(sr.QueryEmbeddings) {
 		return nil, nil, 0
 	}

@@ -559,7 +559,7 @@ func processAnalyzedQuery(
 	// If stage3 reranker is available, rerank and write reranked results
 	if stage3 != nil {
 		// Assume query embeddings are in same order as analyzedQueries; use queryCount as index
-		qIdx := queryCount
+		// qIdx := queryCount
 		// Prepare gold set for Stage3 (if available) so Stage3 can include debug and MRR
 		var goldSetForStage3 map[string]bool = nil
 		if qrelsMap != nil {
@@ -612,7 +612,7 @@ func processAnalyzedQuery(
 
 		start = time.Now()
 		// TODO: MAKE THIS INTO POSTPROC FOR ALL QUERIES(?)
-		docIDs, _, mrrFromStage3 := stage3.Rerank(hitSubs, qIdx, goldSetForStage3, luceneIdx)
+		docIDs, _, mrrFromStage3 := stage3.Rerank(hitSubs, query.ID, goldSetForStage3, luceneIdx)
 		elapsed = time.Since(start)
 		fmt.Printf("Round 3, took %s\n", elapsed)
 
