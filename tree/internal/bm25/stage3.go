@@ -74,7 +74,7 @@ func NewStage3Reranker(
 	sr := &Stage3Reranker{
 		EmbedDim:     embedDim,
 		BytesPerElem: 0, // will be set from NPY header
-		QueryIDMap:   make(map[string]int),
+		QueryIDMap:   QueryIDMap,
 		Pir:          nil,
 		pirUsable:    false,
 	}
