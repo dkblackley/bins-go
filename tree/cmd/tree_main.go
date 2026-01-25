@@ -109,7 +109,7 @@ func (P *PIRTree) GetMetaData() map[string]string {
 	return meta
 }
 
-func (P PIRTree) DoSearch(QID string, k int) (globals.Decodable, error) {
+func (P *PIRTree) DoSearch(QID string, k int) (globals.Decodable, error) {
 
 	query := P.queryMap[QID]
 
