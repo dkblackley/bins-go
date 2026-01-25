@@ -65,6 +65,10 @@ func NewStage3Reranker(
 
 	for i, qid := range queryList {
 		QueryIDMap[qid] = i
+
+		if i < 3 {
+			logrus.Debugf("QueryIDMap[%d] = %s\n", i, qid)
+		}
 	}
 
 	sr := &Stage3Reranker{
@@ -501,7 +505,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 		if debugOnce {
 			debugOnce = false
-			Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
+			logrus.Tracef("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
 		}
 
 		// Check if we successfully retrieved this block via PIR
@@ -731,7 +735,11 @@ func (sr *Stage3Reranker) Rerank(
 		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryNum=%q not found in QueryIDMap", queryNum)
 		os.Exit(1)
 	}
+	// Should just be in order?
+	logrus.Debugf("[Stage3 DEBUG] queryNum=%q queryIdx=%d\n", queryNum, queryIdx)
+
 	if queryIdx < 0 || queryIdx >= len(sr.QueryEmbeddings) {
+		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryIdx=%d out of range (len(QueryEmbeddings)=%d)", queryIdx, len(sr.QueryEmbeddings))
 		return nil, nil, 0
 	}
 
