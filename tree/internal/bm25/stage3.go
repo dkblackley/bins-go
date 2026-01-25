@@ -161,6 +161,8 @@ func NewStage3Reranker(
 		return nil, fmt.Errorf("error parsing query embeddings NPY header: %v", err)
 	}
 
+	logrus.Debugf("[Stage3 DEBUG] Managed to load %d number of queries from file %s", numQueries, queryEmbedPath)
+
 	// Verify query embedding dimension matches document embedding dimension
 	if queryEmbedDim != sr.EmbedDim {
 		fmt.Printf("WARNING: Query embeddings have dim=%d, but document embeddings have dim=%d. Using query dim.\n", queryEmbedDim, sr.EmbedDim)
