@@ -64,10 +64,10 @@ func NewStage3Reranker(
 	QueryIDMap := make(map[string]int)
 
 	for i, qid := range queryList {
-		QueryIDMap["\""+qid+"\""] = i
+		QueryIDMap[qid] = i
 
 		if i < 3 {
-			logrus.Debugf("QueryIDMap[%s] = %d", "\""+qid+"\"", i)
+			logrus.Debugf("QueryIDMap[%s] = %d", qid, i)
 		}
 	}
 
@@ -729,8 +729,9 @@ func (sr *Stage3Reranker) Rerank(
 	luceneIdx *LuceneIndex,
 ) ([]string, []float32, float32) {
 
-	queryIdx, err := sr.QueryIDMap[queryNum]
-	if err {
+	queryIdx, ok := sr.QueryIDMap[queryNum]
+	if !ok {
+
 		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryNum=%s not found in QueryIDMap", queryNum)
 		logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
 		os.Exit(1)
