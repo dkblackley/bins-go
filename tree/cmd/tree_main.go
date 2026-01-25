@@ -285,22 +285,6 @@ func Runtree(config globals.Args) *PIRTree {
 		}
 	}
 
-	// var stage1DB *bm25.Stage1PIRDB = nil
-	// var stage2DB *bm25.Stage2Precomputed = nil
-	// Initialize Stage3 reranker if embeddings provided
-	var stage3 *bm25.Stage3Reranker = nil
-	if docEmbed != "" && docIDMap != "" && queryEmbed != "" {
-		// sr, err := bm25.NewStage3Reranker(docEmbed, docIDMap, queryEmbed, dataRoot+"/tree/block_permutations.json", embedDim, enablePIR, uint64(32))
-		// I think there is a difference in the files that I and Son use! My ones seem to be aligned and his are not?
-		sr, err := bm25.NewStage3Reranker(docEmbed, docIDMap, queryEmbed, "", embedDim, enablePIR, uint64(32))
-		if err != nil {
-			fmt.Printf("Warning: failed to initialize Stage3 reranker: %v\n", err)
-		} else {
-			stage3 = sr
-			defer stage3.Close()
-		}
-	}
-
 	analyzedQueriesPath := strings.Replace(queries, ".tsv", ".analyzed.json", 1)
 	// processAnalyzedQueries(layout, stage1DB, stage2DB, luceneIdx, analyzedQueriesPath, maxQueries, L, s, kCandidates, k, stage3, qrels, loadStage2Hits, saveStage2Hits, skipStage2, queryWords)
 
@@ -312,14 +296,32 @@ func Runtree(config globals.Args) *PIRTree {
 	}
 
 	var analyzedQueries []AnalyzedQuery
+	var stage3Idx = make([]string, len(analyzedQueries))
 	if err := json.Unmarshal(data, &analyzedQueries); err != nil {
 		logrus.Errorf("Error parsing analyzed queries JSON: %v\n", err)
 		os.Exit(1)
 	}
 
 	queryMap := make(map[string]AnalyzedQuery)
-	for _, query := range analyzedQueries {
+	for i, query := range analyzedQueries {
 		queryMap[query.ID] = query
+		stage3Idx[i] = query.ID
+	}
+
+	// var stage1DB *bm25.Stage1PIRDB = nil
+	// var stage2DB *bm25.Stage2Precomputed = nil
+	// Initialize Stage3 reranker if embeddings provided
+	var stage3 *bm25.Stage3Reranker = nil
+	if docEmbed != "" && docIDMap != "" && queryEmbed != "" {
+		// sr, err := bm25.NewStage3Reranker(docEmbed, docIDMap, queryEmbed, dataRoot+"/tree/block_permutations.json", embedDim, enablePIR, uint64(32))
+		// I think there is a difference in the files that I and Son use! My ones seem to be aligned and his are not?
+		sr, err := bm25.NewStage3Reranker(docEmbed, docIDMap, queryEmbed, "", embedDim, enablePIR, uint64(32), stage3Idx)
+		if err != nil {
+			fmt.Printf("Warning: failed to initialize Stage3 reranker: %v\n", err)
+		} else {
+			stage3 = sr
+			defer stage3.Close()
+		}
 	}
 
 	// Load qrels (optional) for evaluation and MRR calculation

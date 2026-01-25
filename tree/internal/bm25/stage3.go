@@ -56,9 +56,16 @@ func NewStage3Reranker(
 	embedDim int,
 	enablePIR bool,
 	batchSize uint64,
+	queryList []string,
 ) (*Stage3Reranker, error) {
 
 	logrus.Debugf("Loading permutation from path: %v", permutationPath)
+
+	QueryIDMap := make(map[string]int)
+
+	for i, qid := range queryList {
+		QueryIDMap[qid] = i
+	}
 
 	sr := &Stage3Reranker{
 		EmbedDim:     embedDim,
