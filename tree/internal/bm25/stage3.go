@@ -756,16 +756,16 @@ func (sr *Stage3Reranker) Rerank(
 
 			resolved := false
 
-			if luceneIdx != nil {
+			if bm25InternalID < len(sr.DocIDMap) {
+				externalID = sr.DocIDMap[bm25InternalID]
+				resolved = true
+			}
+
+			if !resolved && luceneIdx != nil {
 				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
 					externalID = fmt.Sprintf("%d", extID)
 					resolved = true
 				}
-			}
-
-			if !resolved && bm25InternalID < len(sr.DocIDMap) {
-				externalID = sr.DocIDMap[bm25InternalID]
-				resolved = true
 			}
 
 			// 3. Last resort
