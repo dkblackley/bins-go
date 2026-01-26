@@ -97,6 +97,10 @@ func (P *PIRTree) GetMetaData() map[string]string {
 	// Initialize the combined map
 	meta := make(map[string]string)
 
+	if !P.enablePIR {
+		return meta
+	}
+
 	// Define the stages and their corresponding suffixes
 	stages := []struct {
 		pir    *pianopir.SimpleBatchPianoPIR
