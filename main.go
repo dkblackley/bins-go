@@ -491,9 +491,8 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 
 	new_results := make(map[string][]string, len(results))
 
-	for _, query := range queries {
-		docIds := results[query.ID]
-		queryEmb := qidEmbedMap[query.ID]
+	for qid, docIds := range results {
+		queryEmb := qidEmbedMap[qid]
 
 		scoredDocs := make([]ScoredDoc, 0, len(docIds))
 
@@ -523,7 +522,7 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 			finalDocs[i] = scoredDocs[i].ID
 		}
 
-		new_results[query.ID] = finalDocs
+		new_results[qid] = finalDocs
 	}
 
 	config.Metadata["MRR"] = fmt.Sprintf("%.4f", calcMRR(new_results, qrels))
