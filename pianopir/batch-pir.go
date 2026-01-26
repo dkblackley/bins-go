@@ -158,7 +158,7 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	fmt.Printf("-----------BatchPIR config --------\n")
 
 	DBSizeInBytes := 0
-	totalUint64s := 0
+	totalUint64s := uint64(0)
 
 	for i := uint64(0); i < p.config.PartitionNum; i++ {
 
@@ -166,7 +166,7 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 		for _, v := range rawDB {
 			DBSizeInBytes += len(v) * 8
 		}
-		totalUint64s += int(p.subPIR[i].server.RetrievalCount)
+		totalUint64s += p.subPIR[i].server.RetrievalCount
 	}
 
 	fmt.Printf("DB size in MB = %v\n", DBSizeInBytes/1024/1024)
