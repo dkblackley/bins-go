@@ -370,8 +370,9 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	batchSize := int(sr.Pir.Config().BatchSize)
 
 	for i := 0; i < len(docIndices); i = i + batchSize {
-		docIdxs := docIndices[i : i+batchSize]
-		batch := docIndices[i : i+batchSize]
+		mini := min(i+batchSize, len(docIndices))
+		docIdxs := docIndices[i:mini]
+		batch := docIndices[i:mini]
 		out := make([]uint64, len(batch))
 		for i, v := range batch {
 			out[i] = uint64(v)

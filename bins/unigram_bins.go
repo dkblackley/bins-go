@@ -66,7 +66,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 	//logrus.Info("Making Unigram Database")
 	//queries, er := LoadQueries(dataset.Queries)
 	//Must(er)
-	//qrels, er := loadQrels(dataset.Qrels)
+	//qrels, er := LoadQrels(dataset.Qrels)
 	// Must(er)
 	docs, er := LoadCorpus(dataset.OriginalDir)
 	Must(er)

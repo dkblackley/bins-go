@@ -69,7 +69,7 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 	// Now do BLUGE on the remaining items
 	qs, err := LoadQueries(config.SearchType + "temp_q.jsonl")
 	Must(err)
-	rels, err := loadQrels(metaData.Qrels)
+	rels, err := LoadQrels(metaData.Qrels)
 	Must(err)
 
 	bar := progressbar.Default(int64(len(qs)), fmt.Sprintf("BM25 eval %s", config.DataName))
@@ -332,7 +332,7 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 //	meta := GetDatasets(args.DatasetsDirectory, args.DataName)
 //	qs, err := LoadQueries(meta.Queries)
 //	Must(err)
-//	rels, err := loadQrels(qrelsPath)
+//	rels, err := LoadQrels(qrelsPath)
 //	Must(err)
 //
 //	reader, err := bluge.OpenReader(bluge.DefaultConfig(idxPath))

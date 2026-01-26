@@ -180,7 +180,7 @@ func LoadQueries(query_path string) ([]globals.Query, error) {
 	return qs, sc.Err()
 }
 
-func loadQrels(path string) (qrels, error) {
+func LoadQrels(path string) (qrels, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

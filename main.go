@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"time"
 
@@ -302,12 +304,15 @@ func main() {
 
 	bar.Finish()
 
-	writeAnswers(answers, config)
+	reRanked := bins.BasicReRank(answers, config)
+	writeAnswers(reRanked, config)
+
+	//writeAnswers(answers, config)
 
 	//stringAnwsers := Decode(answers, config)
 
 	//if config.DataName != "debug" {
-	bins.BasicReRank(answers, config)
+
 	//}
 
 }
@@ -429,3 +434,141 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 //	}
 //	return xs[:n]
 //}
+
+// Define a helper struct to hold the ID and Score together
+type ScoredDoc struct {
+	ID    string
+	Score float32
+}
+
+func CosineReRank(results map[string][]string, config globals.Args) map[string][]string {
+
+	// First, load qrels and queries
+	queries, err := bins.LoadQueries(config.DatasetMeta.Queries)
+	bins.Must(err)
+	qrels, err := bins.LoadQrels(config.DatasetMeta.Qrels)
+	bins.Must(err)
+
+	config.Metadata["MRRPreReRank"] = fmt.Sprintf("%.4f", calcMRR(results, qrels))
+
+	// Now load embeddings
+	docEmbedPath := config.DatasetMeta.Vectors.CorpusVec
+	queryEmbedPath := config.DatasetMeta.Queries
+
+	docEmbed, err := globals.LoadFloat32MatrixFromNpy(docEmbedPath, int(config.DBSize), int(config.Dimensions))
+	if err != nil {
+		logrus.Errorf("Error loading doc embeddings: %v", err)
+		return results
+	}
+
+	queryEmbed, err := globals.LoadFloat32MatrixFromNpy(queryEmbedPath, int(config.QueryNum), int(config.Dimensions))
+	if err != nil {
+		logrus.Errorf("Error loading doc embeddings: %v", err)
+		return results
+	}
+
+	qidEmbedMap := make(map[string][]float32)
+	docEmbedMap := make(map[string][]float32)
+
+	for i, q := range queries {
+		qidEmbedMap[q.ID] = queryEmbed[i]
+	}
+
+	for i := 0; i < len(docEmbed); i++ {
+		docEmbedMap[strconv.Itoa(i)] = docEmbed[i]
+	}
+
+	new_results := make(map[string][]string, len(results))
+
+	for _, query := range queries {
+		docIds := results[query.ID]
+		queryEmb := qidEmbedMap[query.ID]
+
+		scoredDocs := make([]ScoredDoc, 0, len(docIds))
+
+		for _, docId := range docIds {
+			// Safety check: ensure doc has an embedding
+			if docEmb, ok := docEmbedMap[docId]; ok {
+				similarity := CosineSimilarity(queryEmb, docEmb)
+				scoredDocs = append(scoredDocs, ScoredDoc{ID: docId, Score: similarity})
+			}
+		}
+
+		// 2. Sort by Score (Descending)
+		sort.Slice(scoredDocs, func(i, j int) bool {
+			return scoredDocs[i].Score > scoredDocs[j].Score
+		})
+
+		// 3. Slice to Top K
+		// Handle case where we have fewer results than K
+		limit := int(config.K)
+		if len(scoredDocs) < limit {
+			limit = len(scoredDocs)
+		}
+
+		// 4. Extract just the IDs for the final result
+		finalDocs := make([]string, limit)
+		for i := 0; i < limit; i++ {
+			finalDocs[i] = scoredDocs[i].ID
+		}
+
+		new_results[query.ID] = finalDocs
+	}
+
+	config.Metadata["MRR"] = fmt.Sprintf("%.4f", calcMRR(new_results, qrels))
+	logrus.Infof("MRR Pre re-rank: %s, Post re-rank: %s", config.Metadata["MRRPreReRank"], config.Metadata["MRR"])
+
+	return new_results
+
+}
+
+func CosineSimilarity(a, b []float32) float32 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+
+	var dotProd, normA, normB float32
+	for i := 0; i < len(a); i++ {
+		dotProd += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+
+	return dotProd / (float32(math.Sqrt(float64(normA))) * float32(math.Sqrt(float64(normB))))
+}
+
+func calcMRR(results map[string][]string, qrels map[string]map[string]int) float64 {
+	sumMRR := 0.0
+	queryCount := 0
+
+	for qid, rankedDocs := range results {
+		// 1. Get the map of relevant docs (and their scores) for this query
+		relDocs, exists := qrels[qid]
+		if !exists || len(relDocs) == 0 {
+			continue // Skip queries that have no ground truth data
+		}
+
+		// 2. Iterate through the ranked results to find the first relevant match
+		for i, docID := range rankedDocs {
+			// Check if this docID exists in the qrels map for this query
+			// We assume existence implies relevance because LoadQrels filters v <= 0
+			if _, isRelevant := relDocs[docID]; isRelevant {
+				rank := i + 1 // Convert 0-based index to 1-based rank
+				sumMRR += 1.0 / float64(rank)
+				break // Found the first relevant doc; stop looking for this query
+			}
+		}
+
+		queryCount++
+	}
+
+	if queryCount == 0 {
+		return 0.0
+	}
+
+	return sumMRR / float64(queryCount)
+}
