@@ -32,13 +32,14 @@ type PIRTree struct {
 	queryMap   map[string]AnalyzedQuery
 	queryCount int
 	queryWords int
+	enablePIR  bool
 
 	config globals.Args
 }
 
 func (P PIRTree) GetBatchNums() (uint64, uint64, uint64) {
 
-	if P.config.DebugLevel >= 1 {
+	if !P.enablePIR {
 		return 0, 10, 1000
 	}
 
@@ -69,7 +70,7 @@ func (P PIRTree) GetBatchNums() (uint64, uint64, uint64) {
 func (P *PIRTree) PIRPreprocess() time.Duration {
 	var total time.Duration
 
-	if P.config.DebugLevel >= 1 {
+	if !P.enablePIR {
 		return time.Duration(0)
 	}
 
@@ -129,7 +130,7 @@ func (P *PIRTree) DoSearch(QID string, k int) (globals.Decodable, error) {
 
 func (P *PIRTree) Preprocess() {
 
-	if P.config.DebugLevel >= 1 {
+	if !P.enablePIR {
 		return
 	}
 
@@ -199,10 +200,11 @@ func Runtree(config globals.Args) *PIRTree {
 
 	// Load Stage1, database
 	// Enable PIR if using precomputation
-	enablePIR := precompute
-	if debug >= 1 {
-		enablePIR = false
-	}
+	//enablePIR := precompute
+	//if debug >= 1 {
+	//	enablePIR = false
+	//}
+	enablePIR := false
 	batchSize := uint64(pirBatchSize)
 
 	var err error
@@ -388,6 +390,7 @@ func Runtree(config globals.Args) *PIRTree {
 		loadedHits: loadedHits,
 		queryMap:   queryMap,
 		queryCount: 0,
+		enablePIR:  enablePIR,
 	}
 
 }
