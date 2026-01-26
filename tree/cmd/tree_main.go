@@ -129,6 +129,10 @@ func (P *PIRTree) DoSearch(QID string, k int) (globals.Decodable, error) {
 
 func (P *PIRTree) Preprocess() {
 
+	if P.config.DebugLevel >= 1 {
+		return
+	}
+
 	P.stage1DB.Pir.Preprocessing()
 	P.stage2DB.Pir.Preprocessing()
 	P.stage3.Pir.Preprocessing()
