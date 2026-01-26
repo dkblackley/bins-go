@@ -393,7 +393,7 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 
 	// now test if the subPIR has reached the max query num, redo the preprocessing
 	// -2 means we want to do the preprocessing before the last query
-	if p.QueriesMadeInPartition >= p.subPIR[0].client.MaxQueryNum-2 {
+	if p.QueriesMadeInPartition >= p.subPIR[0].client.MaxQueryNum-2 { //TODO: Remove this once done testing
 		fmt.Printf("Redo preprocessing. Made %v batches (%v queries in a partition), redo the preprocessing\n", p.FinishedBatchNum, p.QueriesMadeInPartition)
 		p.Preprocessing()
 	} else {

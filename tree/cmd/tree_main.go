@@ -204,7 +204,7 @@ func Runtree(config globals.Args) *PIRTree {
 	//if debug >= 1 {
 	//	enablePIR = false
 	//}
-	enablePIR := true
+	enablePIR := false
 	batchSize := uint64(pirBatchSize)
 
 	var err error
@@ -336,11 +336,11 @@ func Runtree(config globals.Args) *PIRTree {
 	// Load qrels (optional) for evaluation and MRR calculation
 	var qrelsMap map[string]map[string]bool
 	if qrels != "" {
-		qrelsMap = loadQrels(qrels)
+		qrelsMap = LoadQrels(qrels)
 		if bm25.Debug {
 			fmt.Printf("DEBUG: loaded %d qids from qrels (%s)\n", len(qrelsMap), qrels)
 			if v, ok := qrelsMap["1049085"]; ok {
-				fmt.Printf("DEBUG: qrels[1049085] has %d entries\n", len(v))
+				fmt.Printf("DEBUG: qrels[1049085] has %d entries\n", v)
 			} else {
 				i := 0
 				for k := range qrelsMap {
@@ -658,8 +658,8 @@ func processAnalyzedQuery(
 	//}
 }
 
-// loadQrels loads qrels file (tsv with columns: qid docid relevance) into a map[qid]set(docid)
-func loadQrels(path string) map[string]map[string]bool {
+// LoadQrels loads qrels file (tsv with columns: qid docid relevance) into a map[qid]set(docid)
+func LoadQrels(path string) map[string]map[string]bool {
 	m := make(map[string]map[string]bool)
 	f, err := os.Open(path)
 	if err != nil {

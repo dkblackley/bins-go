@@ -9,24 +9,24 @@ import (
 
 // convertBytesToUint64 converts a byte slice to a uint64 slice (little-endian)
 // Does NOT pad - assumes data length is compatible with the expected entry size
-//func convertBytesToUint64(data []byte) []uint64 {
-//	// Calculate how many uint64 words we need (ceil), pad last word with zeros if necessary
-//	numUint64s := (len(data) + 7) / 8
-//	result := make([]uint64, numUint64s)
-//	for i := 0; i < numUint64s; i++ {
-//		start := i * 8
-//		end := start + 8
-//		if end <= len(data) {
-//			result[i] = binary.LittleEndian.Uint64(data[start:end])
-//		} else {
-//			// pad remaining bytes with zeros
-//			tmp := make([]byte, 8)
-//			copy(tmp, data[start:len(data)])
-//			result[i] = binary.LittleEndian.Uint64(tmp)
-//		}
-//	}
-//	return result
-//}
+func convertBytesToUint64Old(data []byte) []uint64 {
+	// Calculate how many uint64 words we need (ceil), pad last word with zeros if necessary
+	numUint64s := (len(data) + 7) / 8
+	result := make([]uint64, numUint64s)
+	for i := 0; i < numUint64s; i++ {
+		start := i * 8
+		end := start + 8
+		if end <= len(data) {
+			result[i] = binary.LittleEndian.Uint64(data[start:end])
+		} else {
+			// pad remaining bytes with zeros
+			tmp := make([]byte, 8)
+			copy(tmp, data[start:len(data)])
+			result[i] = binary.LittleEndian.Uint64(tmp)
+		}
+	}
+	return result
+}
 
 func convertBytesToUint64(data []byte, entrySize uint64) [][]uint64 {
 
@@ -70,6 +70,25 @@ func convertUint64ToBytes(data []uint64) []byte {
 	for i, v := range data {
 		binary.LittleEndian.PutUint64(result[i*8:(i+1)*8], v)
 	}
+	return result
+}
+
+func flatten(matrix [][]uint64) []uint64 {
+	// 1. Calculate the total number of elements
+	totalLen := 0
+	for _, row := range matrix {
+		totalLen += len(row)
+	}
+
+	// 2. Pre-allocate the slice with the exact capacity needed
+	// make(type, length, capacity)
+	result := make([]uint64, 0, totalLen)
+
+	// 3. Append the rows using the variadic "..." operator
+	for _, row := range matrix {
+		result = append(result, row...)
+	}
+
 	return result
 }
 
