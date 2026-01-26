@@ -204,7 +204,7 @@ func Runtree(config globals.Args) *PIRTree {
 	//if debug >= 1 {
 	//	enablePIR = false
 	//}
-	enablePIR := false
+	enablePIR := true
 	batchSize := uint64(pirBatchSize)
 
 	var err error
