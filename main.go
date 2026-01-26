@@ -266,17 +266,17 @@ func main() {
 		return
 	}
 
-	start := time.Now()
+	start_pre := time.Now()
 	PIRImplemented.Preprocess()
-	end := time.Now()
+	end_pre := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
 
-	start = time.Now()
+	start := time.Now()
 	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K), config)
-	end = time.Now()
+	end := time.Now()
 
 	config.Metadata = PIRImplemented.GetMetaData()
-	config.Metadata["PreprocessingTime"] = end.Sub(start).String()
+	config.Metadata["PreprocessingTime"] = end_pre.Sub(start_pre).String()
 	config.Metadata["NumQueries"] = strconv.Itoa(int(config.QueryNum))
 
 	logrus.Infof("Answers finished in %s seconds", end.Sub(start))
