@@ -303,8 +303,11 @@ func main() {
 	}
 
 	bar.Finish()
-
+	start = time.Now()
 	reRanked := CosineReRank(answers, config)
+	end = time.Now()
+
+	config.Metadata["ReRankTime"] = end.Sub(start).String()
 	writeAnswers(reRanked, config)
 
 	//writeAnswers(answers, config)
