@@ -462,19 +462,21 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 
 	// Now load embeddings
 	docEmbedPath := config.DatasetMeta.Vectors.CorpusVec
-	queryEmbedPath := config.DatasetMeta.Queries
+	queryEmbedPath := config.DatasetMeta.Vectors.QueryVec
 
 	docEmbed, err := globals.LoadFloat32MatrixFromNpy(docEmbedPath, int(config.DBSize), int(config.Dimensions))
 	if err != nil {
 		logrus.Errorf("Error loading doc embeddings: %v from file %s", err, docEmbedPath)
 		return results
 	}
+	logrus.Debugf("Loaded doc embeddings from %s", docEmbedPath)
 
 	queryEmbed, err := globals.LoadFloat32MatrixFromNpy(queryEmbedPath, int(config.QueryNum), int(config.Dimensions))
 	if err != nil {
 		logrus.Errorf("Error loading doc embeddings: %vfrom file %s", err, queryEmbedPath)
 		return results
 	}
+	logrus.Debugf("Loaded query embeddings from %s", queryEmbedPath)
 
 	qidEmbedMap := make(map[string][]float32)
 	docEmbedMap := make(map[string][]float32)
