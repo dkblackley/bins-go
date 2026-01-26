@@ -6,7 +6,7 @@ import (
 	"log"
 	"math/rand"
 
-	"bm25-msmarco/internal/bm25"
+	"github.com/dkblackley/bins-go/tree/internal/bm25"
 )
 
 func main() {
@@ -164,11 +164,4 @@ func testStage2Conversion(db *bm25.Stage2Precomputed) {
 	} else {
 		fmt.Println("❌ Stage2 conversion has issues!")
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

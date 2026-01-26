@@ -1,10 +1,11 @@
 package main
 
 import (
-	"bm25-msmarco/internal/bm25"
 	"fmt"
 	"log"
 	"math/rand"
+
+	"github.com/dkblackley/bins-go/tree/internal/bm25"
 )
 
 func main() {
