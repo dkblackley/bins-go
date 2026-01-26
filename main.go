@@ -445,8 +445,17 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 
 	// First, load qrels and queries
 	queries, err := bins.LoadQueries(config.DatasetMeta.Queries)
-	bins.Must(err)
+	if err != nil {
+		logrus.Errorf("Error loading queries: %v", err)
+		logrus.Errorf("from file: %s", config.DatasetMeta.Queries)
+		return results
+	}
 	qrels, err := bins.LoadQrels(config.DatasetMeta.Qrels)
+	if err != nil {
+		logrus.Errorf("Error loading qrels: %v", err)
+		logrus.Errorf("from file: %s", config.DatasetMeta.Qrels)
+		return results
+	}
 	bins.Must(err)
 
 	config.Metadata["MRRPreReRank"] = fmt.Sprintf("%.4f", calcMRR(results, qrels))
@@ -457,13 +466,13 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 
 	docEmbed, err := globals.LoadFloat32MatrixFromNpy(docEmbedPath, int(config.DBSize), int(config.Dimensions))
 	if err != nil {
-		logrus.Errorf("Error loading doc embeddings: %v", err)
+		logrus.Errorf("Error loading doc embeddings: %v from file %s", err, docEmbedPath)
 		return results
 	}
 
 	queryEmbed, err := globals.LoadFloat32MatrixFromNpy(queryEmbedPath, int(config.QueryNum), int(config.Dimensions))
 	if err != nil {
-		logrus.Errorf("Error loading doc embeddings: %v", err)
+		logrus.Errorf("Error loading doc embeddings: %vfrom file %s", err, queryEmbedPath)
 		return results
 	}
 
