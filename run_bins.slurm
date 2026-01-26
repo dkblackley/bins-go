@@ -82,13 +82,13 @@ for k in "${K_VALUES[@]}"; do
   # 2) Convert JSON -> TSV (write TSV directly into the results directory)
   python3 json_to_tsv.py "${json_out}" "${tsv_out}"
 
-  # 3) Re-rank (log stdout/stderr into the results directory so it’s kept per-k)
-  python3 re_rank.py \
-    --qrels ../datasets/msmarco/qrels/qrels.dev.tsv \
-    --step3-output "${tsv_out}" \
-    --queries ../datasets/msmarco/queries.dev.small.tsv \
-    --documents ../datasets/msmarco/collection.tsv \
-    --k "${k}"
+#  # 3) Re-rank (log stdout/stderr into the results directory so it’s kept per-k)
+#  python3 re_rank.py \
+#    --qrels ../datasets/msmarco/qrels/qrels.dev.tsv \
+#    --step3-output "${tsv_out}" \
+#    --queries ../datasets/msmarco/queries.dev.small.tsv \
+#    --documents ../datasets/msmarco/collection.tsv \
+#    --k "${k}"
 
 #python3 step4.py \
 #    --qrels ../datasets/msmarco/qrels/dev.tsv \
@@ -101,7 +101,7 @@ for k in "${K_VALUES[@]}"; do
   [[ -f bins.err ]] || { echo "ERROR: bins.err not found in $(pwd)";  }
   [[ -f bins.out ]] || { echo "ERROR: bins.out not found in $(pwd)"; }
 
-  mv step4_reranked_output.tsv "${outdir}/reranked_bins_k${k}.tsv"
+  # mv step4_reranked_output.tsv "${outdir}/reranked_bins_k${k}.tsv"
   mv "bins_${k}_metadata.json" "${outdir}/bins_${k}_metadata.json"
 
   cp -f bins.err "${outdir}/bins_${k}.err"
