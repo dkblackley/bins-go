@@ -450,7 +450,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 	// 3. EXECUTE BATCHED QUERIES
 	// Retrieve the configured batch size
-	batchSize := int(sr.Pir.Config().BatchSize)
+	batchSize = int(sr.Pir.Config().BatchSize)
 	if batchSize <= 0 {
 		batchSize = 16
 	}
