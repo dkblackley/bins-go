@@ -38,6 +38,10 @@ type PIRTree struct {
 
 func (P PIRTree) GetBatchNums() (uint64, uint64, uint64) {
 
+	if P.config.DebugLevel >= 1 {
+		return 0, 10, 1000
+	}
+
 	pirs := []struct {
 		FinishedBatchNum uint64
 		SupportBatchNum  uint64
@@ -64,6 +68,10 @@ func (P PIRTree) GetBatchNums() (uint64, uint64, uint64) {
 
 func (P *PIRTree) PIRPreprocess() time.Duration {
 	var total time.Duration
+
+	if P.config.DebugLevel >= 1 {
+		return time.Duration(0)
+	}
 
 	pirs := []*pianopir.SimpleBatchPianoPIR{
 		P.stage1DB.Pir,
