@@ -246,7 +246,8 @@ func NewStage3Reranker(
 		sr.pirUsable = true
 	}
 
-	if sr.pirUsable {
+	if sr.pirUsable && Debug {
+		sr.Pir.Preprocessing()             // We're debuging so who cares about the benchmarks
 		testIdxs := []int{0, 1, 7, 8, 123} // any in-range
 		for _, ei := range testIdxs {
 			b := uint64(ei / 8)
@@ -267,26 +268,26 @@ func NewStage3Reranker(
 				logrus.Errorf("[Stage3 SELFTEST] mismatch at embeddingIdx=%d block=%d", ei, b)
 			}
 		}
-	}
 
-	logrus.Debugf("[Stage3 DEBUG] permLen=%d first10=%v",
-		len(sr.BlockPermutation),
-		sr.BlockPermutation[:min(10, len(sr.BlockPermutation))],
-	)
+		logrus.Debugf("[Stage3 DEBUG] permLen=%d first10=%v",
+			len(sr.BlockPermutation),
+			sr.BlockPermutation[:min(10, len(sr.BlockPermutation))],
+		)
 
-	seen := make([]bool, len(sr.BlockPermutation))
-	dups := 0
-	for _, v := range sr.BlockPermutation {
-		if v < 0 || v >= len(sr.BlockPermutation) {
-			logrus.Errorf("[Stage3 DEBUG] perm out of range: %d (len=%d)", v, len(sr.BlockPermutation))
-			break
+		seen := make([]bool, len(sr.BlockPermutation))
+		dups := 0
+		for _, v := range sr.BlockPermutation {
+			if v < 0 || v >= len(sr.BlockPermutation) {
+				logrus.Errorf("[Stage3 DEBUG] perm out of range: %d (len=%d)", v, len(sr.BlockPermutation))
+				break
+			}
+			if seen[v] {
+				dups++
+			}
+			seen[v] = true
 		}
-		if seen[v] {
-			dups++
-		}
-		seen[v] = true
+		logrus.Debugf("[Stage3 DEBUG] perm duplicates=%d", dups)
 	}
-	logrus.Debugf("[Stage3 DEBUG] perm duplicates=%d", dups)
 
 	return sr, nil
 }
@@ -374,19 +375,19 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	uniqueBlocks := make(map[uint64]bool)
 
 	// 1. Identify which PHYSICAL blocks we need
-	//for _, idx := range docIndices {
-	//	logicalBlockID := idx / blockSize
-	//	physicalBlockID := logicalBlockID
-	//	if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-	//		physicalBlockID = sr.BlockPermutation[logicalBlockID]
-	//	}
-	//	uniqueBlocks[uint64(physicalBlockID)] = true
-	//}
-
 	for _, idx := range docIndices {
-		blockID := idx / blockSize // idx is already physical (embeddingIdx)
-		uniqueBlocks[uint64(blockID)] = true
+		logicalBlockID := idx / blockSize
+		physicalBlockID := logicalBlockID
+		if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+			physicalBlockID = sr.BlockPermutation[logicalBlockID]
+		}
+		uniqueBlocks[uint64(physicalBlockID)] = true
 	}
+
+	//for _, idx := range docIndices {
+	//	blockID := idx / blockSize // idx is already physical (embeddingIdx)
+	//	uniqueBlocks[uint64(blockID)] = true
+	//}
 
 	// 2. Prepare block query list
 	queryBlocks := make([]uint64, 0, len(uniqueBlocks))
@@ -445,6 +446,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 		if !ok {
 			result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
+			logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d, PIR failed, using direct read\n", docIdx, offsetInBlock, blockID)
 			continue
 		}
 
@@ -767,36 +769,36 @@ func (sr *Stage3Reranker) Rerank(
 			// Convert BM25 internal ID to external ID
 			var externalID string
 
-			//if luceneIdx != nil {
-			//	if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
-			//		externalID = fmt.Sprintf("%d", extID)
-			//	} else {
-			//		// Fallback: use internal ID as string
-			//		externalID = fmt.Sprintf("%d", bm25InternalID)
-			//	}
-			//} else {
-			//	// No luceneIdx, use internal ID as-is
-			//	externalID = fmt.Sprintf("%d", bm25InternalID)
-			//}
-
-			resolved := false
-
-			if bm25InternalID < len(sr.DocIDMap) {
-				externalID = sr.DocIDMap[bm25InternalID]
-				resolved = true
-			}
-
-			if !resolved && luceneIdx != nil {
+			if luceneIdx != nil {
 				if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
 					externalID = fmt.Sprintf("%d", extID)
-					resolved = true
+				} else {
+					// Fallback: use internal ID as string
+					externalID = fmt.Sprintf("%d", bm25InternalID)
 				}
-			}
-
-			// 3. Last resort
-			if !resolved {
+			} else {
+				// No luceneIdx, use internal ID as-is
 				externalID = fmt.Sprintf("%d", bm25InternalID)
 			}
+
+			//resolved := false
+			//
+			//if bm25InternalID < len(sr.DocIDMap) {
+			//	externalID = sr.DocIDMap[bm25InternalID]
+			//	resolved = true
+			//}
+			//
+			//if !resolved && luceneIdx != nil {
+			//	if extID, err := luceneIdx.ConvertInternalToExternalID(bm25InternalID); err == nil && extID != 0 {
+			//		externalID = fmt.Sprintf("%d", extID)
+			//		resolved = true
+			//	}
+			//}
+			//
+			//// 3. Last resort
+			//if !resolved {
+			//	externalID = fmt.Sprintf("%d", bm25InternalID)
+			//}
 
 			// DEBUG: compare DocIDMap vs Lucene docmap for the same internal ID
 			if Debug { // assuming your Debug/Debugf gating exists in-package
