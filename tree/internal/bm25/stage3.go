@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
 	"github.com/sirupsen/logrus"
 )
@@ -24,9 +25,9 @@ type Stage3Reranker struct {
 	// Document embeddings: mmap of dimension D (typically 192 for PCA'd 768)
 	DocEmbeddings [][]float32 // mmap'd to avoid memory overhead
 	docFile       *os.File
-	docEmbedMmap  []byte
-	EmbedDim      int // e.g., 192
-	BytesPerElem  int // 4 for float32, 8 for float64
+	docEmbedMmap  []byte // Don't need this?
+	EmbedDim      int    // e.g., 192
+	BytesPerElem  int    // 4 for float32, 8 for float64
 
 	// Document ID map: maps internal doc index to external doc ID
 	DocIDMap []string
@@ -110,6 +111,15 @@ func NewStage3Reranker(
 	if npyEmbedDim != embedDim {
 		fmt.Printf("WARNING: NPY file has embedding dim=%d, but embedDim parameter=%d. Using NPY value.\n", npyEmbedDim, embedDim)
 	}
+
+	docEmb, err := globals.LoadFloat32MatrixFromNpy(docEmbedPath, numDocs, npyEmbedDim)
+
+	if err != nil {
+		logrus.Errorf("Error loading doc embeddings from npy file: %v", err)
+		os.Exit(1)
+	}
+
+	sr.DocEmbeddings = docEmb
 
 	// Point docEmbedMmap to the data portion only (skip header)
 	sr.docEmbedMmap = fullMmap[dataStart:]
@@ -659,35 +669,39 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 //}
 
 // getDocEmbeddingDirect reads embedding directly without PIR
+//func (sr *Stage3Reranker) getDocEmbeddingDirect(docIdx int) []float32 {
+//	emb := make([]float32, sr.EmbedDim)
+//	for j := 0; j < sr.EmbedDim; j++ {
+//		offset := (docIdx*sr.EmbedDim + j) * sr.BytesPerElem
+//		if offset+sr.BytesPerElem <= len(sr.docEmbedMmap) {
+//			switch sr.BytesPerElem {
+//			case 4:
+//				emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(sr.docEmbedMmap[offset : offset+4]))
+//			case 8:
+//				emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(sr.docEmbedMmap[offset : offset+8])))
+//			}
+//		}
+//	}
+//	// Debug: Check for specific NaN-producing index
+//	if docIdx == 7542593 {
+//		Debugf("DEBUG: getDocEmbeddingDirect(idx=%d): first 5 values = [%.6f %.6f %.6f %.6f %.6f]\n",
+//			docIdx, emb[0], emb[1], emb[2], emb[3], emb[4])
+//		hasNaN := false
+//		for _, v := range emb {
+//			if math.IsNaN(float64(v)) {
+//				hasNaN = true
+//				break
+//			}
+//		}
+//		if hasNaN {
+//			Debugf("  WARNING: Embedding contains NaN!\n")
+//		}
+//	}
+//	return emb
+//}
+
 func (sr *Stage3Reranker) getDocEmbeddingDirect(docIdx int) []float32 {
-	emb := make([]float32, sr.EmbedDim)
-	for j := 0; j < sr.EmbedDim; j++ {
-		offset := (docIdx*sr.EmbedDim + j) * sr.BytesPerElem
-		if offset+sr.BytesPerElem <= len(sr.docEmbedMmap) {
-			switch sr.BytesPerElem {
-			case 4:
-				emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(sr.docEmbedMmap[offset : offset+4]))
-			case 8:
-				emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(sr.docEmbedMmap[offset : offset+8])))
-			}
-		}
-	}
-	// Debug: Check for specific NaN-producing index
-	if docIdx == 7542593 {
-		Debugf("DEBUG: getDocEmbeddingDirect(idx=%d): first 5 values = [%.6f %.6f %.6f %.6f %.6f]\n",
-			docIdx, emb[0], emb[1], emb[2], emb[3], emb[4])
-		hasNaN := false
-		for _, v := range emb {
-			if math.IsNaN(float64(v)) {
-				hasNaN = true
-				break
-			}
-		}
-		if hasNaN {
-			Debugf("  WARNING: Embedding contains NaN!\n")
-		}
-	}
-	return emb
+	return sr.DocEmbeddings[docIdx]
 }
 
 // CosineSimilarity computes cosine similarity between two embeddings
