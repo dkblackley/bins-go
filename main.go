@@ -303,6 +303,7 @@ func main() {
 	}
 
 	bar.Finish()
+
 	start = time.Now()
 	reRanked := CosineReRank(answers, config)
 	end = time.Now()
@@ -377,8 +378,8 @@ func getQIDS(config globals.Args) []string {
 
 func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globals.Args) map[string]globals.Decodable {
 
-	numQueries := len(qids)
-	//numQueries := 300
+	//numQueries := config.QueryNum
+	numQueries := 30
 
 	decodables := make(map[string]globals.Decodable)
 	maintainenceTime := time.Duration(0)
@@ -393,7 +394,7 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 		progressbar.OptionSetDescription("Answering Queries"),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 	)
-	for i := 0; i < numQueries; i++ {
+	for i := 0; i < int(numQueries); i++ {
 
 		err := bar.Add(1)
 		if err != nil {
