@@ -367,10 +367,11 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 			resultsDirect[idx] = sr.getDocEmbeddingDirect(idx)
 		}
 	}
+	batchSize := int(sr.Pir.Config().BatchSize)
 
-	for i := 0; i < len(docIndices); i = i + int(sr.Pir.Config().BatchSize) {
-		docIdxs := docIndices[i : i+int(sr.Pir.Config().BatchSize)]
-		batch := docIndices[i : i+int(sr.Pir.Config().BatchSize)]
+	for i := 0; i < len(docIndices); i = i + batchSize {
+		docIdxs := docIndices[i : i+batchSize]
+		batch := docIndices[i : i+batchSize]
 		out := make([]uint64, len(batch))
 		for i, v := range batch {
 			out[i] = uint64(v)
@@ -382,7 +383,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 		}
 
 		for k, entry := range resultsRaw {
-			docIdx := docIdxs[k+i]
+			docIdx := docIdxs[k]
 			reconstructedBytes := make([]byte, len(entry)*8)
 
 			for i, val := range entry {
@@ -404,7 +405,6 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 				logrus.Debugf("first 4 doc embeddings: %v\n", result[docIdx][:4])
 			}
 		}
-		result[docIndices[i]] = sr.GetDocEmbedding(docIndices[i])
 
 	}
 
