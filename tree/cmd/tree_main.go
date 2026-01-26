@@ -213,7 +213,7 @@ func Runtree(config globals.Args) *PIRTree {
 		fmt.Printf("Error loading Stage1, database: %v\n", err)
 		os.Exit(1)
 	}
-	defer stage1DB.Close()
+	// defer stage1DB.Close()
 
 	// Load Stage2, database (skip if requested or if loading saved hitSubs)
 	var stage2DB *bm25.Stage2Precomputed = nil
@@ -232,7 +232,7 @@ func Runtree(config globals.Args) *PIRTree {
 			fmt.Printf("Error loading Stage2, database: %v\n", err)
 			os.Exit(1)
 		}
-		defer stage2DB.Close()
+		// defer stage2DB.Close()
 	} else if loadStage2Hits != "" {
 		fmt.Printf("Loading Stage2 hits from %s; skipping Stage2 DB initialization\n", loadStage2Hits)
 	} else if skipStage2 {
@@ -271,7 +271,7 @@ func Runtree(config globals.Args) *PIRTree {
 			fmt.Printf("Warning: failed to open docmap at %s: %v\n", docmapPath, err)
 		} else {
 			luceneIdx = li
-			defer luceneIdx.Close()
+			// defer luceneIdx.Close()
 		}
 	} else {
 		fmt.Printf("No docmap found at %s; output will use internal IDs unless you provide a docmap.bin\n", docmapPath)
@@ -327,7 +327,7 @@ func Runtree(config globals.Args) *PIRTree {
 			fmt.Printf("Warning: failed to initialize Stage3 reranker: %v\n", err)
 		} else {
 			stage3 = sr
-			defer stage3.Close()
+			// defer stage3.Close()
 		}
 	}
 
