@@ -269,7 +269,7 @@ func main() {
 	start_pre := time.Now()
 	PIRImplemented.Preprocess()
 	end_pre := time.Now()
-	logrus.Infof("Preprocessing finished in %s seconds", end.Sub(start))
+	logrus.Infof("Preprocessing finished in %s seconds", end_pre.Sub(start_pre))
 
 	start := time.Now()
 	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K), config)
