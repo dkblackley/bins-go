@@ -378,8 +378,8 @@ func getQIDS(config globals.Args) []string {
 
 func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globals.Args) map[string]globals.Decodable {
 
-	//numQueries := config.QueryNum
-	numQueries := 30
+	numQueries := config.QueryNum
+	//numQueries := 30
 
 	decodables := make(map[string]globals.Decodable)
 	maintainenceTime := time.Duration(0)
@@ -494,6 +494,7 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 	}
 
 	new_results := make(map[string][]string, len(results))
+	missed := 0
 
 	for qid, docIds := range results {
 		queryEmb := qidEmbedMap[qid]
@@ -505,6 +506,9 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 			if docEmb, ok := docEmbedMap[docId]; ok {
 				similarity := CosineSimilarity(queryEmb, docEmb)
 				scoredDocs = append(scoredDocs, ScoredDoc{ID: docId, Score: similarity})
+			} else {
+				logrus.Errorf("Doc %s has no embedding", docId)
+				missed++
 			}
 		}
 
@@ -528,6 +532,8 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 
 		new_results[qid] = finalDocs
 	}
+
+	logrus.Infof("Missed %d docs", missed)
 
 	config.Metadata["MRR"] = fmt.Sprintf("%.4f", calcMRR(new_results, qrels))
 	logrus.Infof("MRR Pre re-rank: %s, Post re-rank: %s", config.Metadata["MRRPreReRank"], config.Metadata["MRR"])
