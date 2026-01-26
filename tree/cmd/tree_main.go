@@ -200,11 +200,8 @@ func Runtree(config globals.Args) *PIRTree {
 
 	// Load Stage1, database
 	// Enable PIR if using precomputation
-	//enablePIR := precompute
-	//if debug >= 1 {
-	//	enablePIR = false
-	//}
-	enablePIR := false
+	enablePIR := precompute
+
 	batchSize := uint64(pirBatchSize)
 
 	var err error
