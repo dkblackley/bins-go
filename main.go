@@ -304,7 +304,7 @@ func main() {
 
 	bar.Finish()
 
-	reRanked := bins.BasicReRank(answers, config)
+	reRanked := CosineReRank(answers, config)
 	writeAnswers(reRanked, config)
 
 	//writeAnswers(answers, config)
