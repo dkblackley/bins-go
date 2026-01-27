@@ -309,9 +309,12 @@ func main() {
 	end = time.Now()
 
 	config.Metadata["ReRankTime"] = end.Sub(start).String()
-	writeAnswers(reRanked, config)
 
-	//writeAnswers(answers, config)
+	if config.SearchType != "tree" {
+		writeAnswers(reRanked, config)
+	} else {
+		writeAnswers(answers, config)
+	}
 
 	//stringAnwsers := Decode(answers, config)
 

@@ -1,232 +1,142 @@
-from __future__ import annotations
-
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+import json
+import os
+import re
 import matplotlib.pyplot as plt
+import numpy as np
 
+# --- Configuration ---
+METHODS = ['bins', 'tree', 'pacmann']
+K_VALUE = 10
+# Assuming script is in 'bins-go', and results are in '../results'
+BASE_DIR = "../results"
 
-def set_minimal_plot_style(
-    *,
-    base_style: str = "seaborn-v0_8-whitegrid",
-    font_size: int = 11,
-    title_size: int = 12,
-    label_size: int = 11,
-    legend_size: int = 10,
-    dpi: int = 160,
-):
+def parse_go_duration(duration_str):
     """
-    Call once near the top of your script/notebook.
-    Uses Matplotlib's built-in seaborn style name (no seaborn dependency).
+    Parses a Go duration string (e.g., '2m40.32s' or '14.68s') into total seconds.
     """
-    plt.style.use(base_style)
-    plt.rcParams.update({
-        "figure.dpi": dpi,
-        "savefig.dpi": dpi,
-        "font.size": font_size,
-        "axes.titlesize": title_size,
-        "axes.labelsize": label_size,
-        "legend.fontsize": legend_size,
+    # Regex to capture optional minutes and mandatory seconds
+    regex = r'(?:(?P<minutes>\d+)m)?(?P<seconds>[\d.]+)s'
+    match = re.match(regex, duration_str)
 
-        # Whitespace/layout
-        "figure.autolayout": True,
+    if not match:
+        print(f"Warning: Could not parse time '{duration_str}'. Returning 0.")
+        return 0.0
 
-        # Lines/markers
-        "lines.linewidth": 2.0,
-        "lines.markersize": 5.0,
+    parts = match.groupdict()
+    minutes = float(parts['minutes']) if parts['minutes'] else 0.0
+    seconds = float(parts['seconds'])
 
-        # Grid tuning (subtle)
-        "grid.alpha": 0.35,
-        "grid.linewidth": 0.6,
+    return (minutes * 60) + seconds
 
-        # Ticks
-        "xtick.direction": "out",
-        "ytick.direction": "out",
-        "xtick.major.size": 4,
-        "ytick.major.size": 4,
-    })
+def load_data(methods, k, base_dir):
+    data = {
+        'methods': [],
+        'mrr_pre': [],
+        'mrr_post': [],
+        'time_seconds': [],
+        'data_sent_gb': []
+    }
 
-def _coerce_points(
-    method_points: Iterable[Any],
-    k_key: str,
-    mrr_key: str,
-    time_key: str,
-) -> List[Tuple[int, Optional[float], Optional[float]]]:
-    """
-    Accepts a list of:
-      - dicts: {"k": ..., "mrr": ..., "time_s": ...}
-      - tuples: (k, mrr, time_s) or (k, mrr) or (k, time_s)
-    Returns sorted list of (k, mrr, time_s), with missing metrics as None.
-    """
-    out: List[Tuple[int, Optional[float], Optional[float]]] = []
+    for method in methods:
+        # Construct the directory and filename based on your structure
+        # Example: ../results/bins_10/bins_10_metadata.json
+        folder_name = f"{method}_{k}"
+        file_name = f"{method}_{k}_metadata.json"
+        file_path = os.path.join(base_dir, folder_name, file_name)
 
-    for p in method_points:
-        if isinstance(p, dict):
-            k = int(p[k_key])
-            mrr = p.get(mrr_key, None)
-            time_s = p.get(time_key, None)
-        else:
-            # tuple-ish
-            seq = list(p)
-            if len(seq) < 2:
-                raise ValueError(f"Point {p!r} must have at least (k, metric).")
-            k = int(seq[0])
-            mrr = None
-            time_s = None
-
-            if len(seq) == 2:
-                # ambiguous: treat as (k, mrr) by default
-                mrr = seq[1]
-            else:
-                mrr = seq[1]
-                time_s = seq[2]
-
-        mrr = float(mrr) if mrr is not None else None
-        time_s = float(time_s) if time_s is not None else None
-        out.append((k, mrr, time_s))
-
-    out.sort(key=lambda t: t[0])
-    return out
-
-
-def plot_mrr_vs_k(
-    results: Mapping[str, Iterable[Any]],
-    *,
-    title: str = "MRR vs k",
-    k_key: str = "k",
-    mrr_key: str = "mrr",
-    time_key: str = "time_s",
-    marker: str = "o",
-    grid: bool = True,
-) -> Tuple[plt.Figure, plt.Axes]:
-    """
-    Plots MRR as a function of k for each method on the same axes.
-    """
-    fig, ax = plt.subplots()
-
-    for method, points in results.items():
-        pts = _coerce_points(points, k_key=k_key, mrr_key=mrr_key, time_key=time_key)
-        xs = [k for (k, mrr, _t) in pts if mrr is not None]
-        ys = [mrr for (_k, mrr, _t) in pts if mrr is not None]
-        if not xs:
+        if not os.path.exists(file_path):
+            print(f"Skipping {method}: File not found at {file_path}")
             continue
-        ax.plot(xs, ys, marker=marker, label=method)
 
-    ax.set_title(title)
-    ax.set_xlabel("k (items retrieved)")
-    ax.set_ylabel("MRR")
-    if grid:
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.6)
-    ax.legend()
-    return fig, ax
+        try:
+            with open(file_path, 'r') as f:
+                json_data = json.load(f)
 
+                # 1. Parse MRRs
+                mrr_post = float(json_data.get('MRR', 0))
+                mrr_pre = float(json_data.get('MRRPreReRank', 0))
 
-def plot_time_vs_k(
-    results: Mapping[str, Iterable[Any]],
-    *,
-    title: str = "Time vs k",
-    k_key: str = "k",
-    mrr_key: str = "mrr",
-    time_key: str = "time_s",
-    marker: str = "o",
-    grid: bool = True,
-    log_y: bool = False,
-) -> Tuple[plt.Figure, plt.Axes]:
-    """
-    Plots time (seconds) as a function of k for each method on the same axes.
-    """
-    fig, ax = plt.subplots()
+                # 2. Parse Time
+                time_str = json_data.get('TotalAnswerTime', "0s")
+                total_seconds = parse_go_duration(time_str)
 
-    for method, points in results.items():
-        pts = _coerce_points(points, k_key=k_key, mrr_key=mrr_key, time_key=time_key)
-        xs = [k for (k, _mrr, t) in pts if t is not None]
-        ys = [t for (_k, _mrr, t) in pts if t is not None]
-        if not xs:
-            continue
-        ax.plot(xs, ys, marker=marker, label=method)
+                # 3. Parse Data Sent (Uint64 count -> Bytes -> GB)
+                # 1 Uint64 = 8 bytes
+                uint64_count = float(json_data.get('TotalUint64Sent', 0))
+                bytes_sent = uint64_count * 8
+                gb_sent = bytes_sent / (1024**3) # Convert to Gigabytes
 
-    ax.set_title(title)
-    ax.set_xlabel("k (items retrieved)")
-    ax.set_ylabel("Time (s)")
-    if log_y:
-        ax.set_yscale("log")
-    if grid:
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.6)
-    ax.legend()
-    return fig, ax
+                # Append to lists
+                data['methods'].append(method)
+                data['mrr_pre'].append(mrr_pre)
+                data['mrr_post'].append(mrr_post)
+                data['time_seconds'].append(total_seconds)
+                data['data_sent_gb'].append(gb_sent)
 
+        except Exception as e:
+            print(f"Error reading {file_path}: {e}")
 
-def plot_mrr_time_tradeoff(
-    results: Mapping[str, Iterable[Any]],
-    *,
-    title: str = "MRR vs Time (tradeoff)",
-    k_key: str = "k",
-    mrr_key: str = "mrr",
-    time_key: str = "time_s",
-    marker: str = "o",
-    annotate_k: bool = False,
-    grid: bool = True,
-    log_x: bool = False,
-) -> Tuple[plt.Figure, plt.Axes]:
-    """
-    Plots MRR against time to show quality/latency tradeoffs.
-    Each point corresponds to a specific k.
-    """
-    fig, ax = plt.subplots()
+    return data
 
-    for method, points in results.items():
-        pts = _coerce_points(points, k_key=k_key, mrr_key=mrr_key, time_key=time_key)
-        xs = [t for (_k, mrr, t) in pts if (mrr is not None and t is not None)]
-        ys = [mrr for (_k, mrr, t) in pts if (mrr is not None and t is not None)]
-        if not xs:
-            continue
-        ax.plot(xs, ys, marker=marker, label=method)
+def plot_performance(data):
+    # Set up a figure with 3 subplots (1 row, 3 columns)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig.suptitle(f'Method Performance Comparison (k={K_VALUE})', fontsize=16)
 
-        if annotate_k:
-            for k, mrr, t in pts:
-                if mrr is None or t is None:
-                    continue
-                ax.annotate(str(k), (t, mrr), textcoords="offset points", xytext=(5, 5), fontsize=8)
+    # --- Plot 1: MRR Pre vs Post (Grouped Bar Chart) ---
+    x = np.arange(len(data['methods']))
+    width = 0.35
 
-    ax.set_title(title)
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("MRR")
-    if log_x:
-        ax.set_xscale("log")
-    if grid:
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.6)
-    ax.legend()
-    return fig, ax
+    ax1 = axes[0]
+    rects1 = ax1.bar(x - width/2, data['mrr_pre'], width, label='Pre-Rerank', color='#A0C4FF')
+    rects2 = ax1.bar(x + width/2, data['mrr_post'], width, label='Post-Rerank', color='#0055D4')
 
+    ax1.set_ylabel('MRR Score')
+    ax1.set_title('MRR Improvement (Pre vs Post)')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(data['methods'])
+    ax1.legend()
+    ax1.grid(axis='y', linestyle='--', alpha=0.7)
 
-results = {
-    "Bins": [
-        {"k": 10, "mrr": 0.051, "time_s": 2.41 },
-        {"k": 50, "mrr": 0.072, "time_s": 5.47 },
-        {"k": 100, "mrr": 0.111, "time_s": 8.26},
-        {"k": 500, "mrr": 0.171, "time_s": 22},
-        {"k": 1000, "mrr": 0.180, "time_s": 45},
-    ],
-    "Pacmann": [
-        {"k": 10, "mrr": 0.170, "time_s": 81.5},
-        {"k": 50, "mrr": 0.175, "time_s": 82},
-        {"k": 100, "mrr": 0.174, "time_s": 90},
-        {"k": 500, "mrr": 0.181, "time_s": 97},
-        {"k": 1000, "mrr": 0.18, "time_s": 107},
-    ],
+    # --- Plot 2: MRR vs Running Time (Trade-off) ---
+    ax2 = axes[1]
+    # Scatter plot
+    ax2.scatter(data['time_seconds'], data['mrr_post'], s=150, c='crimson', zorder=5)
 
-    # "tree": [
-    #     {"k": 10, "mrr": 0.190, "time_s": 1.2},
-    #     {"k": 50, "mrr": 0.235, "time_s": 3.8},
-    #     {"k": 100, "mrr": 0.244, "time_s": 7.1},
-    #     {"k": 500, "mrr": 0.221, "time_s": 0.11},
-    #     {"k": 1000, "mrr": 0.221, "time_s": 0.11},
-    # ],
-    #
-}
+    # Annotate points
+    for i, txt in enumerate(data['methods']):
+        ax2.annotate(txt, (data['time_seconds'][i], data['mrr_post'][i]),
+                     xytext=(5, 5), textcoords='offset points', fontsize=11, fontweight='bold')
 
-set_minimal_plot_style()
+    ax2.set_xlabel('Total Answer Time (Seconds)')
+    ax2.set_ylabel('MRR (Post-Rerank)')
+    ax2.set_title('Efficiency Frontier: Time vs Accuracy')
+    ax2.grid(True, linestyle='--', alpha=0.5)
+    # Invert x axis if you prefer "faster is better" on the right,
+    # but standard is 0 on left. 0 on left is usually fine.
 
-fig1, ax1 = plot_mrr_vs_k(results)
-fig2, ax2 = plot_time_vs_k(results, log_y=True)  # log_y helps if time spans large range
-fig3, ax3 = plot_mrr_time_tradeoff(results, annotate_k=True)
+    # --- Plot 3: MRR vs Data Sent (Bandwidth Cost) ---
+    ax3 = axes[2]
+    ax3.scatter(data['data_sent_gb'], data['mrr_post'], s=150, c='forestgreen', zorder=5)
 
-plt.show()
+    for i, txt in enumerate(data['methods']):
+        ax3.annotate(txt, (data['data_sent_gb'][i], data['mrr_post'][i]),
+                     xytext=(5, 5), textcoords='offset points', fontsize=11, fontweight='bold')
+
+    ax3.set_xlabel('Total Data Sent (GB)')
+    ax3.set_ylabel('MRR (Post-Rerank)')
+    ax3.set_title('Bandwidth Cost: Data Sent vs Accuracy')
+    ax3.grid(True, linestyle='--', alpha=0.5)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
+    plt.show()
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    results = load_data(METHODS, K_VALUE, BASE_DIR)
+
+    if not results['methods']:
+        print("No data loaded. Check your paths and file names.")
+    else:
+        print(f"Loaded data for: {results['methods']}")
+        plot_performance(results)

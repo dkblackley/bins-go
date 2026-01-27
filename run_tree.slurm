@@ -89,7 +89,7 @@ for k in "${K_VALUES[@]}"; do
   [[ -f tree.out ]] || { echo "ERROR: tree.out not found in $(pwd)"; }
 
   # mv step4_reranked_output.tsv "${outdir}/reranked_tree_k${k}.tsv"
-  mv "tree${k}_metadata.json" "${outdir}/tree_${k}_metadata.json"
+  mv "tree_${k}_metadata.json" "${outdir}/tree_${k}_metadata.json"
 
   cp -f tree.err "${outdir}/tree_${k}.err"
   cp -f tree.out "${outdir}/tree_${k}.out"
