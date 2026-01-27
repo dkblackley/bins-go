@@ -505,6 +505,11 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 		scoredDocs := make([]ScoredDoc, 0, len(docIds))
 
 		for _, docId := range docIds {
+
+			if docId == "-1" { // debug signal/not found for something like pacmann
+				continue
+			}
+
 			// Safety check: ensure doc has an embedding
 			if docEmb, ok := docEmbedMap[docId]; ok {
 				similarity := CosineSimilarity(queryEmb, docEmb)
