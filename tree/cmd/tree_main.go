@@ -325,7 +325,7 @@ func Runtree(config globals.Args) *PIRTree {
 	if docEmbed != "" && docIDMap != "" && queryEmbed != "" {
 		// sr, err := bm25.NewStage3Reranker(docEmbed, docIDMap, queryEmbed, dataRoot+"/tree/block_permutations.json", embedDim, enablePIR, uint64(32), stage3Idx)
 		// I think there is a difference in the files that I and Son use! My ones seem to be aligned and his are not?
-		sr, err := bm25.NewStage3Reranker(docEmbed, docIDMap, queryEmbed, "", embedDim, enablePIR, uint64(32), stage3Idx)
+		sr, err := bm25.NewStage3Reranker(docEmbed, docIDMap, queryEmbed, "", embedDim, enablePIR, uint64(32), 8, stage3Idx)
 		if err != nil {
 			fmt.Printf("Warning: failed to initialize Stage3 reranker: %v\n", err)
 		} else {

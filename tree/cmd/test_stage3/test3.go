@@ -85,7 +85,7 @@ func TestStage3() {
 	// Initialize Stage3 reranker
 	// sr, err := bm25.NewStage3Reranker(*docEmbed, *docIDMap, *queryEmbed, *embedDim, *enablePIR, uint64(*pirBatchSize))
 	// sr, err := bm25.NewStage3Reranker(*docEmbed, *docIDMap, *queryEmbed, "../../../../../../datasets/tree/block_permutations.json", 192, *enablePIR, uint64(32), stage3Idx)
-	sr, err := bm25.NewStage3Reranker(*docEmbed, *docIDMap, *queryEmbed, "", 192, *enablePIR, uint64(32), stage3Idx)
+	sr, err := bm25.NewStage3Reranker(*docEmbed, *docIDMap, *queryEmbed, "", 192, *enablePIR, uint64(32), 8, stage3Idx)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to initialize Stage3 reranker: %v\n", err)
 		os.Exit(1)
