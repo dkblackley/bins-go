@@ -431,7 +431,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 			// Safety check if the last block is partial
 			if docIdxInBatch < len(currentDocs) {
-				out[b] = uint64(currentDocs[docIdxInBatch])
+				out[b] = uint64(currentDocs[docIdxInBatch]) / uint64(itemsPerBlock)
 			}
 		}
 
@@ -463,7 +463,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 				docID := docIndices[baseDocIdx+v]
 
 				// Slicing Math: Extract the specific vector from the Block Data
-				start := v * itemsPerVector
+				start := (int(docID) % itemsPerBlock) * itemsPerVector
 				end := start + itemsPerVector
 
 				// Safety: blockData might be padded, but ensure we don't slice past end
