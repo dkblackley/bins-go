@@ -211,98 +211,67 @@ func NewStage3Reranker(
 	}
 
 	// Initialize PIR for document embeddings if enabled
+	// Initialize PIR for document embeddings if enabled
 	if enablePIR {
-		//// --- BLOCKING & PADDING LOGIC ---
-		//blockSize := 8 // Treat 8 documents as 1 block
-		//
-		//// Calculate DB dimensions in terms of BLOCKS
-		//dbSize := uint64((numDocs + blockSize - 1) / blockSize)
-		//entrySizeBytes := uint64(npyEmbedDim * bytesPerElem * blockSize)
-		//
-		//dbEntrySizeUint64 := entrySizeBytes / 8
-		//
-		//// Convert raw bytes to uint64 array for PIR
-		// embedUint64 := convertBytesToUint64(sr.docEmbedMmap, 192/2)
-		//if Debug {
-		//	wordsPerBlock := 0
-		//	if len(embedUint64) > 0 {
-		//		wordsPerBlock = len(embedUint64[0])
-		//	}
-		//	logrus.Debugf("[Stage3 DEBUG] PIR init: numDocs=%d blockSize=8 dbSizeBlocks=%d embedUint64Blocks=%d wordsPerBlock=%d expectedWordsPerBlock=%d entrySizeBytes=%d\n",
-		//		numDocs, dbSize, len(embedUint64), wordsPerBlock, dbEntrySizeUint64, entrySizeBytes)
-		//}
-		//
-		//// PADDING: Ensure the array is exactly the size PIR expects.
-		//// PIR expects (dbSize * entrySizeInUint64s)
-		//// expectedLen := int(dbSize * dbEntrySizeUint64)
-		//
-		////if len(embedUint64) < int(dbSize) { // Should just be dbSIze now... TODO: What is this doing? - I might've broke it
-		////	padAmount := int(dbSize) - len(embedUint64)
-		////	fmt.Printf("Stage3 PIR: Padding embedding data with %d zeros to match block alignment\n", padAmount)
-		////	padding := make([]uint64, padAmount)
-		////	embedUint64 = append(embedUint64, padding...)
-		////}
+		// --- BLOCKING & PADDING LOGIC ---
+		// Calculate DB dimensions in terms of BLOCKS
+		// numDocs is already calculated correctly from ParseNPYHeader above
+		dbSize := uint64((numDocs + blockSize - 1) / blockSize)
 
-		vectors, err := globals.LoadFloat32MatrixFromNpy(docEmbedPath, numDocs, npyEmbedDim)
-		if err != nil {
-			return nil, fmt.Errorf("error loading document embeddings: %v", err)
-		}
+		// entrySizeBytes: 192 floats * 4 bytes/float * 8 docs/block = 6144 bytes
+		entrySizeBytes := uint64(npyEmbedDim * 4 * blockSize)
 
-		DBEntryByteNum := uint64(npyEmbedDim * 4 * blockSize)
+		rawDB := make([][]uint64, dbSize)
 
-		// 1. Pre-calculate the number of blocks (rows) needed
-		numBlocks := (len(vectors) + blockSize - 1) / blockSize
-		rawDB := make([][]uint64, numBlocks)
+		// Iterate over the blocks
+		for i := 0; i < int(dbSize); i++ {
+			// Create a byte buffer for this entire block
+			blockBytes := make([]byte, entrySizeBytes)
 
-		for i := 0; i < len(vectors); i += blockSize {
-			// 2. Handle the "tail": prevent crashing if we run out of vectors
-			end := i + blockSize
-			if end > len(vectors) {
-				end = len(vectors)
-			}
+			// Fill the buffer with 8 vectors (or fewer if at the end)
+			for v := 0; v < blockSize; v++ {
+				docID := i*blockSize + v
 
-			// Get the slice for this block (might be smaller than blockSize at the end)
-			vectorslice := vectors[i:end]
-
-			// 3. Always allocate the FULL block size for padding
-			// PIR requires fixed-size blocks. If we have fewer vectors, the rest remain 0 (padding).
-			vectorBytes := make([]byte, npyEmbedDim*4*blockSize)
-
-			for k := 0; k < len(vectorslice); k++ {
-				for j := 0; j < npyEmbedDim; j++ {
-					// Calculate offset: (Vector Index in Block) * (Bytes per Vector) + (Float Index) * 4
-					offset := k*npyEmbedDim*4 + j*4
-
-					bits := math.Float32bits(vectorslice[k][j])
-					binary.LittleEndian.PutUint32(vectorBytes[offset:offset+4], bits)
+				// If we are past the last real doc, leave the rest as 0 (padding)
+				if docID >= numDocs {
+					break
 				}
+
+				// --- CRITICAL CHANGE: Read from the working Memory Map ---
+				// We use the exact same logic as GetDocEmbedding (which works in test3.go)
+				startOffset := (docID * npyEmbedDim) * bytesPerElem
+				endOffset := startOffset + (npyEmbedDim * bytesPerElem)
+
+				// Copy the raw bytes for this vector directly into the block buffer
+				// This bypasses any float conversion issues or row-shifting bugs
+				vecBytes := sr.docEmbedMmap[startOffset:endOffset]
+
+				// Destination offset in the block buffer
+				destOffset := v * npyEmbedDim * 4
+				copy(blockBytes[destOffset:], vecBytes)
 			}
 
-			// 4. Convert Bytes to Uint64 for the PIR DB
-			// Ensure DBEntryByteNum matches the buffer size we just filled
-			entry := make([]uint64, DBEntryByteNum/8)
+			// Convert the block's byte buffer into uint64s for PIR
+			entry := make([]uint64, entrySizeBytes/8)
 			for j := 0; j < len(entry); j++ {
-				entry[j] = binary.LittleEndian.Uint64(vectorBytes[j*8:])
+				entry[j] = binary.LittleEndian.Uint64(blockBytes[j*8:])
 			}
 
-			// 5. Assign to the correct ROW index (0, 1, 2...), not the vector index (0, 8, 16...)
-			blockIndex := i / blockSize
-			rawDB[blockIndex] = entry
+			rawDB[i] = entry
 		}
 
 		// Initialize PIR
-		// Note: Ensure DBEntryByteNum == npyEmbedDim * 4 * blockSize
 		sr.Pir = pianopir.NewSimpleBatchPianoPIR(
-			uint64(len(rawDB)),    // Number of Rows (Blocks)
-			uint64(len(rawDB[0])), // Number of uint64s per Row
-			DBEntryByteNum,        // Total bytes per Row
-			batchSize,             // Batch size
-			rawDB,                 // The DB
-			20,                    // Log2 Failure Probability
-			batchSize,             // Max Batch Size
+			uint64(len(rawDB)),     // Number of Rows (Blocks)
+			uint64(len(rawDB[0])),  // Number of uint64s per Row
+			uint64(entrySizeBytes), // Total bytes per Row
+			batchSize,              // Batch size
+			rawDB,                  // The DB
+			20,                     // Log2 Failure Probability
+			batchSize,              // Max Batch Size
 		)
 
-		fmt.Printf("Stage3 PIR Init: DB has %d blocks (rows), Entry Size %d bytes.\n", len(rawDB), DBEntryByteNum)
+		fmt.Printf("Stage3 PIR Init: DB has %d blocks (rows), Entry Size %d bytes.\n", len(rawDB), entrySizeBytes)
 		sr.pirUsable = true
 	}
 
