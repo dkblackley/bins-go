@@ -1,7 +1,6 @@
 package bm25
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -336,106 +335,111 @@ func (sr *Stage3Reranker) GetDocEmbedding(docIdx int) []float32 {
 	return emb
 }
 
-// GetDocEmbeddingBatch retrieves a batch of document embeddings using PIR if available
-func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndicesOriginal []int) map[int][]float32 {
-
-	// really we just want every eighth doc index:
-	docIndices := make([]int, len(docIndicesOriginal)/8)
-
-	for i := 0; i < len(docIndicesOriginal); i += 8 {
-		docIndices[i/8] = docIndicesOriginal[i]
-	}
-
+func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float32 {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
-	resultsDirect := make(map[int][]float32)
 	result := make(map[int][]float32)
 
-	// If PIR is not available or disabled, use direct reads
+	// 1. Fallback: If PIR is disabled/unusable, read directly from memory
 	if !sr.pirUsable || sr.Pir == nil {
 		for _, idx := range docIndices {
-			resultsDirect[idx] = sr.getDocEmbeddingDirect(idx)
+			result[idx] = sr.getDocEmbeddingDirect(idx)
 		}
-		return resultsDirect
+		return result
 	}
 
-	if Debug {
-		for _, idx := range docIndices {
-			resultsDirect[idx] = sr.getDocEmbeddingDirect(idx)
-		}
-	}
-	batchSize := int(sr.Pir.Config().BatchSize)
-
-	// 1. Calculate UNIQUE blocks needed.
-	// We cannot stride by 8 because inputs are sparse (random).
-	uniqueBlocks := make(map[uint64]bool)
-	for _, docID := range docIndicesOriginal {
-		// Integer division gives the block index
+	// 2. Identify Unique Blocks
+	// We iterate through every requested doc and calculate which block it lives in.
+	// We use a map to ensure we only query each block ONCE.
+	uniqueBlocksMap := make(map[uint64]bool)
+	for _, docID := range docIndices {
 		blockID := uint64(docID) / uint64(sr.blockSize)
-		uniqueBlocks[blockID] = true
+		uniqueBlocksMap[blockID] = true
 	}
 
-	// 2. Convert map to list for PIR query
-	queryBlocks := make([]uint64, 0, len(uniqueBlocks))
-	for bid := range uniqueBlocks {
-		queryBlocks = append(queryBlocks, bid)
+	// Convert the unique set to a slice for the PIR query
+	blocksToQuery := make([]uint64, 0, len(uniqueBlocksMap))
+	for bid := range uniqueBlocksMap {
+		blocksToQuery = append(blocksToQuery, bid)
 	}
 
-	// Map to store the retrieved raw data: BlockID -> Data
-	blockDataMap := make(map[uint64][]uint64)
+	// Safety check: if no blocks needed, return empty result
+	if len(blocksToQuery) == 0 {
+		return result
+	}
 
-	for i := 0; i < len(queryBlocks); i += batchSize {
-		// Chunk the query list
+	// 3. Execute PIR Queries in Batches
+	// We will store ALL retrieved data in this map: [BlockID] -> [RawBytes]
+	retrievedBlocks := make(map[uint64][]byte)
+
+	batchSize := int(sr.Pir.Config().BatchSize)
+	if batchSize <= 0 {
+		batchSize = 16
+	} // Default safety
+
+	for i := 0; i < len(blocksToQuery); i += batchSize {
+		// Create the batch (chunk)
 		limit := i + batchSize
-		if limit > len(queryBlocks) {
-			limit = len(queryBlocks)
+		if limit > len(blocksToQuery) {
+			limit = len(blocksToQuery)
 		}
 
-		chunk := queryBlocks[i:limit]
+		chunk := blocksToQuery[i:limit]
 
-		// Query PIR
+		// Run PIR
 		resultsRaw, err := sr.Pir.Query(chunk)
 		if err != nil {
 			logrus.Errorf("Stage3 PIR error: %v", err)
 			os.Exit(1)
 		}
 
-		// Store results mapped by their Block ID
-		for k, data := range resultsRaw {
+		// Map the results back to their Block IDs
+		// resultsRaw[k] corresponds to the query for chunk[k]
+		for k, blockDataUint64 := range resultsRaw {
+			if k >= len(chunk) {
+				break // Safety against PIR returning more results than requested
+			}
+
 			requestedBlockID := chunk[k]
-			blockDataMap[requestedBlockID] = data
+
+			// Convert the uint64 slice back to bytes immediately for easier slicing later
+			byteData := make([]byte, len(blockDataUint64)*8)
+			for bIdx, u64 := range blockDataUint64 {
+				binary.LittleEndian.PutUint64(byteData[bIdx*8:], u64)
+			}
+
+			retrievedBlocks[requestedBlockID] = byteData
 		}
 	}
 
-	// 4. Extract EXACTLY the documents requested
-	// 192 floats * 4 bytes / 8 bytes_per_uint64 = 96 uint64s per vector
-	itemsPerVector := (sr.EmbedDim * 4) / 8
+	// 4. Extract Vectors
+	// Now we have a map of every block we need. We iterate the requested docs,
+	// look up their block, and slice out the specific vector.
 
-	for _, docID := range docIndicesOriginal {
+	// 192 floats * 4 bytes = 768 bytes per vector
+	itemsPerVector := sr.EmbedDim * 4
+
+	for _, docID := range docIndices {
 		blockID := uint64(docID) / uint64(sr.blockSize)
 
-		// Retrieve the block containing this doc
-		if data, ok := blockDataMap[blockID]; ok {
-			// Calculate offset: Doc 9 is in slot 1 of its block (9 % 8 = 1)
+		// Does this block exist in our results? (It should)
+		if blockData, ok := retrievedBlocks[blockID]; ok {
+
+			// Calculate which slot (0-7) the doc occupies in the block
 			slot := int(docID) % sr.blockSize
 
 			start := slot * itemsPerVector
 			end := start + itemsPerVector
 
-			// Safety check
-			if end <= len(data) {
-				entry := data[start:end]
+			// Bounds check to handle padding or partial blocks
+			if end <= len(blockData) {
+				vectorBytes := blockData[start:end]
 
-				// Decode (Copy-paste of your existing decoding logic)
-				reconstructedBytes := make([]byte, len(entry)*8)
-				for idx, val := range entry {
-					binary.LittleEndian.PutUint64(reconstructedBytes[idx*8:], val)
-				}
-
-				recoveredVector := make([]float32, 192)
-				for j := 0; j < 192; j++ {
-					bits := binary.LittleEndian.Uint32(reconstructedBytes[j*4:])
+				// Convert bytes to float32
+				recoveredVector := make([]float32, sr.EmbedDim)
+				for j := 0; j < sr.EmbedDim; j++ {
+					bits := binary.LittleEndian.Uint32(vectorBytes[j*4:])
 					recoveredVector[j] = math.Float32frombits(bits)
 				}
 
@@ -444,210 +448,334 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndicesOriginal []int) map[int
 		}
 	}
 
+	// Optional: Debug check against direct reads
 	if Debug {
-		for k, _ := range result {
-
-			vect := result[k]
-
-			for i, num := range vect {
-				if num != resultsDirect[k][i] {
-					logrus.Errorf("Stage3: result[%d] != resultsDirect[%d] at index %d\n", k, k, i)
+		for _, idx := range docIndices {
+			direct := sr.getDocEmbeddingDirect(idx)
+			if pirVal, ok := result[idx]; ok {
+				// Compare first element just to be sure
+				if pirVal[0] != direct[0] {
+					logrus.Errorf("Mismatch Doc %d: PIR=%v Direct=%v", idx, pirVal[:4], direct[:4])
 				}
 			}
 		}
 	}
 
 	return result
-
-	// --- BLOCKING & SHUFFLING LOGIC START ---
-	blockSize := 8
-	uniqueBlocks = make(map[uint64]bool)
-
-	// 1. Identify which PHYSICAL blocks we need
-	//for _, idx := range docIndices {
-	//	logicalBlockID := idx / blockSize
-	//	physicalBlockID := logicalBlockID
-	//	if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-	//		physicalBlockID = sr.BlockPermutation[logicalBlockID]
-	//	}
-	//	uniqueBlocks[uint64(physicalBlockID)] = true
-	//}
-
-	for _, idx := range docIndices {
-		blockID := idx / blockSize // idx is already physical (embeddingIdx)
-		uniqueBlocks[uint64(blockID)] = true
-	}
-
-	// 2. Prepare block query list
-	queryBlocks = make([]uint64, 0, len(uniqueBlocks))
-	for bid := range uniqueBlocks {
-		queryBlocks = append(queryBlocks, bid)
-	}
-
-	// 3. EXECUTE BATCHED QUERIES
-	// Retrieve the configured batch size
-	batchSize = int(sr.Pir.Config().BatchSize)
-	if batchSize <= 0 {
-		batchSize = 16
-	}
-
-	blockData := make(map[uint64][]byte)
-
-	for i := 0; i < len(queryBlocks); i += batchSize {
-		end := i + batchSize
-		if end > len(queryBlocks) {
-			end = len(queryBlocks)
-		}
-
-		chunkBlocks := queryBlocks[i:end]
-
-		responses, err := sr.Pir.Query(chunkBlocks)
-		if err != nil {
-			fmt.Printf("Stage3 PIR batch query error at index %d: %v, falling back to direct read for this chunk\n", i, err)
-			// Fallback: If PIR fails for this chunk, just skip adding to blockData
-			// The final loop (step 5) will miss these blocks, so we must fill them via direct read later if needed
-			// or simpler: just switch to direct read for EVERYTHING if PIR fails?
-			// For robustness, let's let the loop continue and handle missing data below.
-			continue
-		}
-
-		// 4. Unpack responses into map: PhysicalBlockID -> Data
-		for j, bid := range chunkBlocks {
-			blockData[bid] = convertUint64ToBytes(responses[j])
-		}
-	}
-
-	debugOnce := true
-
-	//// 5. Extract specific embeddings from retrieved blocks
-	for _, docIdx := range docIndices {
-		blockID := docIdx / blockSize // physical block
-		offsetInBlock := docIdx % blockSize
-
-		rawBlock, ok := blockData[uint64(blockID)]
-
-		if debugOnce {
-			debugOnce = false
-			logrus.Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d\n", docIdx, offsetInBlock, blockID)
-			logrus.Debugf("res ok?: %v\n", ok)
-			logrus.Tracef("Doc embedding: %v\n", sr.GetDocEmbedding(docIdx))
-		}
-
-		if !ok {
-			result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
-			logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d, blockData len=%d PIR failed, using direct read\n", docIdx, offsetInBlock, blockID, len(blockData))
-			os.Exit(1)
-
-		}
-
-		embSize := sr.EmbedDim * sr.BytesPerElem
-		start := offsetInBlock * embSize
-		end := start + embSize
-
-		if end <= len(rawBlock) {
-			embBytes := rawBlock[start:end]
-
-			if Debug {
-				embSize := sr.EmbedDim * sr.BytesPerElem
-				directStart := docIdx * embSize
-				directEnd := directStart + embSize
-				if directEnd <= len(sr.docEmbedMmap) {
-					directBytes := sr.docEmbedMmap[directStart:directEnd]
-					if !bytes.Equal(directBytes, embBytes) {
-						// print a small prefix so logs are readable
-						n := 16
-						if len(embBytes) < n {
-							n = len(embBytes)
-						}
-						Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, blockID, offsetInBlock)
-						Debugf("  direct[:%d]=% x\n", n, directBytes[:n])
-						Debugf("  pir   [:%d]=% x\n", n, embBytes[:n])
-					}
-				}
-			}
-
-			emb := make([]float32, sr.EmbedDim)
-			for j := 0; j < sr.EmbedDim; j++ {
-				bOffset := j * sr.BytesPerElem
-				if sr.BytesPerElem == 4 {
-					emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(embBytes[bOffset : bOffset+4]))
-				} else {
-					emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(embBytes[bOffset : bOffset+8])))
-				}
-			}
-			result[docIdx] = emb
-		}
-
-	}
-	// --- BLOCKING & SHUFFLING LOGIC END ---
-
-	return result
-
-	// 5. Extract specific embeddings from retrieved blocks
-	//for _, docIdx := range docIndices {
-	//	logicalBlockID := docIdx / blockSize
-	//	offsetInBlock := docIdx % blockSize
-	//
-	//	physicalBlockID := logicalBlockID
-	//
-	//	if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
-	//		physicalBlockID = sr.BlockPermutation[logicalBlockID]
-	//	}
-	//
-	//	if debugOnce {
-	//		debugOnce = false
-	//		logrus.Tracef("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
-	//	}
-	//
-	//	// Check if we successfully retrieved this block via PIR
-	//	if rawBlock, ok := blockData[uint64(physicalBlockID)]; ok {
-	//		embSize := sr.EmbedDim * sr.BytesPerElem
-	//		start := offsetInBlock * embSize
-	//		end := start + embSize
-	//
-	//		if end <= len(rawBlock) {
-	//			embBytes := rawBlock[start:end]
-	//
-	//			if Debug {
-	//				embSize := sr.EmbedDim * sr.BytesPerElem
-	//				directStart := docIdx * embSize
-	//				directEnd := directStart + embSize
-	//				if directEnd <= len(sr.docEmbedMmap) {
-	//					directBytes := sr.docEmbedMmap[directStart:directEnd]
-	//					if !bytes.Equal(directBytes, embBytes) {
-	//						// print a small prefix so logs are readable
-	//						n := 16
-	//						if len(embBytes) < n {
-	//							n = len(embBytes)
-	//						}
-	//						logrus.Tracef("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
-	//						logrus.Tracef("  direct[:%d]=% x\n", n, directBytes[:n])
-	//						logrus.Tracef("  pir   [:%d]=% x\n", n, embBytes[:n])
-	//					}
-	//				}
-	//			}
-	//
-	//			emb := make([]float32, sr.EmbedDim)
-	//			for j := 0; j < sr.EmbedDim; j++ {
-	//				bOffset := j * sr.BytesPerElem
-	//				if sr.BytesPerElem == 4 {
-	//					emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(embBytes[bOffset : bOffset+4]))
-	//				} else {
-	//					emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(embBytes[bOffset : bOffset+8])))
-	//				}
-	//			}
-	//			result[docIdx] = emb
-	//		}
-	//	} else {
-	//		// Fallback: Block missing (likely PIR error on that chunk), use direct read
-	//		result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
-	//		logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d PhysicalBlockID=%d, blockData len=%d PIR failed, using direct read\n", docIdx, offsetInBlock, physicalBlockID, len(blockData))
-	//	}
-	//}
-	//// --- BLOCKING & SHUFFLING LOGIC END ---
-	//
-	//return result
 }
+
+//// GetDocEmbeddingBatch retrieves a batch of document embeddings using PIR if available
+//func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndicesOriginal []int) map[int][]float32 {
+//
+//	// really we just want every eighth doc index:
+//	docIndices := make([]int, len(docIndicesOriginal)/8)
+//
+//	for i := 0; i < len(docIndicesOriginal); i += 8 {
+//		docIndices[i/8] = docIndicesOriginal[i]
+//	}
+//
+//	sr.mu.RLock()
+//	defer sr.mu.RUnlock()
+//
+//	resultsDirect := make(map[int][]float32)
+//	result := make(map[int][]float32)
+//
+//	// If PIR is not available or disabled, use direct reads
+//	if !sr.pirUsable || sr.Pir == nil {
+//		for _, idx := range docIndices {
+//			resultsDirect[idx] = sr.getDocEmbeddingDirect(idx)
+//		}
+//		return resultsDirect
+//	}
+//
+//	if Debug {
+//		for _, idx := range docIndices {
+//			resultsDirect[idx] = sr.getDocEmbeddingDirect(idx)
+//		}
+//	}
+//	batchSize := int(sr.Pir.Config().BatchSize)
+//
+//	// 1. Calculate UNIQUE blocks needed.
+//	// We cannot stride by 8 because inputs are sparse (random).
+//	uniqueBlocks := make(map[uint64]bool)
+//	for _, docID := range docIndicesOriginal {
+//		// Integer division gives the block index
+//		blockID := uint64(docID) / uint64(sr.blockSize)
+//		uniqueBlocks[blockID] = true
+//	}
+//
+//	// 2. Convert map to list for PIR query
+//	queryBlocks := make([]uint64, 0, len(uniqueBlocks))
+//	for bid := range uniqueBlocks {
+//		queryBlocks = append(queryBlocks, bid)
+//	}
+//
+//	// Map to store the retrieved raw data: BlockID -> Data
+//	blockDataMap := make(map[uint64][]uint64)
+//
+//	for i := 0; i < len(queryBlocks); i += batchSize {
+//		// Chunk the query list
+//		limit := i + batchSize
+//		if limit > len(queryBlocks) {
+//			limit = len(queryBlocks)
+//		}
+//
+//		chunk := queryBlocks[i:limit]
+//
+//		// Query PIR
+//		resultsRaw, err := sr.Pir.Query(chunk)
+//		if err != nil {
+//			logrus.Errorf("Stage3 PIR error: %v", err)
+//			os.Exit(1)
+//		}
+//
+//		// Store results mapped by their Block ID
+//		for k, data := range resultsRaw {
+//			requestedBlockID := chunk[k]
+//			blockDataMap[requestedBlockID] = data
+//		}
+//	}
+//
+//	// 4. Extract EXACTLY the documents requested
+//	// 192 floats * 4 bytes / 8 bytes_per_uint64 = 96 uint64s per vector
+//	itemsPerVector := (sr.EmbedDim * 4) / 8
+//
+//	for _, docID := range docIndicesOriginal {
+//		blockID := uint64(docID) / uint64(sr.blockSize)
+//
+//		// Retrieve the block containing this doc
+//		if data, ok := blockDataMap[blockID]; ok {
+//			// Calculate offset: Doc 9 is in slot 1 of its block (9 % 8 = 1)
+//			slot := int(docID) % sr.blockSize
+//
+//			start := slot * itemsPerVector
+//			end := start + itemsPerVector
+//
+//			// Safety check
+//			if end <= len(data) {
+//				entry := data[start:end]
+//
+//				// Decode (Copy-paste of your existing decoding logic)
+//				reconstructedBytes := make([]byte, len(entry)*8)
+//				for idx, val := range entry {
+//					binary.LittleEndian.PutUint64(reconstructedBytes[idx*8:], val)
+//				}
+//
+//				recoveredVector := make([]float32, 192)
+//				for j := 0; j < 192; j++ {
+//					bits := binary.LittleEndian.Uint32(reconstructedBytes[j*4:])
+//					recoveredVector[j] = math.Float32frombits(bits)
+//				}
+//
+//				result[docID] = recoveredVector
+//			}
+//		}
+//	}
+//
+//	if Debug {
+//		for k, _ := range result {
+//
+//			vect := result[k]
+//
+//			for i, num := range vect {
+//				if num != resultsDirect[k][i] {
+//					logrus.Errorf("Stage3: result[%d] != resultsDirect[%d] at index %d\n", k, k, i)
+//				}
+//			}
+//		}
+//	}
+//
+//	return result
+//
+//	// --- BLOCKING & SHUFFLING LOGIC START ---
+//	blockSize := 8
+//	uniqueBlocks = make(map[uint64]bool)
+//
+//	// 1. Identify which PHYSICAL blocks we need
+//	//for _, idx := range docIndices {
+//	//	logicalBlockID := idx / blockSize
+//	//	physicalBlockID := logicalBlockID
+//	//	if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+//	//		physicalBlockID = sr.BlockPermutation[logicalBlockID]
+//	//	}
+//	//	uniqueBlocks[uint64(physicalBlockID)] = true
+//	//}
+//
+//	for _, idx := range docIndices {
+//		blockID := idx / blockSize // idx is already physical (embeddingIdx)
+//		uniqueBlocks[uint64(blockID)] = true
+//	}
+//
+//	// 2. Prepare block query list
+//	queryBlocks = make([]uint64, 0, len(uniqueBlocks))
+//	for bid := range uniqueBlocks {
+//		queryBlocks = append(queryBlocks, bid)
+//	}
+//
+//	// 3. EXECUTE BATCHED QUERIES
+//	// Retrieve the configured batch size
+//	batchSize = int(sr.Pir.Config().BatchSize)
+//	if batchSize <= 0 {
+//		batchSize = 16
+//	}
+//
+//	blockData := make(map[uint64][]byte)
+//
+//	for i := 0; i < len(queryBlocks); i += batchSize {
+//		end := i + batchSize
+//		if end > len(queryBlocks) {
+//			end = len(queryBlocks)
+//		}
+//
+//		chunkBlocks := queryBlocks[i:end]
+//
+//		responses, err := sr.Pir.Query(chunkBlocks)
+//		if err != nil {
+//			fmt.Printf("Stage3 PIR batch query error at index %d: %v, falling back to direct read for this chunk\n", i, err)
+//			// Fallback: If PIR fails for this chunk, just skip adding to blockData
+//			// The final loop (step 5) will miss these blocks, so we must fill them via direct read later if needed
+//			// or simpler: just switch to direct read for EVERYTHING if PIR fails?
+//			// For robustness, let's let the loop continue and handle missing data below.
+//			continue
+//		}
+//
+//		// 4. Unpack responses into map: PhysicalBlockID -> Data
+//		for j, bid := range chunkBlocks {
+//			blockData[bid] = convertUint64ToBytes(responses[j])
+//		}
+//	}
+//
+//	debugOnce := true
+//
+//	//// 5. Extract specific embeddings from retrieved blocks
+//	for _, docIdx := range docIndices {
+//		blockID := docIdx / blockSize // physical block
+//		offsetInBlock := docIdx % blockSize
+//
+//		rawBlock, ok := blockData[uint64(blockID)]
+//
+//		if debugOnce {
+//			debugOnce = false
+//			logrus.Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d\n", docIdx, offsetInBlock, blockID)
+//			logrus.Debugf("res ok?: %v\n", ok)
+//			logrus.Tracef("Doc embedding: %v\n", sr.GetDocEmbedding(docIdx))
+//		}
+//
+//		if !ok {
+//			result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
+//			logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d, blockData len=%d PIR failed, using direct read\n", docIdx, offsetInBlock, blockID, len(blockData))
+//			os.Exit(1)
+//
+//		}
+//
+//		embSize := sr.EmbedDim * sr.BytesPerElem
+//		start := offsetInBlock * embSize
+//		end := start + embSize
+//
+//		if end <= len(rawBlock) {
+//			embBytes := rawBlock[start:end]
+//
+//			if Debug {
+//				embSize := sr.EmbedDim * sr.BytesPerElem
+//				directStart := docIdx * embSize
+//				directEnd := directStart + embSize
+//				if directEnd <= len(sr.docEmbedMmap) {
+//					directBytes := sr.docEmbedMmap[directStart:directEnd]
+//					if !bytes.Equal(directBytes, embBytes) {
+//						// print a small prefix so logs are readable
+//						n := 16
+//						if len(embBytes) < n {
+//							n = len(embBytes)
+//						}
+//						Debugf("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, blockID, offsetInBlock)
+//						Debugf("  direct[:%d]=% x\n", n, directBytes[:n])
+//						Debugf("  pir   [:%d]=% x\n", n, embBytes[:n])
+//					}
+//				}
+//			}
+//
+//			emb := make([]float32, sr.EmbedDim)
+//			for j := 0; j < sr.EmbedDim; j++ {
+//				bOffset := j * sr.BytesPerElem
+//				if sr.BytesPerElem == 4 {
+//					emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(embBytes[bOffset : bOffset+4]))
+//				} else {
+//					emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(embBytes[bOffset : bOffset+8])))
+//				}
+//			}
+//			result[docIdx] = emb
+//		}
+//
+//	}
+//	// --- BLOCKING & SHUFFLING LOGIC END ---
+//
+//	return result
+//
+//	// 5. Extract specific embeddings from retrieved blocks
+//	//for _, docIdx := range docIndices {
+//	//	logicalBlockID := docIdx / blockSize
+//	//	offsetInBlock := docIdx % blockSize
+//	//
+//	//	physicalBlockID := logicalBlockID
+//	//
+//	//	if len(sr.BlockPermutation) > 0 && logicalBlockID < len(sr.BlockPermutation) {
+//	//		physicalBlockID = sr.BlockPermutation[logicalBlockID]
+//	//	}
+//	//
+//	//	if debugOnce {
+//	//		debugOnce = false
+//	//		logrus.Tracef("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
+//	//	}
+//	//
+//	//	// Check if we successfully retrieved this block via PIR
+//	//	if rawBlock, ok := blockData[uint64(physicalBlockID)]; ok {
+//	//		embSize := sr.EmbedDim * sr.BytesPerElem
+//	//		start := offsetInBlock * embSize
+//	//		end := start + embSize
+//	//
+//	//		if end <= len(rawBlock) {
+//	//			embBytes := rawBlock[start:end]
+//	//
+//	//			if Debug {
+//	//				embSize := sr.EmbedDim * sr.BytesPerElem
+//	//				directStart := docIdx * embSize
+//	//				directEnd := directStart + embSize
+//	//				if directEnd <= len(sr.docEmbedMmap) {
+//	//					directBytes := sr.docEmbedMmap[directStart:directEnd]
+//	//					if !bytes.Equal(directBytes, embBytes) {
+//	//						// print a small prefix so logs are readable
+//	//						n := 16
+//	//						if len(embBytes) < n {
+//	//							n = len(embBytes)
+//	//						}
+//	//						logrus.Tracef("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
+//	//						logrus.Tracef("  direct[:%d]=% x\n", n, directBytes[:n])
+//	//						logrus.Tracef("  pir   [:%d]=% x\n", n, embBytes[:n])
+//	//					}
+//	//				}
+//	//			}
+//	//
+//	//			emb := make([]float32, sr.EmbedDim)
+//	//			for j := 0; j < sr.EmbedDim; j++ {
+//	//				bOffset := j * sr.BytesPerElem
+//	//				if sr.BytesPerElem == 4 {
+//	//					emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(embBytes[bOffset : bOffset+4]))
+//	//				} else {
+//	//					emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(embBytes[bOffset : bOffset+8])))
+//	//				}
+//	//			}
+//	//			result[docIdx] = emb
+//	//		}
+//	//	} else {
+//	//		// Fallback: Block missing (likely PIR error on that chunk), use direct read
+//	//		result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
+//	//		logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d PhysicalBlockID=%d, blockData len=%d PIR failed, using direct read\n", docIdx, offsetInBlock, physicalBlockID, len(blockData))
+//	//	}
+//	//}
+//	//// --- BLOCKING & SHUFFLING LOGIC END ---
+//	//
+//	//return result
+//}
 
 func (sr *Stage3Reranker) getDocEmbeddingDirect(docIdx int) []float32 {
 	return sr.DocEmbeddings[docIdx]
