@@ -367,62 +367,80 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndicesOriginal []int) map[int
 	}
 	batchSize := int(sr.Pir.Config().BatchSize)
 
-	// FIX 1: Identify exactly which blocks contain the requested docs
-	// We cannot assume the input is contiguous, so we map them.
+	// 1. Calculate UNIQUE blocks needed.
+	// We cannot stride by 8 because inputs are sparse (random).
 	uniqueBlocks := make(map[uint64]bool)
-	for _, docID := range docIndices {
+	for _, docID := range docIndicesOriginal {
+		// Integer division gives the block index
 		blockID := uint64(docID) / uint64(sr.blockSize)
 		uniqueBlocks[blockID] = true
 	}
 
-	// Convert map keys to a list for the query
-	out := make([]uint64, 0, len(uniqueBlocks))
+	// 2. Convert map to list for PIR query
+	queryBlocks := make([]uint64, 0, len(uniqueBlocks))
 	for bid := range uniqueBlocks {
-		out = append(out, bid)
+		queryBlocks = append(queryBlocks, bid)
 	}
 
-	// Query the unique blocks
-	resultsRaw, err := sr.Pir.Query(out)
-	if err != nil {
-		logrus.Errorf("Stage3 PIR error: %v\n", err)
-		os.Exit(1)
+	// Map to store the retrieved raw data: BlockID -> Data
+	blockDataMap := make(map[uint64][]uint64)
+
+	for i := 0; i < len(queryBlocks); i += batchSize {
+		// Chunk the query list
+		limit := i + batchSize
+		if limit > len(queryBlocks) {
+			limit = len(queryBlocks)
+		}
+
+		chunk := queryBlocks[i:limit]
+
+		// Query PIR
+		resultsRaw, err := sr.Pir.Query(chunk)
+		if err != nil {
+			logrus.Errorf("Stage3 PIR error: %v", err)
+			os.Exit(1)
+		}
+
+		// Store results mapped by their Block ID
+		for k, data := range resultsRaw {
+			requestedBlockID := chunk[k]
+			blockDataMap[requestedBlockID] = data
+		}
 	}
 
-	// FIX 2: Create a lookup map for the retrieved blocks
-	// BlockID -> BlockData
-	retrievedBlocks := make(map[uint64][]uint64)
-	for k, data := range resultsRaw {
-		retrievedBlocks[out[k]] = data
-	}
+	// 4. Extract EXACTLY the documents requested
+	// 192 floats * 4 bytes / 8 bytes_per_uint64 = 96 uint64s per vector
+	itemsPerVector := (sr.EmbedDim * 4) / 8
 
-	// FIX 3: Extract the specific vectors we wanted
-	for _, docID := range docIndices {
+	for _, docID := range docIndicesOriginal {
 		blockID := uint64(docID) / uint64(sr.blockSize)
 
-		if blockData, ok := retrievedBlocks[blockID]; ok {
-			// Which slot (0-7) is this doc in?
+		// Retrieve the block containing this doc
+		if data, ok := blockDataMap[blockID]; ok {
+			// Calculate offset: Doc 9 is in slot 1 of its block (9 % 8 = 1)
 			slot := int(docID) % sr.blockSize
 
-			// Calculate start/end of this vector in the block data
-			// 192 floats * 4 bytes / 8 bytes_per_uint64 = 96 uint64s per vector
-			itemsPerVector := (sr.EmbedDim * 4) / 8
 			start := slot * itemsPerVector
 			end := start + itemsPerVector
 
-			// Decode just this vector
-			entry := blockData[start:end]
-			reconstructedBytes := make([]byte, len(entry)*8)
-			for idx, val := range entry {
-				binary.LittleEndian.PutUint64(reconstructedBytes[idx*8:], val)
-			}
+			// Safety check
+			if end <= len(data) {
+				entry := data[start:end]
 
-			recoveredVector := make([]float32, sr.EmbedDim)
-			for j := 0; j < sr.EmbedDim; j++ {
-				bits := binary.LittleEndian.Uint32(reconstructedBytes[j*4:])
-				recoveredVector[j] = math.Float32frombits(bits)
-			}
+				// Decode (Copy-paste of your existing decoding logic)
+				reconstructedBytes := make([]byte, len(entry)*8)
+				for idx, val := range entry {
+					binary.LittleEndian.PutUint64(reconstructedBytes[idx*8:], val)
+				}
 
-			result[docID] = recoveredVector
+				recoveredVector := make([]float32, 192)
+				for j := 0; j < 192; j++ {
+					bits := binary.LittleEndian.Uint32(reconstructedBytes[j*4:])
+					recoveredVector[j] = math.Float32frombits(bits)
+				}
+
+				result[docID] = recoveredVector
+			}
 		}
 	}
 
@@ -461,7 +479,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndicesOriginal []int) map[int
 	}
 
 	// 2. Prepare block query list
-	queryBlocks := make([]uint64, 0, len(uniqueBlocks))
+	queryBlocks = make([]uint64, 0, len(uniqueBlocks))
 	for bid := range uniqueBlocks {
 		queryBlocks = append(queryBlocks, bid)
 	}
