@@ -393,69 +393,104 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 			resultsDirect[idx] = sr.getDocEmbeddingDirect(idx)
 		}
 	}
-	//batchSize := int(sr.Pir.Config().BatchSize)
-	batchSize := sr.blockSize
-	// Calculate how many uint64s make up one 192-float vector
-	// 192 floats * 4 bytes = 768 bytes. 768 bytes / 8 bytes-per-uint64 = 96 uint64s.
+
+	// CONFIGURATION
+	itemsPerBlock := sr.blockSize               // e.g., 8 vectors per DB entry
+	batchSize := int(sr.Pir.Config().BatchSize) // e.g., 8 or 16 queries per PIR call
+
+	// Calculate uint64s per vector for decoding
+	// 192 floats * 4 bytes = 768 bytes. 768 / 8 = 96 uint64s.
 	itemsPerVector := (sr.EmbedDim * 4) / 8
 
-	for i := 0; i < len(docIndices); i += batchSize {
-		// Handle partial batches at the end of the list
-		mini := i + batchSize
-		if mini > len(docIndices) {
-			mini = len(docIndices)
+	// We process 'docsPerBatch' documents in every PIR round trip.
+	// e.g. If PIR batch is 8 and each block has 8 items, we process 64 docs at once.
+	docsPerBatch := batchSize * itemsPerBlock
+
+	for i := 0; i < len(docIndices); i += docsPerBatch {
+
+		// 1. Identify the range of documents for this PIR batch
+		limit := i + docsPerBatch
+		if limit > len(docIndices) {
+			limit = len(docIndices)
+		}
+		currentDocs := docIndices[i:limit]
+
+		// 2. Build the Query for the Blocks
+		// We need to pick the "Leader" ID for each block (0, 8, 16...)
+		// Since input is contiguous [0,1,2...], we just stride by itemsPerBlock
+
+		// Calculate how many blocks we need (ceil division)
+		numBlocksNeeded := (len(currentDocs) + itemsPerBlock - 1) / itemsPerBlock
+
+		out := make([]uint64, numBlocksNeeded)
+		for b := 0; b < numBlocksNeeded; b++ {
+			// The first doc index of this block acts as the key (e.g., 0, 8, 16)
+			// The server will divide this by itemsPerBlock to find the physical row.
+			// currentDocs index: b * 8
+			docIdxInBatch := b * itemsPerBlock
+
+			// Safety check if the last block is partial
+			if docIdxInBatch < len(currentDocs) {
+				out[b] = uint64(currentDocs[docIdxInBatch])
+			}
 		}
 
-		batch := docIndices[i:mini]
-
-		// 1. Prepare the Query
-		// We only set the first index. The server divides this by 8 to find the block.
-		out := make([]uint64, batchSize)
-		if len(batch) > 0 {
-			out[0] = uint64(batch[0]) // Send raw ID (e.g. 16), NOT 16/8
-		}
-
-		// 2. Run PIR
-		// resultsRawTemp[0] contains the WHOLE block (up to 8 vectors concatenated)
+		// 3. Run PIR (Requests multiple blocks at once)
+		// resultsRawTemp is [][]uint64 -> [BlockIndex][BlockData]
 		resultsRawTemp, err := sr.Pir.Query(out)
 		if err != nil {
 			logrus.Errorf("Stage3 PIR batch query error at index %d: %v\n", i, err)
 			os.Exit(1)
 		}
 
-		// 3. Split the block and reconstruct
-		blockData := resultsRawTemp[0]
+		// 4. Decode the Results
+		// We iterate over the returned blocks, and then over the vectors inside them.
+		for bIndex, blockData := range resultsRawTemp {
+			// Calculate which documents this block covers
+			// e.g., Block 0 covers docs i + 0..7
+			baseDocIdx := i + (bIndex * itemsPerBlock)
 
-		for k, docIdx := range batch {
-			// Slice the large blockData into the specific chunk for this vector
-			start := k * itemsPerVector
-			end := start + itemsPerVector
+			// Iterate through the 8 (or fewer) vectors in this specific block
+			for v := 0; v < itemsPerBlock; v++ {
 
-			// Safety check for bounds (mostly for the last partial block)
-			if end > len(blockData) {
-				break
-			}
+				// Map to the actual global document ID
+				// We check bounds because the very last block of the whole DB might be partial
+				if baseDocIdx+v >= len(docIndices) {
+					break
+				}
 
-			entry := blockData[start:end]
+				// The actual document ID we are recovering
+				docID := docIndices[baseDocIdx+v]
 
-			// Reconstruct bytes from uint64s
-			reconstructedBytes := make([]byte, len(entry)*8)
-			for idx, val := range entry {
-				binary.LittleEndian.PutUint64(reconstructedBytes[idx*8:], val)
-			}
+				// Slicing Math: Extract the specific vector from the Block Data
+				start := v * itemsPerVector
+				end := start + itemsPerVector
 
-			recoveredVector := make([]float32, 192)
+				// Safety: blockData might be padded, but ensure we don't slice past end
+				if end > len(blockData) {
+					break
+				}
 
-			for j := 0; j < 192; j++ {
-				bits := binary.LittleEndian.Uint32(reconstructedBytes[j*4:])
-				recoveredVector[j] = math.Float32frombits(bits)
-			}
+				entry := blockData[start:end]
 
-			result[docIdx] = recoveredVector
+				// Reconstruct Bytes & Float32s
+				reconstructedBytes := make([]byte, len(entry)*8)
+				for idx, val := range entry {
+					binary.LittleEndian.PutUint64(reconstructedBytes[idx*8:], val)
+				}
 
-			if Debug && i < 1 {
-				logrus.Debugf("Retrieved doc embeddings for %d", docIdx)
-				logrus.Debugf("first 4 doc embeddings: %v\n", result[docIdx][:4])
+				recoveredVector := make([]float32, 192)
+				for j := 0; j < 192; j++ {
+					bits := binary.LittleEndian.Uint32(reconstructedBytes[j*4:])
+					recoveredVector[j] = math.Float32frombits(bits)
+				}
+
+				result[docID] = recoveredVector
+
+				if Debug && i == 0 && bIndex == 0 && v < 4 {
+					logrus.Debugf("Retrieved doc embeddings for %d", docID)
+					logrus.Debugf("first 4 vals: %v\n", result[docID][:4])
+				}
 			}
 		}
 	}
