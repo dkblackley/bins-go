@@ -40,7 +40,10 @@ def load_data(methods, k, base_dir, amortized=False):
         'mrr_post': [],
         'time_seconds': [],
         'data_sent_gb': [],
-        'data_sent_mb': []
+        'data_sent_mb': [],
+        'time_seconds_stages': [],
+        'faithfulness': [],
+        'answer_relevancy': []
     }
 
     for method in methods:
@@ -64,6 +67,9 @@ def load_data(methods, k, base_dir, amortized=False):
                 mrr_post = float(json_data.get('MRR', 0))
                 mrr_pre = float(json_data.get('MRRPreReRank', 0))
 
+                faithfulness = float(json_data.get('faithfulness', 0.0))
+                answer_relevancy = float(json_data.get('answer_relevancy', 0.0))
+
                 # 2. Parse Time
                 time_str = json_data.get('TotalAnswerTime', "0s")
                 total_seconds = parse_go_duration(time_str)
@@ -78,6 +84,11 @@ def load_data(methods, k, base_dir, amortized=False):
                     uint64_count3 = float(json_data.get('TotalUint64Sent_stage3', 0))
                     uint64_count = uint64_count1 + uint64_count2 + uint64_count3
 
+                    # grab the time spent in each stage while we're at it:
+                    data['time_seconds_stages'].append(parse_go_duration(json_data.get('AnswerTime_stage1', "0s")))
+                    data['time_seconds_stages'].append(parse_go_duration(json_data.get('AnswerTime_stage2', "0s")))
+                    data['time_seconds_stages'].append(parse_go_duration(json_data.get('AnswerTime_stage3', "0s")))
+
                 bytes_sent = uint64_count * 8
                 gb_sent = bytes_sent / (1024**3) # Convert to Gigabytes
                 mb_sent = bytes_sent / (1024 ** 2)  # Convert to Megabytes
@@ -86,6 +97,8 @@ def load_data(methods, k, base_dir, amortized=False):
                 data['methods'].append(method)
                 data['mrr_pre'].append(mrr_pre)
                 data['mrr_post'].append(mrr_post)
+                data['faithfulness'].append(faithfulness)
+                data['answer_relevancy'].append(answer_relevancy)
                 if amortized:
                     data['time_seconds'].append(total_seconds/total_queries)
                     data['data_sent_gb'].append(gb_sent/total_queries)
@@ -100,72 +113,162 @@ def load_data(methods, k, base_dir, amortized=False):
 
     return data
 
-def plot_performance(data, gb=True, amortized=False):
+
+def plot_stage_breakdown(data):
+    """
+    Plots the time spent in Stage 1, 2, and 3 for the specific method
+    that has stage data.
+    """
+    stages = data['time_seconds_stages'] # Expecting [s1, s2, s3]
+    stage_labels = ['Stage 1', 'Stage 2', 'Stage 3']
+    colors = ['#FFD700', '#FF8C00', '#FF4500'] # Gold, DarkOrange, OrangeRed
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Create bars
+    bars = ax.bar(stage_labels, stages, color=colors, edgecolor='black', alpha=0.8)
+
+    # Add labels and title
+    ax.set_ylabel('Time (Seconds)')
+    ax.set_title('Detailed Time Breakdown by Stage')
+    ax.grid(axis='y', linestyle='--', alpha=0.5)
+
+    # Add value labels on top of each bar
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{height:.2f}s',
+                ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_performance(data, gb=True, amortized=False, llm_judge=False):
     # Set up a figure with 3 subplots (1 row, 3 columns)
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    if amortized:
-        fig.suptitle(f'Amortized Method Performance Comparison (k={K_VALUE})', fontsize=16)
-    else:
-        fig.suptitle(f'Method Performance Comparison (k={K_VALUE})', fontsize=16)
 
-    # --- Plot 1: MRR Pre vs Post (Grouped Bar Chart) ---
-    x = np.arange(len(data['methods']))
+    title_prefix = "Amortized " if amortized else ""
+    metric_type = "LLM Judge Eval" if llm_judge else "MRR"
+    fig.suptitle(f'{title_prefix}Method Performance: {metric_type} (k={K_VALUE})', fontsize=16)
+
+    # Common variables
+    methods = data['methods']
+    x = np.arange(len(methods))
+
+    # ---------------------------------------------------------
+    # --- Plot 1: Score Comparison (Grouped Bar Chart) ---
+    # ---------------------------------------------------------
+    ax1 = axes[0]
     width = 0.35
 
-    ax1 = axes[0]
-    rects1 = ax1.bar(x - width/2, data['mrr_pre'], width, label='Pre-Rerank', color='#A0C4FF')
-    rects2 = ax1.bar(x + width/2, data['mrr_post'], width, label='Post-Rerank', color='#0055D4')
+    if llm_judge:
+        # Compare Faithfulness vs Answer Relevancy
+        rects1 = ax1.bar(x - width / 2, data['faithfulness'], width, label='Faithfulness', color='#2ca02c')  # Green
+        rects2 = ax1.bar(x + width / 2, data['answer_relevancy'], width, label='Ans. Relevancy',
+                         color='#1f77b4')  # Blue
+        ax1.set_ylabel('Score (0-1)')
+        ax1.set_title('LLM Metrics: Faithfulness vs Relevancy')
+    else:
+        # Original MRR Comparison
+        rects1 = ax1.bar(x - width / 2, data['mrr_pre'], width, label='Pre-Rerank', color='#A0C4FF')
+        rects2 = ax1.bar(x + width / 2, data['mrr_post'], width, label='Post-Rerank', color='#0055D4')
+        ax1.set_ylabel('MRR Score')
+        ax1.set_title('MRR Improvement (Pre vs Post)')
 
-    ax1.set_ylabel('MRR Score')
-    ax1.set_title('MRR Improvement (Pre vs Post)')
     ax1.set_xticks(x)
-    ax1.set_xticklabels(data['methods'])
+    ax1.set_xticklabels(methods)
     ax1.legend()
     ax1.grid(axis='y', linestyle='--', alpha=0.7)
 
-    # --- Plot 2: MRR vs Running Time (Trade-off) ---
-    ax2 = axes[1]
-    # Scatter plot
-    ax2.scatter(data['time_seconds'], data['mrr_post'], s=150, c='crimson', zorder=5)
+    # ---------------------------------------------------------
+    # --- Helper to draw sorted dotted lines ---
+    # ---------------------------------------------------------
+    def plot_trend_line(ax, x_vals, y_vals, color):
+        # We must sort points by X to draw a clean line, otherwise it zig-zags
+        sorted_indices = np.argsort(x_vals)
+        sorted_x = np.array(x_vals)[sorted_indices]
+        sorted_y = np.array(y_vals)[sorted_indices]
+        ax.plot(sorted_x, sorted_y, linestyle=':', color=color, alpha=0.6, zorder=1)
 
-    # Annotate points
-    for i, txt in enumerate(data['methods']):
-        ax2.annotate(txt, (data['time_seconds'][i], data['mrr_post'][i]),
-                     xytext=(5, 5), textcoords='offset points', fontsize=11, fontweight='bold')
+    # ---------------------------------------------------------
+    # --- Plot 2: Efficiency Frontier (Time vs Score) ---
+    # ---------------------------------------------------------
+    ax2 = axes[1]
+    time_data = data['time_seconds']
+
+    if llm_judge:
+        # Plot Faithfulness
+        ax2.scatter(time_data, data['faithfulness'], s=100, marker='o', label='Faithfulness', c='#2ca02c', zorder=5)
+        plot_trend_line(ax2, time_data, data['faithfulness'], '#2ca02c')
+
+        # Plot Relevancy
+        ax2.scatter(time_data, data['answer_relevancy'], s=100, marker='^', label='Relevancy', c='#1f77b4', zorder=5)
+        plot_trend_line(ax2, time_data, data['answer_relevancy'], '#1f77b4')
+
+        ax2.set_ylabel('LLM Score')
+        ax2.legend()
+    else:
+        # Plot MRR
+        ax2.scatter(time_data, data['mrr_post'], s=150, c='crimson', zorder=5)
+        plot_trend_line(ax2, time_data, data['mrr_post'], 'crimson')
+        ax2.set_ylabel('MRR (Post-Rerank)')
+
+    # Annotate points (Only need to do this once per method)
+    y_annotate = data['faithfulness'] if llm_judge else data['mrr_post']
+    for i, txt in enumerate(methods):
+        ax2.annotate(txt, (time_data[i], y_annotate[i]),
+                     xytext=(5, 5), textcoords='offset points', fontsize=9, fontweight='bold')
 
     ax2.set_xlabel('Total Answer Time (Seconds)')
-    ax2.set_ylabel('MRR (Post-Rerank)')
-    ax2.set_title('Efficiency Frontier: Time vs Accuracy')
+    ax2.set_title('Efficiency Frontier: Time vs Quality')
     ax2.grid(True, linestyle='--', alpha=0.5)
-    # Invert x axis if you prefer "faster is better" on the right,
-    # but standard is 0 on left. 0 on left is usually fine.
 
-    # --- Plot 3: MRR vs Data Sent (Bandwidth Cost) ---
+    # ---------------------------------------------------------
+    # --- Plot 3: Bandwidth Cost (Data Sent vs Score) ---
+    # ---------------------------------------------------------
     ax3 = axes[2]
 
-    if gb:
-        ax3.scatter(data['data_sent_gb'], data['mrr_post'], s=150, c='forestgreen', zorder=5)
-        ax3.set_xlabel('Total Data Sent (GB)')
+    # Determine X data based on GB flag
+    data_x = data['data_sent_gb'] if gb else data['data_sent_mb']
+    xlabel = 'Total Data Sent (GB)' if gb else 'Total Data Sent (MB)'
+
+    if llm_judge:
+        # Plot Faithfulness
+        ax3.scatter(data_x, data['faithfulness'], s=100, marker='o', label='Faithfulness', c='#2ca02c', zorder=5)
+        plot_trend_line(ax3, data_x, data['faithfulness'], '#2ca02c')
+
+        # Plot Relevancy
+        ax3.scatter(data_x, data['answer_relevancy'], s=100, marker='^', label='Relevancy', c='#1f77b4', zorder=5)
+        plot_trend_line(ax3, data_x, data['answer_relevancy'], '#1f77b4')
+
+        ax3.set_ylabel('LLM Score')
+        ax3.legend()
     else:
-        ax3.scatter(data['data_sent_mb'], data['mrr_post'], s=150, c='forestgreen', zorder=5)
-        ax3.set_xlabel('Total Data Sent (MB)')
+        # Plot MRR
+        ax3.scatter(data_x, data['mrr_post'], s=150, c='forestgreen', zorder=5)
+        plot_trend_line(ax3, data_x, data['mrr_post'], 'forestgreen')
+        ax3.set_ylabel('MRR (Post-Rerank)')
 
-    for i, txt in enumerate(data['methods']):
-        ax3.annotate(txt, (data['data_sent_gb'][i], data['mrr_post'][i]),
-                     xytext=(5, 5), textcoords='offset points', fontsize=11, fontweight='bold')
+    # Annotate points
+    for i, txt in enumerate(methods):
+        # We annotate based on the highest point or just the first metric to avoid clutter
+        ax3.annotate(txt, (data_x[i], y_annotate[i]),
+                     xytext=(5, 5), textcoords='offset points', fontsize=9, fontweight='bold')
 
-    ax3.set_ylabel('MRR (Post-Rerank)')
-    ax3.set_title('Bandwidth Cost: Data Sent vs Accuracy')
+    ax3.set_xlabel(xlabel)
+    ax3.set_title('Bandwidth Cost: Data vs Quality')
     ax3.grid(True, linestyle='--', alpha=0.5)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
+
 
 # --- Main Execution ---
 if __name__ == "__main__":
 
     amortized = True
     gb = False
+    llm_judge = True
 
     results = load_data(METHODS, K_VALUE, BASE_DIR, amortized=amortized)
 
@@ -173,4 +276,5 @@ if __name__ == "__main__":
         print("No data loaded. Check your paths and file names.")
     else:
         print(f"Loaded data for: {results['methods']}")
-        plot_performance(results, gb=gb, amortized=amortized)
+        plot_performance(results, gb=gb, amortized=amortized, llm_judge=llm_judge)
+        plot_stage_breakdown(results)
