@@ -6,7 +6,7 @@ import numpy as np
 
 # --- Configuration ---
 METHODS = ['bins', 'tree', 'pacmann']
-K_VALUE = 10
+K_VALUES = [10, 50, 100, 500, 1000]
 # Assuming script is in 'bins-go', and results are in '../results'
 BASE_DIR = "../../../datasets/results"
 
@@ -43,7 +43,8 @@ def load_data(methods, k, base_dir, amortized=False):
         'data_sent_mb': [],
         'time_seconds_stages': [],
         'faithfulness': [],
-        'answer_relevancy': []
+        'answer_relevancy': [],
+        'k': k
     }
 
     for method in methods:
@@ -141,7 +142,7 @@ def plot_stage_breakdown(data):
                 ha='center', va='bottom', fontsize=12, fontweight='bold')
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig(f"figures/stage_breakdown_k{data['k']}.png")
 
 def plot_performance(data, gb=True, amortized=False, llm_judge=False):
     # Set up a figure with 3 subplots (1 row, 3 columns)
@@ -149,7 +150,7 @@ def plot_performance(data, gb=True, amortized=False, llm_judge=False):
 
     title_prefix = "Amortized " if amortized else ""
     metric_type = "LLM Judge Eval" if llm_judge else "MRR"
-    fig.suptitle(f'{title_prefix}Method Performance: {metric_type} (k={K_VALUE})', fontsize=16)
+    fig.suptitle(f'{title_prefix}Method Performance: {metric_type} (k={data["k"]})', fontsize=16)
 
     # Common variables
     methods = data['methods']
@@ -222,6 +223,7 @@ def plot_performance(data, gb=True, amortized=False, llm_judge=False):
     ax2.set_xlabel('Total Answer Time (Seconds)')
     ax2.set_title('Efficiency Frontier: Time vs Quality')
     ax2.grid(True, linestyle='--', alpha=0.5)
+    ax2.set_xlim(left=0)
 
     # ---------------------------------------------------------
     # --- Plot 3: Bandwidth Cost (Data Sent vs Score) ---
@@ -258,9 +260,11 @@ def plot_performance(data, gb=True, amortized=False, llm_judge=False):
     ax3.set_xlabel(xlabel)
     ax3.set_title('Bandwidth Cost: Data vs Quality')
     ax3.grid(True, linestyle='--', alpha=0.5)
+    ax3.set_xlim(left=0)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.show()
+
+    plt.savefig(f"figures/perf_compare_k{data['k']}.png")
 
 
 # --- Main Execution ---
@@ -268,13 +272,17 @@ if __name__ == "__main__":
 
     amortized = True
     gb = False
-    llm_judge = True
+    llm_judge = False
 
-    results = load_data(METHODS, K_VALUE, BASE_DIR, amortized=amortized)
+    for k in K_VALUES:
 
-    if not results['methods']:
-        print("No data loaded. Check your paths and file names.")
-    else:
-        print(f"Loaded data for: {results['methods']}")
-        plot_performance(results, gb=gb, amortized=amortized, llm_judge=llm_judge)
-        plot_stage_breakdown(results)
+        print(f"Loading data for k={k}...")
+
+        results = load_data(METHODS, k, BASE_DIR, amortized=amortized)
+
+        if not results['methods']:
+            print("No data loaded. Check your paths and file names.")
+        else:
+            print(f"Loaded data for: {results['methods']}")
+            plot_performance(results, gb=gb, amortized=amortized, llm_judge=llm_judge)
+            plot_stage_breakdown(results)
