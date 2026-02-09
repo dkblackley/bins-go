@@ -211,77 +211,67 @@ func NewStage3Reranker(
 		fmt.Printf("Stage3 Reranker: loaded block permutation map with %d entries\n", len(sr.BlockPermutation))
 	}
 
-	// Initialize PIR for document embeddings if enabled
-	// Initialize PIR for document embeddings if enabled
 	if enablePIR {
-		//// --- BLOCKING & PADDING LOGIC ---
-		//blockSize := 8 // Treat 8 documents as 1 block
-		//
-		//// Calculate DB dimensions in terms of BLOCKS
-		//dbSize := uint64((numDocs + blockSize - 1) / blockSize)
-		//entrySizeBytes := uint64(npyEmbedDim * bytesPerElem * blockSize)
-		//
-		//dbEntrySizeUint64 := entrySizeBytes / 8
-		//
-		//// Convert raw bytes to uint64 array for PIR
-		// embedUint64 := convertBytesToUint64(sr.docEmbedMmap, 192/2)
-		//if Debug {
-		//	wordsPerBlock := 0
-		//	if len(embedUint64) > 0 {
-		//		wordsPerBlock = len(embedUint64[0])
-		//	}
-		//	logrus.Debugf("[Stage3 DEBUG] PIR init: numDocs=%d blockSize=8 dbSizeBlocks=%d embedUint64Blocks=%d wordsPerBlock=%d expectedWordsPerBlock=%d entrySizeBytes=%d\n",
-		//		numDocs, dbSize, len(embedUint64), wordsPerBlock, dbEntrySizeUint64, entrySizeBytes)
-		//}
-		//
-		//// PADDING: Ensure the array is exactly the size PIR expects.
-		//// PIR expects (dbSize * entrySizeInUint64s)
-		//// expectedLen := int(dbSize * dbEntrySizeUint64)
-		//
-		////if len(embedUint64) < int(dbSize) { // Should just be dbSIze now... TODO: What is this doing? - I might've broke it
-		////	padAmount := int(dbSize) - len(embedUint64)
-		////	fmt.Printf("Stage3 PIR: Padding embedding data with %d zeros to match block alignment\n", padAmount)
-		////	padding := make([]uint64, padAmount)
-		////	embedUint64 = append(embedUint64, padding...)
-		////}
-
+		// 1. Load the raw vectors
 		vectors, err := globals.LoadFloat32MatrixFromNpy(docEmbedPath, numDocs, npyEmbedDim)
 		if err != nil {
 			return nil, fmt.Errorf("error loading document embeddings: %v", err)
 		}
 
-		rawDB := make([][]uint64, len(vectors))
-		DBEntryByteNum := uint64(npyEmbedDim * 4)
+		// 2. Setup Dimensions
+		// Each DB entry holds 'blockSize' vectors.
+		// e.g. 192 floats * 4 bytes * 8 vectors = 6144 bytes per entry
+		blockSize := 8
+		dbEntryByteNum := uint64(npyEmbedDim * 4 * blockSize)
 
-		for i, vector := range vectors {
-			vectorBytes := make([]byte, npyEmbedDim*4)
-			for j := 0; j < npyEmbedDim; j++ {
-				binary.LittleEndian.PutUint32(vectorBytes[j*4:], math.Float32bits(vector[j]))
-			}
-			entry := make([]uint64, DBEntryByteNum/8)
-			for j := uint64(0); j < DBEntryByteNum/8; j++ {
-				entry[j] = binary.LittleEndian.Uint64(vectorBytes[j*8:])
-			}
-			rawDB[i] = entry
+		// Number of blocks = ceil(numVectors / blockSize)
+		numBlocks := (len(vectors) + blockSize - 1) / blockSize
+		rawDB := make([][]uint64, numBlocks)
 
+		// 3. Populate the DB
+		for i := 0; i < len(vectors); i += blockSize {
+			// Create the buffer for this block (always full size for padding)
+			blockBytes := make([]byte, dbEntryByteNum)
+
+			// Copy up to 8 vectors into this block
+			end := i + blockSize
+			if end > len(vectors) {
+				end = len(vectors)
+			}
+
+			for k := 0; k < (end - i); k++ {
+				vector := vectors[i+k]
+				// Convert float32 -> bytes
+				for j := 0; j < npyEmbedDim; j++ {
+					bits := math.Float32bits(vector[j])
+					// Offset = (VectorIndex * BytesPerVector) + (FloatIndex * 4)
+					offset := (k * npyEmbedDim * 4) + (j * 4)
+					binary.LittleEndian.PutUint32(blockBytes[offset:], bits)
+				}
+			}
+
+			// Convert block bytes to uint64 for PIR
+			entry := make([]uint64, dbEntryByteNum/8)
+			for j := 0; j < len(entry); j++ {
+				entry[j] = binary.LittleEndian.Uint64(blockBytes[j*8:])
+			}
+
+			// Store in the correct Block Index (0, 1, 2...)
+			rawDB[i/blockSize] = entry
 		}
 
-		sr.Pir = pianopir.NewSimpleBatchPianoPIR(uint64(len(rawDB)), uint64(len(rawDB[0])), DBEntryByteNum,
-			batchSize, rawDB, 20, batchSize)
+		// 4. Initialize PIR
+		sr.Pir = pianopir.NewSimpleBatchPianoPIR(
+			uint64(len(rawDB)),
+			uint64(len(rawDB[0])),
+			dbEntryByteNum,
+			batchSize,
+			rawDB,
+			20,
+			batchSize,
+		)
 
-		//sr.Pir = pianopir.NewSimpleBatchPianoPIR(
-		//	// dbSize,
-		//	uint64(len(embedUint64)),
-		//	dbEntrySizeUint64,
-		//	entrySizeBytes,
-		//	batchSize,
-		//	embedUint64,
-		//	20, // FailureProbLog2
-		//	batchSize*8,
-		//)
-		fmt.Printf("Stage3 PIR (Blocking Mode): initialized with DBSize=%d blocks, EntrySize=%d bytes (8 docs/block), BatchSize=%d\n", len(rawDB), DBEntryByteNum, batchSize)
-		//sr.Pir.Preprocessing()
-		//fmt.Printf("Stage3 PIR: preprocessing complete\n")
+		fmt.Printf("Stage3 PIR Init: DB has %d blocks (rows), Entry Size %d bytes.\n", len(rawDB), dbEntryByteNum)
 		sr.pirUsable = true
 	}
 
@@ -372,46 +362,82 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 			resultsDirect[idx] = sr.getDocEmbeddingDirect(idx)
 		}
 	}
+	blockRequestMap := make(map[uint64][]int)
+	for _, docID := range docIndices {
+		blockID := uint64(docID) / uint64(sr.blockSize)
+		blockRequestMap[blockID] = append(blockRequestMap[blockID], docID)
+	}
+
+	// Create a list of blocks to query
+	queryBlocks := make([]uint64, 0, len(blockRequestMap))
+	for bid := range blockRequestMap {
+		queryBlocks = append(queryBlocks, bid)
+	}
+
+	// 2. Execute PIR in Batches
 	batchSize := int(sr.Pir.Config().BatchSize)
+	if batchSize <= 0 {
+		batchSize = 16
+	}
 
-	for i := 0; i < len(docIndices); i = i + batchSize {
-		mini := min(i+batchSize, len(docIndices))
-		docIdxs := docIndices[i:mini]
-		batch := docIndices[i:mini]
-		out := make([]uint64, len(batch))
-		for i, v := range batch {
-			out[i] = uint64(v)
+	for i := 0; i < len(queryBlocks); i += batchSize {
+		// Handle batching
+		limit := i + batchSize
+		if limit > len(queryBlocks) {
+			limit = len(queryBlocks)
 		}
-		resultsRaw, err := sr.Pir.Query(out)
+
+		chunk := queryBlocks[i:limit]
+
+		// Run Query
+		resultsRaw, err := sr.Pir.Query(chunk)
 		if err != nil {
-			logrus.Errorf("Stage3 PIR batch query error at index %d: %v\n", i, err)
-			os.Exit(1)
-		}
-
-		for k, entry := range resultsRaw {
-			docIdx := docIdxs[k]
-			reconstructedBytes := make([]byte, len(entry)*8)
-
-			for i, val := range entry {
-				binary.LittleEndian.PutUint64(reconstructedBytes[i*8:], val)
-			}
-
-			recoveredVector := make([]float32, 192) // TODO make this passed in
-
-			for j := 0; j < 192; j++ {
-				// Read 4 bytes at a time
-				bits := binary.LittleEndian.Uint32(reconstructedBytes[j*4:])
-				// Convert bits back to float32
-				recoveredVector[j] = math.Float32frombits(bits)
-			}
-
-			result[docIdx] = recoveredVector
-			if Debug && i < 1 {
-				logrus.Debugf("Retrieved doc embeddings for %d", docIdx)
-				logrus.Debugf("first 4 doc embeddings: %v\n", result[docIdx][:4])
+			logrus.Warnf("PIR limit reached or error: %v. Refreshing...", err)
+			sr.Pir.Preprocessing()
+			resultsRaw, err = sr.Pir.Query(chunk)
+			if err != nil {
+				logrus.Errorf("Stage3 PIR fatal error: %v", err)
+				os.Exit(1)
 			}
 		}
 
+		// 3. Extract Vectors from the retrieved blocks
+		for k, blockDataUint64 := range resultsRaw {
+			// Identify which block this result belongs to
+			blockID := chunk[k]
+
+			// Get the list of docs we wanted from this specific block
+			docsInBlock := blockRequestMap[blockID]
+
+			// Convert the raw uint64s back to bytes for slicing
+			// (Optimization: You could slice the uint64s directly, but bytes is safer for float alignment)
+			blockBytes := make([]byte, len(blockDataUint64)*8)
+			for bIdx, u64 := range blockDataUint64 {
+				binary.LittleEndian.PutUint64(blockBytes[bIdx*8:], u64)
+			}
+
+			// Extract each requested document
+			for _, docID := range docsInBlock {
+				// Calculate slot: Doc 9 is in slot 1 (9 % 8 = 1)
+				slot := int(docID) % sr.blockSize
+
+				// 192 floats * 4 bytes = 768 bytes per vector
+				vectorSize := sr.EmbedDim * 4
+				start := slot * vectorSize
+				end := start + vectorSize
+
+				if end <= len(blockBytes) {
+					vecBytes := blockBytes[start:end]
+
+					recoveredVector := make([]float32, sr.EmbedDim)
+					for j := 0; j < sr.EmbedDim; j++ {
+						bits := binary.LittleEndian.Uint32(vecBytes[j*4:])
+						recoveredVector[j] = math.Float32frombits(bits)
+					}
+					result[docID] = recoveredVector
+				}
+			}
+		}
 	}
 
 	if Debug {
@@ -449,7 +475,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	}
 
 	// 2. Prepare block query list
-	queryBlocks := make([]uint64, 0, len(uniqueBlocks))
+	queryBlocks = make([]uint64, 0, len(uniqueBlocks))
 	for bid := range uniqueBlocks {
 		queryBlocks = append(queryBlocks, bid)
 	}
