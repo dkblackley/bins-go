@@ -3,9 +3,142 @@ package bm25
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 )
+
+func flattenBlock(batchVectors [][]float32, targetBlockSize, dim int) []uint64 {
+	// Calculate total bytes needed for a full block
+	totalBytes := targetBlockSize * dim * 4
+
+	// Create a byte buffer to hold the raw bits
+	vectorBytes := make([]byte, totalBytes)
+
+	// 1. Convert Floats -> Bytes (uint32 bits)
+	cursor := 0
+	for _, vector := range batchVectors {
+		for j := 0; j < dim; j++ {
+			binary.LittleEndian.PutUint32(vectorBytes[cursor:], math.Float32bits(vector[j]))
+			cursor += 4
+		}
+	}
+	// Note: If batchVectors < targetBlockSize, the remaining bytes in vectorBytes stay 0 (padding)
+
+	// 2. Convert Bytes -> Uint64s for the PIR DB
+	// We assume totalBytes is divisible by 8. If dim * 4 is not divisible by 8,
+	// ensure blockSize is even, otherwise we might need explicit padding logic here.
+	u64Len := totalBytes / 8
+	entry := make([]uint64, u64Len)
+
+	for j := 0; j < u64Len; j++ {
+		entry[j] = binary.LittleEndian.Uint64(vectorBytes[j*8:])
+	}
+
+	return entry
+}
+
+// recoverBlock maps a single uint64 slice (PIR DB row) back into a slice of float vectors.
+func recoverBlock(entry []uint64, blockSize, dim int) [][]float32 {
+	totalBytes := blockSize * dim * 4
+	vectorBytes := make([]byte, totalBytes)
+
+	// 1. Convert Uint64s -> Bytes
+	for j := 0; j < len(entry); j++ {
+		binary.LittleEndian.PutUint64(vectorBytes[j*8:], entry[j])
+	}
+
+	// 2. Convert Bytes -> Floats
+	result := make([][]float32, blockSize)
+	cursor := 0
+
+	for i := 0; i < blockSize; i++ {
+		vec := make([]float32, dim)
+		for j := 0; j < dim; j++ {
+			bits := binary.LittleEndian.Uint32(vectorBytes[cursor:])
+			vec[j] = math.Float32frombits(bits)
+			cursor += 4
+		}
+		result[i] = vec
+	}
+
+	return result
+}
+
+// getUniqueBlockIndices takes a list of requested Doc IDs and returns:
+// 1. A slice of unique Block IDs (uint64) to send to the PIR Query.
+// 2. A map lookup that tells us where a BlockID sits in that query slice.
+func (sr *Stage3Reranker) getUniqueBlockIndices(docIndices []int) ([]uint64, map[int]int) {
+	uniqueBlocks := make([]uint64, 0)
+
+	// blockIndexMap: maps RealBlockID -> IndexInQuerySlice
+	// e.g., if Block 50 is the 0th item in our query, blockIndexMap[50] = 0
+	blockIndexMap := make(map[int]int)
+	seen := make(map[int]bool)
+
+	for _, docID := range docIndices {
+		// Look up which block this doc belongs to
+		blockID, ok := sr.blockMap[docID]
+		if !ok {
+			continue // Handle missing doc error if needed
+		}
+
+		if !seen[blockID] {
+			seen[blockID] = true
+			blockIndexMap[blockID] = len(uniqueBlocks)
+			uniqueBlocks = append(uniqueBlocks, uint64(blockID))
+		}
+	}
+
+	return uniqueBlocks, blockIndexMap
+}
+
+// mapPIRResultsToDocs extracts the specific document vectors from the retrieved blocks.
+func (sr *Stage3Reranker) mapPIRResultsToDocs(
+	resultsRaw [][]uint64,
+	docIndices []int,
+	blockIndexMap map[int]int, // The map returned from the first function
+	blockSize int, // e.g. 8
+	embedDim int, // e.g. 192
+) map[int][]float32 {
+
+	finalResults := make(map[int][]float32)
+
+	// validBlockCache prevents us from decoding the same block bytes multiple times
+	// if multiple docs from the same block were requested.
+	decodedBlocks := make(map[int][][]float32)
+
+	for _, docID := range docIndices {
+		blockID, ok := sr.blockMap[docID]
+		if !ok {
+			continue
+		}
+
+		// 1. Find where this block's data is in the resultsRaw
+		resultIdx, found := blockIndexMap[blockID]
+		if !found {
+			continue // Should not happen if logic is correct
+		}
+
+		// 2. Decode the block (if we haven't already)
+		if _, cached := decodedBlocks[blockID]; !cached {
+			// Uses the recoverBlock helper from previous step
+			decodedBlocks[blockID] = recoverBlock(resultsRaw[resultIdx], blockSize, embedDim)
+		}
+
+		// 3. Calculate the offset of this doc within the block.
+		// Assuming docs are packed sequentially: Doc 0 is at index 0, Doc 8 is at index 0 of Block 1.
+		localIndex := docID % blockSize
+
+		// 4. Extract the specific vector
+		blockVectors := decodedBlocks[blockID]
+		if localIndex < len(blockVectors) {
+			finalResults[docID] = blockVectors[localIndex]
+		}
+	}
+
+	return finalResults
+}
 
 // convertBytesToUint64 converts a byte slice to a uint64 slice (little-endian)
 // Does NOT pad - assumes data length is compatible with the expected entry size
