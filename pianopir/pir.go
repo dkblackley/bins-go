@@ -173,7 +173,7 @@ func primaryNumParam(Q float64, ChunkSize float64, target uint64) uint64 {
 // NewPianoPIRClient is an initialization function for the client
 func NewPianoPIRClient(config *PianoPIRConfig) *PianoPIRClient {
 
-	seed := time.Now().UnixNano()
+	seed := time.Now().UnixNano() // this is for making the indices later for the hint
 	rng := rand.New(rand.NewSource(seed))
 	masterKey := RandKey(rng)
 	longKey := GetLongKey((*PrfKey128)(&masterKey))
@@ -187,7 +187,7 @@ func NewPianoPIRClient(config *PianoPIRConfig) *PianoPIRClient {
 
 	primaryParity := make([][]uint64, primaryHintNum)
 
-	for i := 0; i < int(primaryHintNum); i++ {
+	for i := 0; i < int(primaryHintNum); i++ { // make zeros now and fill later at preproc
 		primaryParity[i] = make([]uint64, config.MaxDBEntrySize)
 	}
 
@@ -256,13 +256,13 @@ func (c *PianoPIRClient) Initialization() {
 	//TODO: implemente the preprocessing logic
 	c.FinishedQueryNum = 0
 
-	// resample the key
+	// resample new key
 	seed := time.Now().UnixNano()
 	rng := rand.New(rand.NewSource(seed))
 	c.masterKey = RandKey(rng)
 	c.longKey = GetLongKey((*PrfKey128)(&c.masterKey))
 
-	c.QueryHistogram = make([]uint64, c.config.SetSize)
+	c.QueryHistogram = make([]uint64, c.config.SetSize) // how many queries in each set (setsize is the number of chunks)
 	for i := 0; i < int(c.config.SetSize); i++ {
 		c.QueryHistogram[i] = 0
 	}
@@ -292,7 +292,7 @@ func (c *PianoPIRClient) Initialization() {
 	c.backupShortTag = make([][]uint64, c.config.SetSize)
 	c.backupParity = make([][][]uint64, c.config.SetSize)
 
-	for i := 0; i < int(c.config.SetSize); i++ {
+	for i := 0; i < int(c.config.SetSize); i++ { // for each chunk we have
 		c.replacementIdx[i] = make([]uint64, c.maxQueryPerChunk)
 		c.backupShortTag[i] = make([]uint64, c.maxQueryPerChunk)
 
@@ -310,10 +310,9 @@ func (c *PianoPIRClient) Initialization() {
 
 			//TODO: this dynamically?
 			for k := 0; uint64(k) < c.config.MaxDBEntrySize; k++ {
-
-				c.backupParity[i][j][k] = 0
-				c.replacementVal[i][j][k] = 0
-
+				// i is the chunk, j is the many hints for a single chunk and k is the actual value/size of entry
+				c.backupParity[i][j][k] = 0   // partiy of this chunk
+				c.replacementVal[i][j][k] = 0 // plaintext value to 'slip out' of the request
 			}
 		}
 	}
@@ -475,8 +474,10 @@ func (c *PianoPIRClient) UpdatePreprocessing(chunkId uint64, chunk [][]uint64) {
 		//	//fmt.Errorf("i = %v, i*c.config.DBEntrySize = %v, len(c.primaryParity) = %v", i, i*c.config.DBEntrySize, len(c.primaryParity)
 		//	log.Fatalf("i = %v, i*c.config.DBEntrySize = %v, len(c.primaryParity) = %v", i, i*c.config.DBEntrySize, len(c.primaryParity))
 		//}
-		// TODO: I think the primary parity has to be made 2D as well? 1st dim would be the hint and 2nd dim would be the XOR of the entries
-		// (Probably of size maxentrysize)
+		// TODO: I think this is wrong??? Primary parity has one too many dimensions??
+		// prim parity should be of entire DB and backup parity should be of db minus chunks...
+
+		// Primary hint is just a single val from the chunk, primary parity should be parity of chunk??
 		EntryXor(c.primaryParity[i:(i+1)], chunk[offset:(offset+1)])
 	}
 
@@ -484,7 +485,9 @@ func (c *PianoPIRClient) UpdatePreprocessing(chunkId uint64, chunk [][]uint64) {
 
 	// second enumerate all backup hints
 	for i := uint64(0); i < c.config.SetSize; i++ {
-		// ignore if i == chunkId
+		// from the piano paper:  In other words, p is the parity of the database bits at all indices
+		// in S except the index corresponding to the j-th chunk.
+		// I.e. this backup parity stores the parity everywhere except this chunk
 		if i == chunkId {
 			continue
 		}
@@ -695,7 +698,7 @@ func DeepCopy2DUint64(src [][]uint64) [][]uint64 {
 }
 
 func (p *PianoPIR) Preprocessing() {
-	p.server.rawDB = DeepCopy2DUint64(p.server.rawDB)
+	// p.server.rawDB = DeepCopy2DUint64(p.server.rawDB) //TODO: WTF was the purpose of this?? lol
 	p.server.rawDB = p.client.Preprocessing(p.server.rawDB)
 }
 

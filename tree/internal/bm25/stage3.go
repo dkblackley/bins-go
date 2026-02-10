@@ -165,7 +165,7 @@ func NewStage3Reranker(
 	sr.DocIDMap = parseDocIDs(string(idmapData))
 	fmt.Printf("Stage3 Reranker: loaded %d document IDs\n", len(sr.DocIDMap))
 
-	// Build reverse map: external doc ID -> embedding array index
+	// Build reverse map: external doc ID -> embedding array index TODO: This does nothing now...
 	sr.DocIDReverseMap = make(map[string]int, len(sr.DocIDMap))
 	for idx, extID := range sr.DocIDMap {
 		sr.DocIDReverseMap[extID] = idx
@@ -199,7 +199,7 @@ func NewStage3Reranker(
 	sr.QueryEmbeddings = parseQueryEmbeddings(queryData, numQueries, queryEmbedDim, queryBytesPerElem)
 	fmt.Printf("Stage3 Reranker: loaded %d query embeddings (dim=%d, bytes/elem=%d)\n", len(sr.QueryEmbeddings), queryEmbedDim, queryBytesPerElem)
 
-	// --- NEW: Load Block Permutation Map ---
+	// --- NEW: Load Block Permutation Map --- TODO: this does nothing now as well!
 	if permutationPath != "" {
 		permData, err := os.ReadFile(permutationPath)
 		if err != nil {
@@ -244,7 +244,7 @@ func NewStage3Reranker(
 				// Convert float32 -> bytes
 				for j := 0; j < npyEmbedDim; j++ {
 					bits := math.Float32bits(vector[j])
-					// Offset = (VectorIndex * BytesPerVector) + (FloatIndex * 4)
+					// Offset = (VectorIndex * BytesPerVector) + (FloatIndex * 4) - i.e. previous vector bytes plus current vector bytes
 					offset := (k * npyEmbedDim * 4) + (j * 4)
 					binary.LittleEndian.PutUint32(blockBytes[offset:], bits)
 				}

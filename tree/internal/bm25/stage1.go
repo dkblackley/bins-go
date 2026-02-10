@@ -116,7 +116,7 @@ func NewStage1PIRDBWithPIR(dataBinPath, idmapBinPath, vocabPath string, r int, e
 			uint64(len(db.DataUint64)),
 			uint64(len(db.DataUint64[0])),
 			//uint64(r),
-			dbSize,
+			uint64(r),
 			batchSize,
 			db.DataUint64,
 			20, // FailureProbLog2

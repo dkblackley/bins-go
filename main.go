@@ -86,14 +86,14 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 		logrus.Debugf("Using debug dataset")
 
 		vectors.CorpusVec = root + "/Son/my_vectors_192_debug.npy"
-		vectors.QueryVec = root + "/Son/query_192_float32.npy"
+		vectors.QueryVec = root + "/Son/query_192_float32_debug.npy"
 		vectors.Graph = root + "/Son/debug_graph.npy"
 
 		return globals.DatasetMetadata{
 			"Marco",
 			root + "/index_marco",
 			root + "/msmarco/corpus_debug.jsonl",
-			root + "/msmarco/queries.dev.small_debug.jsonl",
+			root + "/msmarco/queries.dev.small.jsonl",
 			root + "/msmarco/qrels/qrels.dev.tsv",
 			vectors,
 		}
@@ -117,7 +117,7 @@ func main() {
 	datasetsDirectory := flag.String("dataset", "../datasets", "Where to look for the dataset/data")
 	topK := flag.Uint("k", 5, "K many items to return in search")
 	vectors := flag.Bool("vectors", true, "Use npy vectors for retrieval or raw text")
-	dimensions := flag.Uint("dim", 192, "Dimension of vectors (if being used)")
+	dimensions := flag.Uint("dim", 4, "Dimension of vectors (if being used)")
 	thresh := flag.Uint("thresh", 0, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
 	binSize := flag.Uint("binSize", 8841823/100, "The number of bins to use")
@@ -148,9 +148,9 @@ func main() {
 	pirBatchSize := flag.Int64("pir-batch-size", 1024, "Batch size for PIR queries (larger = fewer partitions but more memory)")
 
 	// Stage3 (dense rerank) flags
-	docEmbed := flag.String("doc-embed", "", "Path to document embeddings (npy float32 file)")
+	// docEmbed := flag.String("doc-embed", "", "Path to document embeddings (npy float32 file)")
 	docIDMap := flag.String("doc-id-map", "", "Path to document ID map (one ID per line)")
-	queryEmbed := flag.String("query-embed", "", "Path to query embeddings (npy float32 file)")
+	// queryEmbed := flag.String("query-embed", "", "Path to query embeddings (npy float32 file)")
 	embedDim := flag.Int("embed-dim", 192, "Embedding dimensionality for Stage3 reranker")
 	queryWords := flag.Int("query-words", 8, "Fixed number of words in query (pad with dummy if needed)")
 
@@ -162,6 +162,9 @@ func main() {
 	flag.Parse()
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
+
+	docEmbed := meta.Vectors.CorpusVec
+	queryEmbed := meta.Vectors.QueryVec
 
 	IDLookup := make(map[[32]byte]string) // empty lookup
 
@@ -213,9 +216,9 @@ func main() {
 
 			PIRBatchSize: *pirBatchSize,
 
-			DocEmbed:   *docEmbed,
+			DocEmbed:   docEmbed,
 			DocIDMap:   *docIDMap,
-			QueryEmbed: *queryEmbed,
+			QueryEmbed: queryEmbed,
 			EmbedDim:   *embedDim,
 
 			Debug:      *debugLevel,
