@@ -264,7 +264,7 @@ def plot_performance(data, gb=True, amortized=False, llm_judge=False):
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-    plt.savefig(f"figures/perf_compare_k{data['k']}.png")
+    plt.savefig(f"figures/perf_compare_k{data['k']}.jpg")
 
 
 # --- Main Execution ---
@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
     amortized = True
     gb = False
-    llm_judge = False
+    llm_judge = True
 
     for k in K_VALUES:
 

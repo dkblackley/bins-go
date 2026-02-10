@@ -63,7 +63,7 @@ func NewStage3Reranker(
 	queryList []string,
 ) (*Stage3Reranker, error) {
 
-	logrus.Debugf("Loading permutation from path: %v", permutationPath)
+	// logrus.Debugf("Loading permutation from path: %v", permutationPath)
 
 	QueryIDMap := make(map[string]int)
 
@@ -71,7 +71,7 @@ func NewStage3Reranker(
 		QueryIDMap[qid] = i
 
 		if i < 3 {
-			logrus.Debugf("QueryIDMap[%s] = %d", qid, i)
+			// logrus.Debugf("QueryIDMap[%s] = %d", qid, i)
 		}
 	}
 
@@ -119,7 +119,7 @@ func NewStage3Reranker(
 	docEmb, err := globals.LoadFloat32MatrixFromNpy(docEmbedPath, numDocs, npyEmbedDim)
 
 	if err != nil {
-		logrus.Errorf("Error loading doc embeddings from npy file: %v", err)
+		// logrus.Errorf("Error loading doc embeddings from npy file: %v", err)
 		os.Exit(1)
 	}
 
@@ -186,7 +186,7 @@ func NewStage3Reranker(
 		return nil, fmt.Errorf("error parsing query embeddings NPY header: %v", err)
 	}
 
-	logrus.Debugf("[Stage3 DEBUG] Managed to load %d number of queries from file %s", numQueries, queryEmbedPath)
+	// logrus.Debugf("[Stage3 DEBUG] Managed to load %d number of queries from file %s", numQueries, queryEmbedPath)
 
 	// Verify query embedding dimension matches document embedding dimension
 	if queryEmbedDim != sr.EmbedDim {
@@ -392,11 +392,11 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 		// Run Query
 		resultsRaw, err := sr.Pir.Query(chunk)
 		if err != nil {
-			logrus.Warnf("PIR limit reached or error: %v. Refreshing...", err)
+			// logrus.Warnf("PIR limit reached or error: %v. Refreshing...", err)
 			sr.Pir.Preprocessing()
 			resultsRaw, err = sr.Pir.Query(chunk)
 			if err != nil {
-				logrus.Errorf("Stage3 PIR fatal error: %v", err)
+				// logrus.Errorf("Stage3 PIR fatal error: %v", err)
 				os.Exit(1)
 			}
 		}
@@ -447,7 +447,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 			for i, num := range vect {
 				if num != resultsDirect[k][i] {
-					logrus.Errorf("Stage3: result[%d] != resultsDirect[%d] at index %d\n", k, k, i)
+					// logrus.Errorf("Stage3: result[%d] != resultsDirect[%d] at index %d\n", k, k, i)
 				}
 			}
 		}
@@ -524,14 +524,14 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 		if debugOnce {
 			debugOnce = false
-			logrus.Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d\n", docIdx, offsetInBlock, blockID)
-			logrus.Debugf("res ok?: %v\n", ok)
-			logrus.Tracef("Doc embedding: %v\n", sr.GetDocEmbedding(docIdx))
+			// logrus.Debugf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d\n", docIdx, offsetInBlock, blockID)
+			// logrus.Debugf("res ok?: %v\n", ok)
+			// logrus.Tracef("Doc embedding: %v\n", sr.GetDocEmbedding(docIdx))
 		}
 
 		if !ok {
 			result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
-			logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d, blockData len=%d PIR failed, using direct read\n", docIdx, offsetInBlock, blockID, len(blockData))
+			// logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d BlockID=%d, blockData len=%d PIR failed, using direct read\n", docIdx, offsetInBlock, blockID, len(blockData))
 			os.Exit(1)
 
 		}
@@ -592,7 +592,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	//
 	//	if debugOnce {
 	//		debugOnce = false
-	//		logrus.Tracef("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
+	//		// logrus.Tracef("[Stage3 DEBUG] docID=%d offsetInBlock=%d physicalBlockID=%d, logicalBlockID=%d\n", docIdx, offsetInBlock, physicalBlockID, logicalBlockID)
 	//	}
 	//
 	//	// Check if we successfully retrieved this block via PIR
@@ -616,9 +616,9 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	//						if len(embBytes) < n {
 	//							n = len(embBytes)
 	//						}
-	//						logrus.Tracef("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
-	//						logrus.Tracef("  direct[:%d]=% x\n", n, directBytes[:n])
-	//						logrus.Tracef("  pir   [:%d]=% x\n", n, embBytes[:n])
+	//						// logrus.Tracef("[Stage3 DEBUG] PIR!=direct docIdx=%d blockID=%d offsetInBlock=%d\n", docIdx, physicalBlockID, offsetInBlock)
+	//						// logrus.Tracef("  direct[:%d]=% x\n", n, directBytes[:n])
+	//						// logrus.Tracef("  pir   [:%d]=% x\n", n, embBytes[:n])
 	//					}
 	//				}
 	//			}
@@ -637,7 +637,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 	//	} else {
 	//		// Fallback: Block missing (likely PIR error on that chunk), use direct read
 	//		result[docIdx] = sr.getDocEmbeddingDirect(docIdx)
-	//		logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d PhysicalBlockID=%d, blockData len=%d PIR failed, using direct read\n", docIdx, offsetInBlock, physicalBlockID, len(blockData))
+	//		// logrus.Errorf("[Stage3 DEBUG] docID=%d offsetInBlock=%d PhysicalBlockID=%d, blockData len=%d PIR failed, using direct read\n", docIdx, offsetInBlock, physicalBlockID, len(blockData))
 	//	}
 	//}
 	//// --- BLOCKING & SHUFFLING LOGIC END ---
@@ -693,22 +693,22 @@ func (sr *Stage3Reranker) Rerank(
 
 	queryIdx, ok := sr.QueryIDMap[queryNum]
 	if !ok {
-		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryNum=%s not found in QueryIDMap", queryNum)
-		logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
+		// logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryNum=%s not found in QueryIDMap", queryNum)
+		// logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
 		return nil, nil, 0
 
 	}
 	// Should just be in order?
-	logrus.Debugf("[Stage3 DEBUG] queryNum=%q queryIdx=%d\n", queryNum, queryIdx)
+	// logrus.Debugf("[Stage3 DEBUG] queryNum=%q queryIdx=%d\n", queryNum, queryIdx)
 
 	//if queryIdx == 0 {
 	//	// It seems to always return 0???
-	//	logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
+	//	// logrus.Errorf("QeuryIDMAP: %v", sr.QueryIDMap)
 	//	os.Exit(1)
 	//}
 
 	if queryIdx < 0 || queryIdx >= len(sr.QueryEmbeddings) {
-		logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryIdx=%d out of range (len(QueryEmbeddings)=%d)", queryIdx, len(sr.QueryEmbeddings))
+		// logrus.Errorf("ERROR: Stage3Reranker.Rerank: queryIdx=%d out of range (len(QueryEmbeddings)=%d)", queryIdx, len(sr.QueryEmbeddings))
 		return nil, nil, 0
 	}
 
@@ -756,21 +756,18 @@ func (sr *Stage3Reranker) Rerank(
 						luceneExternal = fmt.Sprintf("<err=%v extID=%d>", err, extID)
 					}
 				}
-				logrus.Tracef("[Stage3 DEBUG] internal=%d external(DocIDMap/choice)=%q external(lucene)=%q\n",
-					bm25InternalID, externalID, luceneExternal)
+				logrus.Tracef("[Stage3 DEBUG] internal=%d external(DocIDMap/choice)=%q external(lucene)=%q\n", bm25InternalID, externalID, luceneExternal)
 			}
 
 			// Look up embedding index for this external ID
 			embIdx, ok := sr.DocIDReverseMap[externalID]
-			if Debug {
-				if ok {
-					logrus.Tracef("[Stage3 DEBUG] externalID=%q -> embeddingIdx=%d (internal=%d)\n",
-						externalID, embIdx, bm25InternalID)
-				} else {
-					logrus.Tracef("[Stage3 DEBUG] externalID=%q missing from DocIDReverseMap (internal=%d)\n",
-						externalID, bm25InternalID)
-				}
-			}
+			//if Debug {
+			//	if ok {
+			//		// logrus.Tracef("[Stage3 DEBUG] externalID=%q -> embeddingIdx=%d (internal=%d)\n", externalID, embIdx, bm25InternalID)
+			//	} else {
+			//		// logrus.Tracef("[Stage3 DEBUG] externalID=%q missing from DocIDReverseMap (internal=%d)\n", externalID, bm25InternalID)
+			//	}
+			//}
 
 			if ok {
 				candidates = append(candidates, docCandidate{
@@ -780,7 +777,7 @@ func (sr *Stage3Reranker) Rerank(
 				})
 			} else {
 				// No embedding found for this doc - skip it
-				logrus.Warnf("WARNING: No embedding found for external ID %s (BM25 internal %d)\n", externalID, bm25InternalID)
+				// logrus.Warnf("WARNING: No embedding found for external ID %s (BM25 internal %d)\n", externalID, bm25InternalID)
 			}
 		}
 	}
@@ -811,35 +808,35 @@ func (sr *Stage3Reranker) Rerank(
 		if !goldFoundInPool {
 			Debugf("DEBUG Stage3: Gold doc %s NOT FOUND for qid %d/%s in candidate pool of %d docs\n", trueGold, queryIdx, queryNum, len(candidates))
 
-			var gold string
-			for k := range goldDocIDs {
-				gold = k
-				break
-			}
+			//var gold string
+			//for k := range goldDocIDs {
+			//	gold = k
+			//	break
+			//}
 
 			// however you store them; external docID
-			goldEmbIdx, ok := sr.DocIDReverseMap[gold]
+			//goldEmbIdx, ok := sr.DocIDReverseMap[gold]
+			//
+			//if ok {
+			//	if goldEmbIdx < len(sr.DocIDMap) {
+			//		back := sr.DocIDMap[goldEmbIdx]
+			//		// logrus.Debugf("[Stage3 DEBUG] roundtrip: gold=%d -> embIdx=%d -> back=%d", gold, goldEmbIdx, back)
+			//	}
+			//} else {
+			//	// logrus.Debugf("[Stage3 DEBUG] -NOT OK!!- gold external=%d -> embIdx=nil (ok=%v)", gold, ok)
+			//}
 
-			if ok {
-				if goldEmbIdx < len(sr.DocIDMap) {
-					back := sr.DocIDMap[goldEmbIdx]
-					logrus.Debugf("[Stage3 DEBUG] roundtrip: gold=%d -> embIdx=%d -> back=%d", gold, goldEmbIdx, back)
-				}
-			} else {
-				logrus.Debugf("[Stage3 DEBUG] -NOT OK!!- gold external=%d -> embIdx=nil (ok=%v)", gold, ok)
-			}
-
-			logrus.Debugf("[Stage3 DEBUG] gold external=%d -> embIdx=%d (ok=%v)", gold, goldEmbIdx, ok)
+			// logrus.Debugf("[Stage3 DEBUG] gold external=%d -> embIdx=%d (ok=%v)", gold, goldEmbIdx, ok)
 
 			// If your candidate pool is in embeddingIdx space:
-			foundEmb := false
-			for _, embIdx := range candidates { // docIndices are embeddingIdx
-				if embIdx.embeddingIdx == goldEmbIdx {
-					foundEmb = true
-					break
-				}
-			}
-			logrus.Debugf("[Stage3 DEBUG] gold embIdx=%d in docIndices? %v", goldEmbIdx, foundEmb)
+			//foundEmb := false
+			//for _, embIdx := range candidates { // docIndices are embeddingIdx
+			//	if embIdx.embeddingIdx == goldEmbIdx {
+			//		foundEmb = true
+			//		break
+			//	}
+			//}
+			// logrus.Debugf("[Stage3 DEBUG] gold embIdx=%d in docIndices? %v", goldEmbIdx, foundEmb)
 
 		}
 

@@ -12,7 +12,6 @@ import (
 
 	"github.com/dkblackley/bins-go/pianopir"
 	"github.com/dkblackley/bins-go/tree/internal/bm25"
-	"github.com/sirupsen/logrus"
 
 	"github.com/dkblackley/bins-go/globals"
 )
@@ -178,16 +177,16 @@ func Runtree(config globals.Args) *PIRTree {
 
 	dataRoot := config.DatasetsDirectory
 
-	// TODO: Change all print to logrus statements
+	// TODO: Change all print to // logrus statements
 
-	logrus.Debugln(stage1DataBin, stage1IdmapBin, scale)
+	// logrus.Debugln(stage1DataBin, stage1IdmapBin, scale)
 
 	if debug >= 1 {
 		bm25.Debug = true
 	}
 	// Validate required flags (qrels optional for Stage3-only runs)
 	if index == "" || queries == "" {
-		logrus.Errorln("Required flags: --index, --queries")
+		// logrus.Errorln("Required flags: --index, --queries")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -301,13 +300,13 @@ func Runtree(config globals.Args) *PIRTree {
 	// Read analyzed queries JSON file
 	data, err := os.ReadFile(analyzedQueriesPath)
 	if err != nil {
-		logrus.Errorf("Error reading analyzed queries file: %v\n", err)
+		// logrus.Errorf("Error reading analyzed queries file: %v\n", err)
 		os.Exit(1)
 	}
 
 	var analyzedQueries []AnalyzedQuery
 	if err := json.Unmarshal(data, &analyzedQueries); err != nil {
-		logrus.Errorf("Error parsing analyzed queries JSON: %v\n", err)
+		// logrus.Errorf("Error parsing analyzed queries JSON: %v\n", err)
 		os.Exit(1)
 	}
 	var stage3Idx = make([]string, len(analyzedQueries))
@@ -456,7 +455,7 @@ func (r results) Decode(_ globals.Args) []string {
 			extID, err := r.luceneIdx.ConvertInternalToExternalID(docID)
 			if err != nil || extID == 0 {
 				// skip unmapped IDs
-				logrus.Warnf("Warning: failed to convert internal docID %d to external ID, skipping\n", docID)
+				// logrus.Warnf("Warning: failed to convert internal docID %d to external ID, skipping\n", docID)
 				continue
 			}
 			stringIDs = append(stringIDs, fmt.Sprintf("%d", docID))
@@ -771,7 +770,7 @@ func writeResults(qid string, hits []bm25.HitSubBlock, k int, luceneIdx *bm25.Lu
 			extID, err := luceneIdx.ConvertInternalToExternalID(docID)
 			if err != nil || extID == 0 {
 				// skip unmapped IDs
-				logrus.Warnf("Unable to convert internal docID %d to external ID when writing results, skipping")
+				// logrus.Warnf("Unable to convert internal docID %d to external ID when writing results, skipping")
 				continue
 			}
 			fmt.Fprintf(writer, "%s\t%d\t1.0\n", qid, extID)
