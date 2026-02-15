@@ -96,11 +96,9 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 		// handle the case where one entry is shorter. to do this we shorten the larger array to be the
 		// same size as the shorter one
 
-		// This is probably going to cause issues as well, so I will leave a reminder: TODO Allo entries
-		// should be a multiple of 4!
-
 		entry := s.rawDB[idx : idx+1]
-		//TODO: this might be causing issues, uncomment?
+
+		// Because I'm allowing dynamically sized entries this is no longer going to cause issues...
 		//n := len(entry[0]) // uint64 elements
 		//
 		//// Debug check for size:
@@ -113,7 +111,7 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 		EntryXor(tempRet, entry)
 
 		// We could also do this by some fancy math - for every query we expect 'setsize' uint64's to be returned.
-		// Given how complicated some of our methods can be, I think this can work fine too
+		// Given how complicated some of our methods can be, I think this can work fine too and is a definitive number
 		for _, row := range entry {
 			s.RetrievalCount += uint64(len(row))
 		}
@@ -151,15 +149,18 @@ type PianoPIRClient struct {
 	// replace one value in S, specifically one of which we have the a replacement value for. When the we replace that
 	// value we replace it with the truly wanted value. Now we can XOR our hint chunk with the response and get the
 	// actual value XOR the replacement value.
-	replacementIdx [][]uint64   // the replacement indices. We have one array for each chunk
-	replacementVal [][][]uint64 // the replacement values. We have one array for each chunk
+	replacementIdx [][]uint64 // the replacement indices. 2d - first dim is chunk second is user defined.
+	// actual val in this array is the index used by the array below. first dim is the chunk the second is the index!
+	replacementVal [][][]uint64 // the replacement values. We have one array for each chunk. First dim is chunk second is user defined O(1) and final is the actual entry.
 
 	// backup hint table - Holds a few more Sets and hints so that we can replace the queries we lose. Note that we
 	//have to discard the entire hint when using the replacement stuff, this is because it skews the random
 	//distribution. For a backup we look over all the backup sets until we find one that just happens to have the index
 	//we used (so it retains ieparture from just a year ago when she sought to distance herself from a scandal that centred on the highly cts secure random properties)
-	backupShortTag [][]uint64   // the prf short tag
-	backupParity   [][][]uint64 // notice that we group DBEntrySize uint64 into one entry
+	backupShortTag [][]uint64 // the prf short tag
+	//WHere is the set? Where is the actual backup parity? What's in this thing?? Technically should be 3d - first should
+	// be chunk index and second wouldthe user defined constant number and the third is the actual entry bytes??
+	backupParity [][][]uint64 // notice that we group DBEntrySize uint64 into one entry
 
 	// local cache
 	localCache map[uint64][][]uint64
@@ -474,10 +475,10 @@ func (c *PianoPIRClient) UpdatePreprocessing(chunkId uint64, chunk [][]uint64) {
 		//	//fmt.Errorf("i = %v, i*c.config.DBEntrySize = %v, len(c.primaryParity) = %v", i, i*c.config.DBEntrySize, len(c.primaryParity)
 		//	log.Fatalf("i = %v, i*c.config.DBEntrySize = %v, len(c.primaryParity) = %v", i, i*c.config.DBEntrySize, len(c.primaryParity))
 		//}
-		// TODO: I think this is wrong??? Primary parity has one too many dimensions??
-		// prim parity should be of entire DB and backup parity should be of db minus chunks...
 
-		// Primary hint is just a single val from the chunk, primary parity should be parity of chunk??
+		// Primary hint is just a single val from the chunk, primary parity should be parity of chunk. REMEMBER: an entry
+		// is now a 2darray instead of a single value. so primary parity is going to be sqrt(n) number of arrays and each
+		// item in the array is going to be the xor of all other entrys at that position
 		EntryXor(c.primaryParity[i:(i+1)], chunk[offset:(offset+1)])
 	}
 

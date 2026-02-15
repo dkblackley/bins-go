@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -56,7 +57,7 @@ type SimpleBatchPianoPIR struct {
 	commCostPerBatchOnline  uint64  // bytes
 	commCostPerBatchOffline uint64  // bytes
 
-	permutation []uint64 // <--- ADD THIS LINE
+	permutation []uint64
 }
 
 func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum uint64, BatchSize uint64,
@@ -227,11 +228,14 @@ func (p *SimpleBatchPianoPIR) Preprocessing() time.Duration {
 			start := tid * perThreadPartitionNum
 			end := min((tid+1)*perThreadPartitionNum, p.config.PartitionNum)
 			//log.Printf("Thread %v preprocessing partitions [%v, %v)\n", tid, start, end)
+			bar := progressbar.Default(int64(end), fmt.Sprintf("Pre-proc subPIR"))
 			for i := start; i < end; i++ {
 				p.subPIR[i].Preprocessing()
+				bar.Add(1)
 			}
 			//log.Print("Thread ", tid, " finished preprocessing")
 			wg.Done()
+			bar.Finish()
 		}(tid)
 	}
 
@@ -267,7 +271,8 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 		if logicalID < uint64(len(p.permutation)) {
 			shuffledIdx[i] = p.permutation[logicalID]
 		} else {
-			shuffledIdx[i] = 0 // Safety fallback
+			shuffledIdx[i] = 0
+			logrus.Warnf("Failed to find shuffled index for logical ID %d.", logicalID)
 		}
 	}
 	idx = shuffledIdx // Replace input with shuffled indices
