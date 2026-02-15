@@ -222,7 +222,7 @@ func (db *Stage1PIRDB) GetScoreBatch(termIDs []int, nodeIDs []int) map[int]map[i
 			req := chunkRequests[j]
 			if _, ok := result[req.termID]; !ok {
 				result[req.termID] = make(map[int][]byte)
-			}
+			} // TODO: This result is far too big? only the first 4 items seem to have a value.... It's because of batch size!!
 			result[req.termID][req.nodeID] = convertUint64ToBytes(response)
 		}
 	}

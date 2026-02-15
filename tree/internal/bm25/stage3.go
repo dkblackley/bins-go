@@ -447,7 +447,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 			for i, num := range vect {
 				if num != resultsDirect[k][i] {
-					// logrus.Errorf("Stage3: result[%d] != resultsDirect[%d] at index %d\n", k, k, i)
+					logrus.Errorf("Stage3: result[%d] != resultsDirect[%d] at index %d\n", k, k, i)
 				}
 			}
 		}
