@@ -60,8 +60,8 @@ type PIRImpliment interface {
 func GetDatasets(root, name string) globals.DatasetMetadata {
 	vectors := globals.Vectors{
 
-		root + "/Son/my_vectors_192.npy",
-		root + "/Son/query_192_float32.npy",
+		root + "/Son/local_collection.npy",
+		root + "/Son/local_query.npy",
 		root + "/Son/my_vectors_192_8841823_192_32_graph.npy"}
 
 	if name == "msmarco" {
