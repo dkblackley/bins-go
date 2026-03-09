@@ -364,12 +364,7 @@ func (c *PianoPIRClient) Initialization() {
 //}
 
 func EntryXor(a, b [][]uint64) {
-	outerLen := len(a)
-	if len(b) < outerLen {
-		outerLen = len(b)
-	}
-
-	for i := 0; i < outerLen; i++ {
+	for i := 0; i < len(b); i++ {
 		ai := a[i]
 		bi := b[i]
 
@@ -381,16 +376,15 @@ func EntryXor(a, b [][]uint64) {
 			continue
 		}
 
-		if n >= 4 {
-			// TRICK: We pass bi[:n]. This sets the length of the 'src' slice
-			// to exactly 'n'. Your ASM reads this length at offset 32(FP).
-			// The '0' at the end satisfies the Go signature but is ignored by ASM.
-			xorSlices(ai, bi[:n], 0)
+		chunks := n / 4
+
+		if chunks > 0 {
+			// Pass raw memory pointers to the assembly
+			xorSlicesAVX(&ai[0], &bi[0], chunks)
 		}
 
-		// Handle the remainder (elements that didn't fit into a 4-element chunk)
-		// n &^ 3 is a bitwise clear, finding the largest multiple of 4 <= n
-		for j := n &^ 3; j < n; j++ {
+		// Handle the remainder (0 to 3 elements) using standard Go
+		for j := chunks * 4; j < n; j++ {
 			ai[j] ^= bi[j]
 		}
 	}

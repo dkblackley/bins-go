@@ -4,6 +4,8 @@
 
 // +build amd64,!appengine,!gccgo
 
+#include "textflag.h"
+
 // func xor16(dst, a, b *byte)
 TEXT ·xor16(SB),4,$0
 	MOVQ dst+0(FP), AX
@@ -155,3 +157,27 @@ loop:
 done:
     VZEROUPPER                 // Clear upper part of YMM registers to avoid AVX-SSE transition penalty
     RET                        // Return
+
+// func xorSlicesAVX(dst *uint64, src *uint64, chunks int)
+TEXT ·xorSlicesAVX(SB), NOSPLIT, $0-24
+    MOVQ dst+0(FP), SI         // Load pointer to the first element of dst
+    MOVQ src+8(FP), DI         // Load pointer to the first element of src
+    MOVQ chunks+16(FP), CX     // Load number of 256-bit chunks
+
+loop:
+    TESTQ CX, CX               // Test if the loop counter is zero
+    JZ    done                 // If zero, we're done
+
+    VMOVDQU (SI), Y0           // Load 256 bits from dst into YMM0
+    VMOVDQU (DI), Y1           // Load 256 bits from src into YMM1
+    VPXOR Y1, Y0, Y0           // Perform XOR
+    VMOVDQU Y0, (SI)           // Store result back to dst
+
+    ADDQ $32, SI               // Advance pointers by 256 bits (32 bytes)
+    ADDQ $32, DI
+    DECQ CX                    // Decrement loop counter
+    JNZ  loop                  // Continue if not done
+
+done:
+    VZEROUPPER                 // Clear upper YMM registers
+    RET
