@@ -403,9 +403,9 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 	// now test if the subPIR has reached the max query num, redo the preprocessing
 	// -2 means we want to do the preprocessing before the last query
 	if p.QueriesMadeInPartition >= p.subPIR[0].client.MaxQueryNum-2 { //TODO: We need this for the tree method.... but I shouldn't need it?
+		logrus.Errorf("Max query was hit while running? MaxQueryNum %d, QueriesMade %d, SupportBatchnum %d, finBatchNum, %d, QueryHistogram: %v", p.subPIR[0].client.MaxQueryNum-2, p.QueriesMadeInPartition, p.SupportBatchNum, p.FinishedBatchNum, p.subPIR[0].client.QueryHistogram)
 		fmt.Printf("Redo preprocessing. Made %v batches (%v queries in a partition), redo the preprocessing\n", p.FinishedBatchNum, p.QueriesMadeInPartition)
 		p.Preprocessing()
-		logrus.Errorf("Max query was hit while running? SupportBatchnum %d, finBatchNum, %d, ", p.SupportBatchNum, p.FinishedBatchNum)
 	} else {
 		p.FinishedBatchNum += uint64(len(idx) / int(p.config.BatchSize))
 		p.QueriesMadeInPartition += uint64(queryNumToMake)
