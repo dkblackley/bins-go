@@ -322,54 +322,11 @@ func (c *PianoPIRClient) Initialization() {
 	c.localCache = make(map[uint64][][]uint64)
 }
 
-// Use native XOR instead of ASM. I think the ASM version has hardware acceleration though, so I'll leave the other
-// below and commented out for now.
-func EntryXor(a, b [][]uint64) {
-
-	for i := 0; i < len(b); i++ {
-		ai := a[i]
-		bi := b[i]
-
-		n := len(ai)
-		if lb := len(bi); lb < n {
-			n = lb
-		}
-		if n == 0 {
-			continue
-		}
-
-		j := 0
-		n8 := n &^ 7 // largest multiple of 8 <= n
-		if n8 > 0 {
-			// Help the compiler prove bounds safety for the unrolled loop.
-			_ = ai[n8-1]
-			_ = bi[n8-1]
-
-			for ; j < n8; j += 8 {
-				ai[j+0] ^= bi[j+0]
-				ai[j+1] ^= bi[j+1]
-				ai[j+2] ^= bi[j+2]
-				ai[j+3] ^= bi[j+3]
-				ai[j+4] ^= bi[j+4]
-				ai[j+5] ^= bi[j+5]
-				ai[j+6] ^= bi[j+6]
-				ai[j+7] ^= bi[j+7]
-			}
-		}
-
-		for ; j < n; j++ {
-			ai[j] ^= bi[j]
-		}
-	}
-}
-
+//// Use native XOR instead of ASM. I think the ASM version has hardware acceleration though, so I'll leave the other
+//// below and commented out for now.
 //func EntryXor(a, b [][]uint64) {
-//	limit := len(a)
-//	if lb := len(b); lb < limit {
-//		limit = lb
-//	}
 //
-//	for i := 0; i < limit; i++ {
+//	for i := 0; i < len(b); i++ {
 //		ai := a[i]
 //		bi := b[i]
 //
@@ -381,18 +338,62 @@ func EntryXor(a, b [][]uint64) {
 //			continue
 //		}
 //
-//		n4 := n &^ 3
-//		if n4 != 0 {
-//			// Option A: xorSlices(ai[:n4], bi[:n4])
-//			// Option B: xorSlices(ai, bi, n4)
-//			xorSlices(ai[:n4], bi[:n4])
+//		j := 0
+//		n8 := n &^ 7 // largest multiple of 8 <= n
+//		if n8 > 0 {
+//			// Help the compiler prove bounds safety for the unrolled loop.
+//			_ = ai[n8-1]
+//			_ = bi[n8-1]
+//
+//			for ; j < n8; j += 8 {
+//				ai[j+0] ^= bi[j+0]
+//				ai[j+1] ^= bi[j+1]
+//				ai[j+2] ^= bi[j+2]
+//				ai[j+3] ^= bi[j+3]
+//				ai[j+4] ^= bi[j+4]
+//				ai[j+5] ^= bi[j+5]
+//				ai[j+6] ^= bi[j+6]
+//				ai[j+7] ^= bi[j+7]
+//			}
 //		}
-//		for j := n4; j < n; j++ {
+//
+//		for ; j < n; j++ {
 //			ai[j] ^= bi[j]
 //		}
 //	}
-//
 //}
+
+func EntryXor(a, b [][]uint64) {
+	outerLen := len(a)
+	if len(b) < outerLen {
+		outerLen = len(b)
+	}
+
+	for i := 0; i < outerLen; i++ {
+		ai := a[i]
+		bi := b[i]
+
+		n := len(ai)
+		if lb := len(bi); lb < n {
+			n = lb
+		}
+		if n == 0 {
+			continue
+		}
+
+		chunks := n / 4
+
+		if chunks > 0 {
+			// Pass the slices directly
+			xorSlices(ai, bi, chunks)
+		}
+
+		// Handle the remainder (0 to 3 elements) using standard Go
+		for j := chunks * 4; j < n; j++ {
+			ai[j] ^= bi[j]
+		}
+	}
+}
 
 func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) [][]uint64 {
 	c.Initialization() // first clean everything
