@@ -174,3 +174,5 @@ func GetLongKey(key *PrfKey128) []uint32 {
 // src. n is the size of the src and dst array. Make sure you use whatever you passed in as dst
 // after calling this function
 func xorSlices(dst, src []uint64, n int)
+
+func xorSlicesAVX(dst *uint64, src *uint64, chunks int)
