@@ -384,6 +384,8 @@ func getQIDS(config globals.Args) []string {
 
 func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globals.Args) map[string]globals.Decodable {
 
+	logrus.Infof("Starting PIR search on %d queries", config.QueryNum)
+
 	numQueries := config.QueryNum
 	//numQueries := 30
 
