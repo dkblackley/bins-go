@@ -67,7 +67,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 	if name == "msmarco" {
 		return globals.DatasetMetadata{
 			"Marco",
-			root + "/index_marco",
+			"./index_marco",
 			root + "/msmarco/corpus.jsonl",
 			root + "/msmarco/queries.dev.small.jsonl",
 			root + "/msmarco/qrels/qrels.dev.tsv",
