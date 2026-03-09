@@ -148,6 +148,9 @@ func MakeVecDb(config globals.Args) VecBins {
 	//if config.CorpusVec { // If we want to lead npy vectors
 	bm25Vectors, err := globals.LoadFloat32MatrixFromNpy(metaData.Vectors.CorpusVec, int(config.DBSize), int(config.Dimensions))
 	logrus.Infof("Size of vectors: %d", len(bm25Vectors))
+	if len(bm25Vectors) == 0 {
+		logrus.Errorf("loaded vects from %s: DBSize: %d and dims: %d ", metaData.Vectors.CorpusVec, config.DBSize, config.Dimensions)
+	}
 	Must(err)
 	var DB [][]string
 	if config.Load {
