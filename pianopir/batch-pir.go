@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -228,14 +227,14 @@ func (p *SimpleBatchPianoPIR) Preprocessing() time.Duration {
 			start := tid * perThreadPartitionNum
 			end := min((tid+1)*perThreadPartitionNum, p.config.PartitionNum)
 			//log.Printf("Thread %v preprocessing partitions [%v, %v)\n", tid, start, end)
-			bar := progressbar.Default(int64(end), fmt.Sprintf("Pre-proc subPIR"))
+			//bar := progressbar.Default(int64(end), fmt.Sprintf("Pre-proc subPIR"))
 			for i := start; i < end; i++ {
 				p.subPIR[i].Preprocessing()
-				bar.Add(1)
+				//bar.Add(1)
 			}
 			//log.Print("Thread ", tid, " finished preprocessing")
 			wg.Done()
-			bar.Finish()
+			//bar.Finish()
 		}(tid)
 	}
 
