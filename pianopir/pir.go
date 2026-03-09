@@ -382,15 +382,20 @@ func EntryXor(a, b [][]uint64) {
 		}
 
 		if n >= 4 {
+			// TRICK: We pass bi[:n]. This sets the length of the 'src' slice
+			// to exactly 'n'. Your ASM reads this length at offset 32(FP).
+			// The '0' at the end satisfies the Go signature but is ignored by ASM.
 			xorSlices(ai, bi[:n], 0)
 		}
 
+		// Handle the remainder (elements that didn't fit into a 4-element chunk)
 		// n &^ 3 is a bitwise clear, finding the largest multiple of 4 <= n
 		for j := n &^ 3; j < n; j++ {
 			ai[j] ^= bi[j]
 		}
 	}
 }
+
 func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) [][]uint64 {
 	c.Initialization() // first clean everything
 
