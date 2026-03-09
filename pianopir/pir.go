@@ -381,20 +381,16 @@ func EntryXor(a, b [][]uint64) {
 			continue
 		}
 
-		chunks := n / 4
-
-		if chunks > 0 {
-			// Pass the slices directly
-			xorSlices(ai, bi, chunks)
+		if n >= 4 {
+			xorSlices(ai, bi[:n], 0)
 		}
 
-		// Handle the remainder (0 to 3 elements) using standard Go
-		for j := chunks * 4; j < n; j++ {
+		// n &^ 3 is a bitwise clear, finding the largest multiple of 4 <= n
+		for j := n &^ 3; j < n; j++ {
 			ai[j] ^= bi[j]
 		}
 	}
 }
-
 func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) [][]uint64 {
 	c.Initialization() // first clean everything
 
