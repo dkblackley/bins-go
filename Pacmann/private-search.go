@@ -511,7 +511,7 @@ func (g *PIRGraphInfo) Preprocess() {
 
 	// now we set up the PIR
 	g.PIR = pianopir.NewSimpleBatchPianoPIR(uint64(g.N), uint64(len(g.rawDB[0])), g.DBEntryByteNum,
-		uint64(len(g.graph[0])), g.rawDB, 40, uint64(g.stepN)*uint64(pianopir.ThreadNum)+10)
+		uint64(len(g.graph[0])), g.rawDB, 20, uint64(g.stepN)*uint64(pianopir.ThreadNum)+10)
 
 	if g.skipPrep {
 		g.PIR.DummyPreprocessing()
