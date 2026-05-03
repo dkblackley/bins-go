@@ -21,13 +21,13 @@ type Args struct {
 	Load              bool
 	DebugLevel        int
 	CheckPointFolder  string
-	RTT               uint
-	OutFile           string
-	QueryNum          uint
-	DatasetMeta       DatasetMetadata
-	BinsConf          BinsConf
-	IDLookup          map[[32]byte]string
-	Metadata          map[string]string
+	// RTT               uint
+	OutFile     string
+	QueryNum    uint
+	DatasetMeta DatasetMetadata
+	BinsConf    BinsConf
+	IDLookup    map[[32]byte]string
+	Metadata    map[string]string
 }
 
 type BinsConf struct {

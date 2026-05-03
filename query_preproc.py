@@ -8,12 +8,24 @@ import faiss
 import argparse
 from numpy.lib.format import open_memmap
 
+import json
+
 def load_queries(queries_path):
+    """Loads queries into memory, auto-detecting TSV vs JSONL."""
+    is_jsonl = queries_path.endswith('.jsonl')
     queries = {}
-    with open(queries_path, 'r') as f:
+
+    with open(queries_path, 'r', encoding='utf-8') as f:
         for line in f:
-            qid, qtext = line.strip().split('\t', 1)
-            queries[qid] = qtext
+            if is_jsonl:
+                # Handle BEIR JSONL format
+                data = json.loads(line)
+                queries[data['_id']] = data.get('text', '').strip()
+            else:
+                # Handle standard TSV format
+                qid, qtext = line.rstrip('\n').split('\t', 1)
+                queries[qid] = qtext
+
     return queries
 
 def iter_queries(queries, batch_size=2048):
@@ -32,8 +44,8 @@ def main(args):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = SentenceTransformer('sentence-transformers/msmarco-MiniLM-L-6-v3', device=device)
     query_ids = list(queries.keys())
-    out = open_memmap(args.output, mode='w+', dtype=np.float32, shape=(len(query_ids), 192))
-    pca = faiss.read_VectorTransform("../datasets/Son/pca_768_to_192.faiss")
+    out = open_memmap(args.output, mode='w+', dtype=np.float64, shape=(len(query_ids), 192))
+    pca = faiss.read_VectorTransform("../../../datasets/Son/pca_768_to_192.faiss")
     batch_size = 256  # Increased for efficiency
     for i, (buf_ids, buf_txt) in enumerate(tqdm(iter_queries(queries, batch_size=batch_size))):
         embeddings = model.encode(buf_txt, convert_to_numpy=True)

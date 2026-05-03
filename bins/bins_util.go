@@ -12,7 +12,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/blugelabs/bluge"
@@ -502,6 +501,10 @@ func WriteCSV(path string, data [][]string) error {
 
 func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[[32]byte]string {
 
+	// Thankfull scifact embeddings are in the same order as vec... TODO: for marco
+	docs, er := LoadCorpus(meta.OriginalDir)
+	Must(er)
+
 	IDLookup := make(map[[32]byte]string)
 	vectors, err := globals.LoadFloat32MatrixFromNpy(meta.Vectors.CorpusVec, dbsize, dimensions)
 
@@ -511,9 +514,10 @@ func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[[32]by
 		progressbar.OptionShowElapsedTimeOnFinish(),
 	)
 	Must(err)
-	for i := 0; i < len(vectors); i++ {
+	for i := 0; i < len(docs); i++ {
+		docID := docs[i].ID
 		ID := HashFloat32s(vectors[i])
-		IDLookup[ID] = strconv.Itoa(i)
+		IDLookup[ID] = docID
 		bar.Add(1)
 	}
 

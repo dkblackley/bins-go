@@ -158,8 +158,8 @@ type PianoPIRClient struct {
 	//distribution. For a backup we look over all the backup sets until we find one that just happens to have the index
 	//we used (so it retains ieparture from just a year ago when she sought to distance herself from a scandal that centred on the highly cts secure random properties)
 	backupShortTag [][]uint64 // the prf short tag
-	//WHere is the set? Where is the actual backup parity? What's in this thing?? Technically should be 3d - first should
-	// be chunk index and second wouldthe user defined constant number and the third is the actual entry bytes??
+
+	// The extra parity bits stored (by the client I think)
 	backupParity [][][]uint64 // notice that we group DBEntrySize uint64 into one entry
 
 	// local cache

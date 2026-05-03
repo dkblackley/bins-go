@@ -1,4 +1,4 @@
-# first process all ms marco documents to vector embeddings
+ # first process all ms marco documents to vector embeddings
 # then use PCA to reduce dimensions to 192
 def load_documents(documents_path):
     # documents_path is collection.tsv
@@ -36,16 +36,33 @@ import torch
 import faiss
 from tqdm import tqdm
 
+import json
+
 def iter_docs(path, batch_size=2048):
+    """Yields batches of documents, auto-detecting TSV vs JSONL."""
+    is_jsonl = path.endswith('.jsonl')
     buf_ids, buf_txt = [], []
-    with open(path, 'r') as f:
+
+    with open(path, 'r', encoding='utf-8') as f:
         for line in f:
-            docid, doctext = line.rstrip('\n').split('\t', 1)
+            if is_jsonl:
+                # Handle BEIR JSONL format
+                data = json.loads(line)
+                docid = data['_id']
+                title = data.get('title', '')
+                text = data.get('text', '')
+                doctext = f"{title} {text}".strip()
+            else:
+                # Handle standard TSV format
+                docid, doctext = line.rstrip('\n').split('\t', 1)
+
             buf_ids.append(docid)
             buf_txt.append(doctext)
+
             if len(buf_ids) == batch_size:
                 yield buf_ids, buf_txt
                 buf_ids, buf_txt = [], []
+
     if buf_ids:
         yield buf_ids, buf_txt
 
@@ -60,7 +77,7 @@ def main(args):
     print(f"Total documents: {num_docs:,}")
 
     output_dim = 192  # After PCA reduction
-    dtype = np.float32
+    dtype = np.float64
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
@@ -68,7 +85,7 @@ def main(args):
 
     # Load PCA transform
     print("Loading PCA transform...")
-    pca = faiss.read_VectorTransform("../datasets/Son/pca_768_to_192.faiss")
+    pca = faiss.read_VectorTransform("../../../datasets/Son/pca_768_to_192.faiss")
     print(f"PCA: {pca.d_in} -> {pca.d_out} dimensions")
 
     # 2) Preallocate a memmapped .npy file for 192-dim embeddings

@@ -109,12 +109,12 @@ func (d DBentry) Decode(config globals.Args) []string {
 func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	indices := v.MakeIndices(QID)
 
-	if uint64(len(indices)) >= 32 { // TODO: pass batchsize in args to checl
+	if uint64(len(indices)) >= 32 { // TODO: pass batchsize in args to check
 		logrus.Warnf("Too many indices in batch: %d for QID: %s - Possible corruption incoming", len(indices), QID)
 	}
 	results, err := v.PIR.Query(indices)
 
-	//TODO: something with K
+	//TODO: something with K(?)
 	return DBentry{
 		results,
 	}, err

@@ -194,7 +194,15 @@ func LoadQrels(path string) (qrels, error) {
 		if len(line) < 3 {
 			continue
 		}
-		qid, docid, score := line[0], line[2], line[3]
+
+		var qid, docid, score string
+
+		if len(line) > 3 { // Msmarco has an extra column we don't need.
+			qid, docid, score = line[0], line[2], line[3]
+		} else {
+			qid, docid, score = line[0], line[1], line[2]
+		}
+
 		v, _ := strconv.Atoi(score)
 		if v <= 0 {
 			continue

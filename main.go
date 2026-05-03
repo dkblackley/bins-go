@@ -49,7 +49,7 @@ func (h *StackHook) Fire(entry *logrus.Entry) error {
 
 // const MAX_UINT32 = ^uint32(0)
 
-type PIRImpliment interface {
+type PIRImplement interface {
 	GetMetaData() map[string]string
 	DoSearch(QID string, k int) (globals.Decodable, error)
 	Preprocess()
@@ -58,13 +58,14 @@ type PIRImpliment interface {
 }
 
 func GetDatasets(root, name string) globals.DatasetMetadata {
-	vectors := globals.Vectors{
-
-		root + "/Son/local_collection.npy",
-		root + "/Son/local_query.npy",
-		root + "/Son/my_vectors_192_8841823_192_32_graph.npy"}
 
 	if name == "msmarco" {
+		vectors := globals.Vectors{
+
+			root + "/msmarco/msmarco_corpus_embed_f32.npy",
+			root + "/msmarco/msmarco_query_embed_f32.npy",
+			root + "/msmarco/marco_graph.npy"}
+
 		return globals.DatasetMetadata{
 			"Marco",
 			root + "/index_marco",
@@ -74,6 +75,11 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 			vectors,
 		}
 	} else if name == "scifact" {
+		vectors := globals.Vectors{
+
+			root + "/scifact/scifact_corpus_embed_f32.npy",
+			root + "/scifact/scifact_query_embed_f32.npy",
+			root + "/scifact/scifact_graph.npy"}
 		return globals.DatasetMetadata{
 			"SciFact",
 			root + "/index_scifact", // index folders created earlier
@@ -84,10 +90,11 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 		}
 	} else if name == "debug" {
 		logrus.Debugf("Using debug dataset")
+		vectors := globals.Vectors{
 
-		vectors.CorpusVec = root + "/Son/my_vectors_192_debug.npy"
-		vectors.QueryVec = root + "/Son/query_192_float32_debug.npy"
-		vectors.Graph = root + "/Son/debug_graph.npy"
+			root + "/Son/my_vectors_192_debug.npy",
+			root + "/Son/query_192_float32_debug.npy",
+			root + "/Son/debug_graph.npy"}
 
 		return globals.DatasetMetadata{
 			"Marco",
@@ -98,6 +105,11 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 			vectors,
 		}
 	} else {
+		vectors := globals.Vectors{
+
+			root + "/trec-covid/trec_corpus_embed_f32.npy",
+			root + "/trec-covid/trec_query_embed_f32.npy",
+			root + "/trec-covid/trec_graph.npy"}
 		return globals.DatasetMetadata{
 			"TREC-COVID",
 			root + "/index_trec_covid",
@@ -125,7 +137,7 @@ func main() {
 	load := flag.Bool("load", false, "Whether or not to load data")
 	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
 	checkPointFolder := flag.String("checkpoint", "checkPoint", "Where to look for the checkpoint data")
-	RTT := flag.Uint("RTT", 50, "RTT for the network")
+	//RTT := flag.Uint("RTT", 50, "RTT for the network")
 	outFile := flag.String("outFile", "out.json", "Where to save the answers")
 
 	// Flags for tree method
@@ -182,13 +194,13 @@ func main() {
 		Load:              *load,
 		DebugLevel:        *debugLevel,
 		CheckPointFolder:  *checkPointFolder,
-		RTT:               *RTT,
-		Dimensions:        *dimensions,
-		OutFile:           *outFile,
-		QueryNum:          0,
-		DatasetMeta:       meta,
-		IDLookup:          IDLookup,
-		Metadata:          make(map[string]string),
+		// RTT:               *RTT,
+		Dimensions:  *dimensions,
+		OutFile:     *outFile,
+		QueryNum:    0,
+		DatasetMeta: meta,
+		IDLookup:    IDLookup,
+		Metadata:    make(map[string]string),
 
 		BinsConf: globals.BinsConf{
 			Index:   *index,
@@ -257,7 +269,7 @@ func main() {
 		return
 	}
 
-	var PIRImplemented PIRImpliment
+	var PIRImplemented PIRImplement
 	// TODO: is it sensible to start the 'pre-processing' timer here? If so replace if with switch case!
 
 	if *searchType == "bins" {
@@ -382,7 +394,7 @@ func getQIDS(config globals.Args) []string {
 
 }
 
-func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globals.Args) map[string]globals.Decodable {
+func doPIRSearch(PIRImplemented PIRImplement, qids []string, k int, config globals.Args) map[string]globals.Decodable {
 
 	logrus.Infof("Starting PIR search on %d queries", config.QueryNum)
 
@@ -392,7 +404,7 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 	decodables := make(map[string]globals.Decodable)
 	maintainenceTime := time.Duration(0)
 
-	finishedBatchNum, batchNumNeeded, supportBatchNum := PIRImplimented.GetBatchNums()
+	finishedBatchNum, batchNumNeeded, supportBatchNum := PIRImplemented.GetBatchNums()
 
 	//start := time.Now()
 
@@ -412,12 +424,12 @@ func doPIRSearch(PIRImplimented PIRImpliment, qids []string, k int, config globa
 
 		if finishedBatchNum+batchNumNeeded >= supportBatchNum {
 			// re-run the preprocessing
-			maintainenceTime += PIRImplimented.PIRPreprocess()
+			maintainenceTime += PIRImplemented.PIRPreprocess()
 		}
 
 		// Results should be a 2d array, each item in the first dimension should be a single result and then the lower
 		//dimension is an item in the DB
-		results, err := PIRImplimented.DoSearch(q, k)
+		results, err := PIRImplemented.DoSearch(q, k)
 
 		if err != nil {
 			logrus.Errorf("Error querying PIR: %v", err)
@@ -498,7 +510,9 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 	}
 
 	for i := 0; i < len(docEmbed); i++ {
-		docEmbedMap[strconv.Itoa(i)] = docEmbed[i]
+		embedHash := bins.HashFloat32s(docEmbed[i])
+		docID := config.IDLookup[embedHash]
+		docEmbedMap[docID] = docEmbed[i]
 	}
 
 	new_results := make(map[string][]string, len(results))

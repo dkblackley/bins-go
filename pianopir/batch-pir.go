@@ -295,7 +295,7 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 			maxLen = len(partitionQueries[i])
 		}
 	}
-	// Get maxium queries we can make
+	// Get maximum queries we can make
 	queryNumToMake := maxLen
 
 	//fmt.Println("partitionQueries: ", partitionQueries)
@@ -330,9 +330,10 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 		for cID, count := range chunkCounts {
 			// Warning if a SINGLE batch uses more than 50% of the total lifetime budget for a chunk
 			if uint64(count) > limit/2 {
-				logrus.Warnf("⚠️ HOT CHUNK in Batch! Partition %d, Chunk %d", i, cID)
+				logrus.Warnf("⚠️ BIG QUERY all in the same Batch! Partition %d, Chunk %d", i, cID)
 				logrus.Warnf("   Requests in this batch: %d", count)
 				logrus.Warnf("   Max allowed per chunk (lifetime): %d", limit)
+				logrus.Warnf("   You probably need to a bigger DB/smaller batch size...")
 
 				if uint64(count) >= limit {
 					logrus.Errorf("🚨 CRITICAL: Batch request count (%d) exceeds lifetime limit (%d)! This query will strictly fail.", count, limit)
@@ -356,7 +357,7 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 		// now we make queryNumToMake queries to the sub PIR
 		for j := uint64(0); j < uint64(queryNumToMake); j++ {
 			if partitionQueries[i][j] == DefaultValue {
-				_, _ = p.subPIR[i].Query(0, false) // just make a dummy query
+				_, _ = p.subPIR[i].Query(0, false) // just make a dummy query for the padded queries
 			} else {
 				query, err := p.subPIR[i].Query(partitionQueries[i][j]-i*p.config.PartitionSize, true)
 				if err != nil {

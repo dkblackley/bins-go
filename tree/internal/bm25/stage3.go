@@ -376,9 +376,6 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 
 	// 2. Execute PIR in Batches
 	batchSize := int(sr.Pir.Config().BatchSize)
-	if batchSize <= 0 {
-		batchSize = 16
-	}
 
 	for i := 0; i < len(queryBlocks); i += batchSize {
 		// Handle batching
@@ -392,13 +389,8 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 		// Run Query
 		resultsRaw, err := sr.Pir.Query(chunk)
 		if err != nil {
-			// logrus.Warnf("PIR limit reached or error: %v. Refreshing...", err)
-			sr.Pir.Preprocessing()
-			resultsRaw, err = sr.Pir.Query(chunk)
-			if err != nil {
-				// logrus.Errorf("Stage3 PIR fatal error: %v", err)
-				os.Exit(1)
-			}
+			logrus.Errorf("PIR limit reached or error: %v....", err)
+			os.Exit(1)
 		}
 
 		// 3. Extract Vectors from the retrieved blocks

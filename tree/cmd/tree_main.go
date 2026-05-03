@@ -579,7 +579,7 @@ func processAnalyzedQuery(
 		}
 
 		// Check whether any gold doc exists in the Stage2 candidate pool (hitSubs)
-		if goldSetForStage3 != nil && len(goldSetForStage3) > 0 {
+		if goldSetForStage3 != nil && len(goldSetForStage3) > 0 && bm25.Debug {
 			found := false
 			// create a small helper to test a single internal docID
 			for _, hs := range hitSubs {

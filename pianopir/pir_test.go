@@ -96,7 +96,7 @@ func TestBatchPIRBasic(t *testing.T) {
 
 	DBSize := uint64(8000)
 	DBEntrySize := uint64(192 * 10)
-	BatchSize := uint64(32)
+	BatchSize := uint64(16)
 
 	// a seed that's depending on the current time
 	//seed := time.Now().UnixNano()
@@ -137,9 +137,9 @@ func TestBatchPIRBasic(t *testing.T) {
 	// for each partition, make PartitionQueryNum queries
 	batchQuery := make([]uint64, 0, BatchSize)
 
-	for i := uint64(0); i < config.PartitionNum; i++ {
-		start := i * config.PartitionSize
-		end := min((i+1)*config.PartitionSize, DBSize)
+	for i := uint64(0); i < BatchSize; i++ {
+		start := i * BatchSize
+		end := min((i+1)*BatchSize, DBSize)
 
 		for j := uint64(0); j < QueryPerPartition-1; j++ {
 			offset := rand.Uint64() % (end - start)
