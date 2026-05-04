@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"strconv"
 	"time"
 
 	"github.com/blugelabs/bluge"
@@ -109,12 +108,11 @@ func (d DBentry) Decode(config globals.Args) []string {
 func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	indices := v.MakeIndices(QID)
 
-	if uint64(len(indices)) >= 32 { // TODO: pass batchsize in args to check
+	if uint64(len(indices)) >= v.PIR.Config().BatchSize {
 		logrus.Warnf("Too many indices in batch: %d for QID: %s - Possible corruption incoming", len(indices), QID)
 	}
 	results, err := v.PIR.Query(indices)
 
-	//TODO: something with K(?)
 	return DBentry{
 		results,
 	}, err
@@ -196,16 +194,28 @@ func MakeVecDb(config globals.Args) VecBins {
 		}
 	}
 
+	docMap, _ := MakeDocIDAndQueryIDMap(config.DatasetMeta)
+	flipped := make(map[string]int, len(docMap))
+
+	for key, value := range docMap {
+		flipped[value] = key
+	}
+
 	newDb := make([][][]float32, 0, len(DB))
 	for _, entry := range DB {
 		row := make([][]float32, 0, len(entry))
 		// Add the vectors to the row
-		for j := 0; j < len(entry); j++ {
-			id, err := strconv.ParseUint(entry[j], 10, 32)
+		for j := 0; j < len(entry); j++ { // Just make i the entry, note that you'll need a 'map back' function
+			// id, err := strconv.ParseUint(entry[j], 10, 32)
+			id := flipped[entry[j]]
 			id64 := uint(id)
 			Must(err)
 			// This shouldn't do anything unless you're debugging!
-			id64 = id64 % config.DBSize
+			//id64 = id64 % config.DBSize
+			if id64 > config.DBSize {
+				logrus.Errorf("ERROR: ID is larger that the database size!!")
+				panic("ERROR: ID is larger that the database size!!")
+			}
 			row = append(row, bm25Vectors[id64]) // shares the row slice; no copy
 		}
 		// Pad the row for all the missing vectors

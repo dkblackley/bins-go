@@ -467,6 +467,8 @@ type ScoredDoc struct {
 
 func CosineReRank(results map[string][]string, config globals.Args) map[string][]string {
 
+	// docIDMap, queryIDMap := bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
+
 	// First, load qrels and queries
 	queries, err := bins.LoadQueries(config.DatasetMeta.Queries)
 	if err != nil {
@@ -506,6 +508,7 @@ func CosineReRank(results map[string][]string, config globals.Args) map[string][
 	docEmbedMap := make(map[string][]float32)
 
 	for i, q := range queries {
+		// queryIndex = queryIDMap[i]
 		qidEmbedMap[q.ID] = queryEmbed[i]
 	}
 

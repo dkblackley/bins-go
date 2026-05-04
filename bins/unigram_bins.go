@@ -78,12 +78,15 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 	// No sets in go, gotta make my own...
 	set := make(map[string]struct{})
 
-	for _, doc := range docs {
+	for i, doc := range docs {
 
 		title := doc.Title
 		text := doc.Text
 		if text == "" {
 			text = doc.Abstract
+		}
+		if text == "" && title == "" {
+			logrus.Errorf("Empty document? doc ID: %s at %d", doc.ID, i)
 		}
 
 		result := title + " " + text
