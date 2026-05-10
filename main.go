@@ -302,10 +302,8 @@ func main() {
 	//answers := make(map[string][][]uint64, config.QueryNum)
 	answers := make(map[string][]string, config.QueryNum)
 
-	if *searchType == "bins" {
-		IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
-		config.IDLookup = IDLookup
-	}
+	IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
+	config.IDLookup = IDLookup
 
 	bar := progressbar.NewOptions64(
 		int64(len(encodedAnswers)),

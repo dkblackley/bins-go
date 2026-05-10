@@ -10,7 +10,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -368,8 +367,12 @@ func (v vertexIDs) Decode(config globals.Args) []string {
 
 	finalIDs := make([]string, len(v.vertices))
 
+	docMap, _ := bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
+
 	for i, vertex := range v.vertices {
-		finalIDs[i] = strconv.Itoa(vertex)
+		// TODO: This is where we MUST map back to the original doc ids!!
+		//finalIDs[i] = strconv.Itoa(vertex)
+		finalIDs[i] = docMap[vertex]
 	}
 
 	return finalIDs
