@@ -138,7 +138,7 @@ func main() {
 	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
 	checkPointFolder := flag.String("checkpoint", "checkPoint", "Where to look for the checkpoint data")
 	//RTT := flag.Uint("RTT", 50, "RTT for the network")
-	outFile := flag.String("outFile", "out.json", "Where to save the answers")
+	outFile := flag.String("outFile", "out", "Where to save the answers")
 
 	// Flags for tree method
 	index := flag.String("index", "", "Path to Lucene index")
@@ -335,8 +335,10 @@ func main() {
 
 	config.Metadata["ReRankTime"] = end.Sub(start).String()
 
+	oldOut := config.OutFile
+	config.OutFile = fmt.Sprintf("%s.json", config.OutFile)
 	writeAnswers(answers, config)
-	config.OutFile = fmt.Sprintf("%s_reRank.json", config.OutFile)
+	config.OutFile = fmt.Sprintf("%s_reRank.json", oldOut)
 	writeAnswers(reRanked, config)
 
 	//stringAnwsers := Decode(answers, config)
