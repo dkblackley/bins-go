@@ -36,6 +36,8 @@ type PianoPIRServer struct {
 	rawDB [][]uint64
 
 	RetrievalCount uint64
+	NetworkTimeWAN float64
+	NetworkTimeLAN float64
 }
 
 // an initialization function for the server
@@ -107,14 +109,27 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 		//	panic("DB entry size mismatch - not a multiple of 4!!!!")
 		//}
 
-		// I think this is an update 'in place', so I shouldn't need to copy temp_ret[0]/do any fancy memory allocs
 		EntryXor(tempRet, entry)
+
+		var singleResponseSize uint64 = 0
 
 		// We could also do this by some fancy math - for every query we expect 'setsize' uint64's to be returned.
 		// Given how complicated some of our methods can be, I think this can work fine too and is a definitive number
 		for _, row := range entry {
-			s.RetrievalCount += uint64(len(row))
+			singleResponseSize += uint64(len(row))
 		}
+		s.RetrievalCount += singleResponseSize
+		bandwidthMbps := 100.0
+
+		totalBytes := float64(singleResponseSize)
+		totalBits := totalBytes * 8.0
+		bandwidthBps := bandwidthMbps * 1000000.0
+
+		transmissionTimeSeconds := totalBits / bandwidthBps
+
+		// Assume 50ms delay for WAN, 5ms for LAN
+		s.NetworkTimeWAN += transmissionTimeSeconds + 0.05
+		s.NetworkTimeLAN += transmissionTimeSeconds + 0.005
 
 	}
 

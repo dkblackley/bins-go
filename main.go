@@ -288,6 +288,18 @@ func main() {
 	end_pre := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end_pre.Sub(start_pre))
 
+	config.Metadata = PIRImplemented.GetMetaData()
+
+	keys := make([]string, 0, len(config.Metadata))
+	for k := range config.Metadata {
+		keys = append(keys, k)
+	}
+
+	for _, k := range keys {
+		newKey := "Pre" + k
+		config.Metadata[newKey] = config.Metadata[k]
+	}
+
 	start := time.Now()
 	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K), config)
 	end := time.Now()
@@ -323,11 +335,9 @@ func main() {
 
 	config.Metadata["ReRankTime"] = end.Sub(start).String()
 
-	if config.SearchType != "tree" {
-		writeAnswers(reRanked, config)
-	} else {
-		writeAnswers(answers, config)
-	}
+	writeAnswers(answers, config)
+	config.OutFile = fmt.Sprintf("%s_reRank.json", config.OutFile)
+	writeAnswers(reRanked, config)
 
 	//stringAnwsers := Decode(answers, config)
 

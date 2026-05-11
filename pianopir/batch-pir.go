@@ -159,6 +159,8 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 
 	DBSizeInBytes := 0
 	totalUint64s := uint64(0)
+	totalLANTime := float64(0)
+	totalWANTime := float64(0)
 
 	for i := uint64(0); i < p.config.PartitionNum; i++ {
 
@@ -167,6 +169,10 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 			DBSizeInBytes += len(v) * 8
 		}
 		totalUint64s += p.subPIR[i].server.RetrievalCount
+
+		totalWANTime += p.subPIR[i].server.NetworkTimeWAN
+		totalLANTime += p.subPIR[i].server.NetworkTimeLAN
+
 	}
 
 	fmt.Printf("DB size in MB = %v\n", DBSizeInBytes/1024/1024)
@@ -181,6 +187,7 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	fmt.Printf("amortized preprocessing comm cost = %v KB\n", float64(DBSizeInBytes)/float64(maxQuery)/1024)
 	fmt.Printf("total amortized comm cost = %v KB\n", float64(DBSizeInBytes)/float64(maxQuery)/1024+float64(p.CommCostPerBatchOnline())/1024)
 	fmt.Printf("total uint64s sent = %v\n", totalUint64s)
+	fmt.Printf("total LAN and WAN time = %v   %v\n", totalLANTime, totalWANTime)
 	fmt.Printf("-----------------------------\n")
 
 	PIR := p.subPIR[0]
@@ -189,6 +196,8 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	fmt.Printf("-----------------------------\n")
 
 	metadata["TotalUint64Sent"] = fmt.Sprintf("%d", totalUint64s)
+	metadata["TotalLANTime"] = fmt.Sprintf("%v", totalLANTime)
+	metadata["TotalWANTime"] = fmt.Sprintf("%v", totalWANTime)
 	metadata["DBSizeInBytesMB"] = fmt.Sprintf("%v", DBSizeInBytes/1024/1024)
 	metadata["FailureProbLog2"] = fmt.Sprintf("%v", PIR.config.FailureProbLog2)
 	metadata["ClientStorageMB"] = fmt.Sprintf("%v", p.LocalStorageSize()/1024/1024)
