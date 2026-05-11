@@ -139,6 +139,7 @@ func main() {
 	checkPointFolder := flag.String("checkpoint", "checkPoint", "Where to look for the checkpoint data")
 	//RTT := flag.Uint("RTT", 50, "RTT for the network")
 	outFile := flag.String("outFile", "out", "Where to save the answers")
+	outDir := flag.String("outDir", "./", "Directory to save the answers to")
 
 	// Flags for tree method
 	index := flag.String("index", "", "Path to Lucene index")
@@ -388,7 +389,7 @@ func writeAnswers(answers map[string][]string, config globals.Args) {
 		panic(err)
 	}
 
-	logrus.Infof("Wrote answers to metadata.json")
+	logrus.Infof("Wrote answers to %s_%d_metadata.json", config.SearchType, config.K)
 }
 
 func getQIDS(config globals.Args) []string {

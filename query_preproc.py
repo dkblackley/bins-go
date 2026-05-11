@@ -20,11 +20,11 @@ def load_queries(queries_path):
             if is_jsonl:
                 # Handle BEIR JSONL format
                 data = json.loads(line)
-                queries[data['_id']] = data.get('text', '').strip()
+                queries[data['_id']] = f"query: {data.get('text', '').strip()}"
             else:
                 # Handle standard TSV format
                 qid, qtext = line.rstrip('\n').split('\t', 1)
-                queries[qid] = qtext
+                queries[qid] = f"query: {qtext}"
 
     return queries
 
@@ -42,13 +42,15 @@ def iter_queries(queries, batch_size=2048):
 def main(args):
     queries = load_queries(args.queries)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = SentenceTransformer('sentence-transformers/msmarco-MiniLM-L-6-v3', device=device)
+    # model = SentenceTransformer('sentence-transformers/msmarco-MiniLM-L-6-v3', device=device)
+    model = SentenceTransformer('intfloat/e5-base-v2', device=device)
     query_ids = list(queries.keys())
-    out = open_memmap(args.output, mode='w+', dtype=np.float64, shape=(len(query_ids), 192))
-    pca = faiss.read_VectorTransform("../../../datasets/Son/pca_768_to_192.faiss")
+    out = open_memmap(args.output, mode='w+', dtype=np.float32, shape=(len(query_ids), 192))
+    # pca = faiss.read_VectorTransform("../../../datasets/Son/pca_768_to_192.faiss")
+    pca = faiss.read_VectorTransform("pca_e5_768_to_192.faiss")
     batch_size = 256  # Increased for efficiency
     for i, (buf_ids, buf_txt) in enumerate(tqdm(iter_queries(queries, batch_size=batch_size))):
-        embeddings = model.encode(buf_txt, convert_to_numpy=True)
+        embeddings = model.encode(buf_txt, convert_to_numpy=True, normalize_embeddings=True)
         embeddings_pca = pca.apply_py(embeddings)
         start_idx = i * batch_size
         out[start_idx:start_idx + len(buf_ids), :] = embeddings_pca

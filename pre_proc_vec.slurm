@@ -2,14 +2,14 @@
 #SBATCH --job-name=rag_pre-proc
 #SBATCH --qos=gpu
 #SBATCH --partition=gpuq
-#SBATCH --gres=gpu:A100.80gb:1
+#SBATCH --gres=gpu:A100.40gb:1
 #SBATCH --output=pre.out
 #SBATCH --error=pre.err
 #SBATCH --cpus-per-task=4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem=128G
-#SBATCH --time=1-6:30:00
+#SBATCH --mem=100G
+#SBATCH --time=0-3:30:00
 
 
 
@@ -66,13 +66,21 @@ mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE" "$HF_DATASETS_CACHE"
 
 
 
- python collection_preproc.py \
-     --documents "../datasets/msmarco/collection.tsv" \
-     --output "../datasets/Son/local_collection.npy"
+#python collection_preproc.py \
+#     --documents "../datasets/msmarco/collection.tsv" \
+#     --output "../datasets/Son/msmarco_corpus_embed_f32.npy"
+#
+#python query_preproc.py \
+#    --queries "../datasets/msmarco/queries.dev.small.tsv" \
+#    --output "../datasets/Son/msmarco_query_embed_f32.npy"
+
+python collection_preproc.py \
+    --documents "../datasets/scifact/corpus.jsonl" \
+    --output "../datasets/scifact/scifact_corpus_embed_f32.npy"
 
 python query_preproc.py \
-    --queries "../datasets/msmarco/queries.dev.small.tsv" \
-    --output "../datasets/Son/local_query.npy"
+    --queries "../datasets/scifact/queries.jsonl" \
+    --output "../datasets/scifact/scifact_query_embed_f32.npy"
 
 
 echo "DONE"

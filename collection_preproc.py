@@ -51,10 +51,11 @@ def iter_docs(path, batch_size=2048):
                 docid = data['_id']
                 title = data.get('title', '')
                 text = data.get('text', '')
-                doctext = f"{title} {text}".strip()
+                doctext = f"passage: {title} {text}".strip()
             else:
                 # Handle standard TSV format
                 docid, doctext = line.rstrip('\n').split('\t', 1)
+                doctext = f"passage: {doctext}"
 
             buf_ids.append(docid)
             buf_txt.append(doctext)
@@ -71,21 +72,50 @@ def count_lines(path):
     with open(path, 'r') as f:
         return sum(1 for _ in f)
 
+def make_pca(model, docs_path, sample_size=100000, batch_size=2048):
+     """Dynamically trains a 768 -> 192 PCA matrix using a sample of documents."""
+     print(f"\n--- Training PCA Transform ---")
+     print(f"Collecting ~{sample_size} documents for PCA training...")
+     sample_texts = []
+
+     for _, texts in iter_docs(docs_path, batch_size=batch_size):
+         sample_texts.extend(texts)
+         if len(sample_texts) >= sample_size:
+             break
+
+     # Trim to exact sample size if we overshot via batching
+     sample_texts = sample_texts[:sample_size]
+
+     print(f"Encoding {len(sample_texts)} documents for PCA...")
+     # E5 requirement: normalize_embeddings=True
+     embeddings_sample = model.encode(sample_texts, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=True, batch_size=batch_size)
+
+     print("Training FAISS PCA Matrix (768 -> 192)...")
+     pca = faiss.PCAMatrix(768, 192)
+     pca.train(embeddings_sample)
+
+     # Save the matrix to disk for the query script
+     faiss.write_VectorTransform(pca, "pca_e5_768_to_192.faiss")
+     print("PCA training complete and saved to pca_e5_768_to_192.faiss!\n")
+     return pca
+
 def main(args):
     # 1) Count first so we can preallocate on disk
     num_docs = count_lines(args.documents)
     print(f"Total documents: {num_docs:,}")
 
     output_dim = 192  # After PCA reduction
-    dtype = np.float64
+    dtype = np.float32
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
-    model = SentenceTransformer('sentence-transformers/msmarco-MiniLM-L-6-v3', device=device)
+    # model = SentenceTransformer('sentence-transformers/msmarco-MiniLM-L-6-v3', device=device)
+    model = SentenceTransformer('intfloat/e5-base-v2', device=device)
 
     # Load PCA transform
-    print("Loading PCA transform...")
-    pca = faiss.read_VectorTransform("../../../datasets/Son/pca_768_to_192.faiss")
+    # print("Loading PCA transform...")
+    # pca = faiss.read_VectorTransform("../../../datasets/Son/pca_768_to_192.faiss")
+    pca = make_pca(model, args.documents, batch_size=32)
     print(f"PCA: {pca.d_in} -> {pca.d_out} dimensions")
 
     # 2) Preallocate a memmapped .npy file for 192-dim embeddings
@@ -96,7 +126,7 @@ def main(args):
         for docids, texts in tqdm(iter_docs(args.documents, batch_size=2048),
                                    total=(num_docs + 2047) // 2048,
                                    desc="Processing documents"):
-            embs = model.encode(texts, convert_to_numpy=True)  # (B, 384) float32
+            embs = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)  # (B, 384) float32
             embs_pca = pca.apply_py(embs)  # (B, 192) float32
             n = len(docids)
             out[row:row+n] = embs_pca
