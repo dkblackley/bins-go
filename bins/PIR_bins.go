@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/blugelabs/bluge"
@@ -182,6 +183,7 @@ func MakeVecDb(config globals.Args) VecBins {
 		}
 
 		logrus.Debugf("CSV bins: non-empty=%d empty=%d total=%d", nonEmpty, empty, len(DB))
+		config.Metadata["EmptyBins"] = strconv.Itoa(empty)
 	}
 
 	// Padding is now done dynamically...

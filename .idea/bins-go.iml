@@ -8,8 +8,7 @@
   <component name="Go" enabled="true" />
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$" />
-    <orderEntry type="jdk" jdkName="$USER_HOME$/miniconda3/envs/main" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="main" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="library" name="main interpreter library" level="application" />
   </component>
 </module>

@@ -14,7 +14,8 @@ type Args struct {
 	Vectors           bool
 	Dimensions        uint
 	DBSize            uint
-	BinSize           uint
+	BinSize           float64
+	DocsPerBin        uint
 	Threshold         uint
 	DChoice           uint
 	Save              bool
@@ -23,6 +24,7 @@ type Args struct {
 	CheckPointFolder  string
 	// RTT               uint
 	OutFile     string
+	OutDir      string
 	QueryNum    uint
 	DatasetMeta DatasetMetadata
 	BinsConf    BinsConf

@@ -132,14 +132,15 @@ func main() {
 	dimensions := flag.Uint("dim", 4, "Dimension of vectors (if being used)")
 	thresh := flag.Uint("thresh", 0, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
-	binSize := flag.Uint("binSize", 8841823/100, "The number of bins to use")
+	binSize := flag.Float64("binSize", 1.0, "How many total bins to use, it's vocab size times this number")
+	docsPerBin := flag.Uint("docsPerBin", 1000, "How many documents to put into each bin.")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
 	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
 	checkPointFolder := flag.String("checkpoint", "checkPoint", "Where to look for the checkpoint data")
 	//RTT := flag.Uint("RTT", 50, "RTT for the network")
 	outFile := flag.String("outFile", "out", "Where to save the answers")
-	outDir := flag.String("outDir", "./", "Directory to save the answers to")
+	outDir := flag.String("outDir", ".", "Directory to save the answers to")
 
 	// Flags for tree method
 	index := flag.String("index", "", "Path to Lucene index")
@@ -190,6 +191,7 @@ func main() {
 		Threshold:         *thresh,
 		DChoice:           *dChoice,
 		BinSize:           *binSize,
+		DocsPerBin:        *docsPerBin,
 		DBSize:            *DBSize,
 		Save:              *save,
 		Load:              *load,
@@ -198,6 +200,7 @@ func main() {
 		// RTT:               *RTT,
 		Dimensions:  *dimensions,
 		OutFile:     *outFile,
+		OutDir:      *outDir,
 		QueryNum:    0,
 		DatasetMeta: meta,
 		IDLookup:    IDLookup,
@@ -337,9 +340,9 @@ func main() {
 	config.Metadata["ReRankTime"] = end.Sub(start).String()
 
 	oldOut := config.OutFile
-	config.OutFile = fmt.Sprintf("%s.json", config.OutFile)
+	config.OutFile = fmt.Sprintf("%s/%s.json", config.OutDir, config.OutFile)
 	writeAnswers(answers, config)
-	config.OutFile = fmt.Sprintf("%s_reRank.json", oldOut)
+	config.OutFile = fmt.Sprintf("%s/%s_reRank.json", config.OutDir, oldOut)
 	writeAnswers(reRanked, config)
 
 	//stringAnwsers := Decode(answers, config)

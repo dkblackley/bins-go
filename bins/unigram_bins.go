@@ -14,6 +14,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"regexp"
+	"strconv"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
@@ -113,6 +114,11 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 	logrus.Infof("Total items in vocab: %d", total_items_in_set)
 
+	realBinSize := uint(float64(total_items_in_set) * config.BinSize)
+
+	logrus.Infof("Size of/number of bins: %d", realBinSize)
+	config.Metadata["RealBinSize"] = strconv.Itoa(int(realBinSize))
+
 	// Very 'hacky' a mapping to a 'set' which is a mapping to globals. Is converted into a regular bin at the end.
 	setsBins := make(map[uint]map[string]struct{})
 
@@ -180,11 +186,11 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 				if !config.Vectors { // If we're just the filenames/raw text
 					for _, docID := range storedIDs {
-						add(setsBins, uint(bin_index)%config.BinSize, docID)
+						add(setsBins, uint(bin_index)%realBinSize, docID)
 					}
 				} else {
 					for _, storedID := range storedIDs {
-						add(setsBins, uint(bin_index)%config.BinSize, storedID)
+						add(setsBins, uint(bin_index)%realBinSize, storedID)
 					}
 				}
 
@@ -195,7 +201,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 	}
 
 	bar.Finish()
-	binsSlice := make([][]string, config.BinSize)
+	binsSlice := make([][]string, realBinSize)
 
 	for bin, set := range setsBins {
 		idx := int(bin)

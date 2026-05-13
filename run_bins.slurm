@@ -1,136 +1,86 @@
 #!/bin/bash -l
-#SBATCH --job-name=bins_pir
+#SBATCH --job-name=Bins_Ablation
 #SBATCH --partition=bigmem
-#SBATCH --output=bins.out
-#SBATCH --error=bins.err
-#SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=750G
 #SBATCH --time=2-06:30:00
+
+# Total Jobs: 13 (Indices 0 through 12)
+#SBATCH --array=0-12
+#SBATCH --output=logs/Bins_%A_%a.out
+#SBATCH --error=logs/Bins_%A_%a.err
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 
-# Clean module state and load Hopper defaults + Go
 module --quiet purge
 module load hosts/hopper
-# module load go/1.23.1    # or: module load go/1.22.2  (use the exact version you saw)
-
-
 module load gnu9/9.3.0
 
-# --- native libs installed under $HOME ---
 export NGT_PREFIX="$HOME/opt/ngt-amd"
 export HNSW_PREFIX="$HOME/opt/hnsw"
-
-# cgo compile & link flags
-export CGO_CXXFLAGS="-std=c++11"
-export CGO_CFLAGS="-I${NGT_PREFIX}/include"   # NGT headers used by gongt
-export CGO_LDFLAGS="\
--L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt \
--L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
-
-
+export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
-# Use cached toolchain via symlink created in $HOME/opt/go1.24
-export GOROOT="/home/dblackle/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.5.linux-amd64"
-export PATH="$GOROOT/bin:$PATH"
+# --- PARALLEL ARRAYS FOR ABLATION STUDY ---
+# The columns line up exactly to define 13 specific job configurations.
+# Variable being tested is grouped.
 
-# Fail fast with a clear error if it's missing
-ls -l "$GOROOT/bin/go"
-go version
+# Index:    0       | 1       2       3       | 4          5          | 6       7       | 8       9       10      11      12
+# Test:     BASE    | VARY K                  | VARY DATA             | VARY BIN SIZE   | VARY DOCS PER BIN
+K_ARR=(     50        100     500     1000      50         50           50      50        50      50      50      50      50   )
+DATA_ARR=(  msmarco   msmarco msmarco msmarco   scifact    trec-covid   msmarco msmarco   msmarco msmarco msmarco msmarco msmarco )
+BS_ARR=(    0.1       0.1     0.1     0.1       0.1        0.1          1.0     0.001     0.1     0.1     0.1     0.1     0.1  )
+DPB_ARR=(   1000      1000    1000    1000      1000       1000         1000    1000      10      50      100     500     5000 )
 
-export GOTOOLCHAIN=local
+task_id=$SLURM_ARRAY_TASK_ID
 
+k_val=${K_ARR[$task_id]}
+dataset=${DATA_ARR[$task_id]}
+bin_size=${BS_ARR[$task_id]}
+docs_val=${DPB_ARR[$task_id]}
+method="bins"
 
+if [ "$dataset" == "msmarco" ]; then
+    DB_SIZE=8841823
+elif [ "$dataset" == "scifact" ]; then
+    DB_SIZE=5183
+elif [ "$dataset" == "trec-covid" ]; then
+    DB_SIZE=171332
+else
+    echo "Unknown dataset: $dataset"
+    exit 1
+fi
 
-# If compute nodes can't reach the internet, pre-vendor deps and uncomment:
-# export GOFLAGS="-mod=vendor"
+OUT_DIR="../results/${method}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
+mkdir -p "$OUT_DIR"
 
-test -f "${NGT_PREFIX}/lib/libngt.so"  || { echo "Missing libngt.so";  exit 1; }
-test -f "${HNSW_PREFIX}/lib/libhnsw.so" || { echo "Missing libhnsw.so"; exit 1; }
+echo "========================================"
+echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
+echo "Method:        $method"
+echo "Dataset:       $dataset"
+echo "K Value:       $k_val"
+echo "Bin Size:      $bin_size"
+echo "Docs/Bin:      $docs_val"
+echo "Output Dir:    $OUT_DIR"
+echo "========================================"
 
+srun ./pir_app \
+    -n "$DB_SIZE" \
+    -t "$method" \
+    -name "$dataset" \
+    -k "$k_val" \
+    -binSize "$bin_size" \
+    -docsPerBin "$docs_val" \
+    -outDir "$OUT_DIR" \
+    -outFile "results" \
+    -dataset "../datasets" \
+    -debug 1 \
+    -save
 
-go mod tidy
+cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
+cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err" "${OUT_DIR}/error.log" || true
 
-# Build & run your main.go
-go build -v -o bins_bin ./main.go
-
-# sanity: confirm both libs resolve
-echo "Linked libs:"
-ldd ./bins_bin | egrep 'ngt|hnsw' || true
-
-
-RESULTS_BASE="../results"
-K_VALUES=(10 50 100 500 1000)
-# K_VALUES=(1000)
-
-for k in "${K_VALUES[@]}"; do
-  outdir="${RESULTS_BASE}/bins_${k}"
-  mkdir -p "${outdir}"
-
-  json_out="${outdir}/bins_out_k${k}.json"
-  tsv_out="${outdir}/bins_out_k${k}.tsv"
-
-  echo "=== k=${k} ==="
-
-  # 1) Run Go app (write JSON directly into the results directory)
-  srun ./bins_bin -n 8841823 -t bins -name msmarco -k "${k}" -save -thresh 1 -outFile "${json_out}" -debug 0 -dim 192
-
-  # 2) Convert JSON -> TSV (write TSV directly into the results directory)
-  python3 json_to_tsv.py "${json_out}" "${tsv_out}"
-
-#  # 3) Re-rank (log stdout/stderr into the results directory so it’s kept per-k)
-#  python3 re_rank.py \
-#    --qrels ../datasets/msmarco/qrels/qrels.dev.tsv \
-#    --step3-output "${tsv_out}" \
-#    --queries ../datasets/msmarco/queries.dev.small.tsv \
-#    --documents ../datasets/msmarco/collection.tsv \
-#    --k "${k}"
-
-#python3 step4.py \
-#    --qrels ../datasets/msmarco/qrels/dev.tsv \
-#    --step3-output "${tsv_out}" \
-#    --queries ../datasets/msmarco/queries.dev.small.tsv \
-#    --documents ../datasets/msmarco/collection.tsv \
-#    --k "${k}"
-
-  # 4) Copy bins.err / bins.out into the results directory with k-specific names
-  [[ -f bins.err ]] || { echo "ERROR: bins.err not found in $(pwd)";  }
-  [[ -f bins.out ]] || { echo "ERROR: bins.out not found in $(pwd)"; }
-
-  # mv step4_reranked_output.tsv "${outdir}/reranked_bins_k${k}.tsv"
-  mv "bins_${k}_metadata.json" "${outdir}/bins_${k}_metadata.json"
-
-  cp -f bins.err "${outdir}/bins_${k}.err"
-  cp -f bins.out "${outdir}/bins_${k}.out"
-
-  echo "Saved: ${outdir}"
-done
-
-echo "All done."
-
-
-#srun ./app -n 8841823 -t bins -name msmarco -k 1000 -save -thresh 5 -outFile bins_out.json
-#python3 json_to_tsv.py bins_out.json bins_out.tsv
-#
-#
-#set -e
-#
-#source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-#
-#export CONDA_ENVS_PATH=/scratch/dblackle/conda/envs
-#export CONDA_PKGS_DIRS=/scratch/dblackle/conda/pkgs
-#
-#conda activate /home/dblackle/.conda/envs/main
-#
-#
-#
-## conda install -c conda-forge sentencepiece -y
-#
-#echo "CONDA DONE"
-#
-#
-#python3 re_rank.py --qrels ../datasets/msmarco/qrels/dev.tsv --step3-output bins_out.tsv --queries ../datasets/msmarco/queries.dev.small.tsv --documents ../datasets/msmarco/collection.tsv --k 1000
+echo "All done for this node."
