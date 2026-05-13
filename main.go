@@ -374,7 +374,9 @@ func writeAnswers(answers map[string][]string, config globals.Args) {
 
 	logrus.Infof("Wrote answers to %s", config.OutFile)
 
-	f, err = os.Create(fmt.Sprintf("%s_%d_metadata.json", config.SearchType, config.K))
+	metaFile := fmt.Sprintf("%s/metadata.json", config.OutDir)
+
+	f, err = os.Create(metaFile)
 	if err != nil {
 		panic(err)
 	}
@@ -392,7 +394,7 @@ func writeAnswers(answers map[string][]string, config globals.Args) {
 		panic(err)
 	}
 
-	logrus.Infof("Wrote answers to %s_%d_metadata.json", config.SearchType, config.K)
+	logrus.Infof("Wrote answers to %s", metaFile)
 }
 
 func getQIDS(config globals.Args) []string {
