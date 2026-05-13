@@ -119,17 +119,21 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 			singleResponseSize += uint64(len(row))
 		}
 		s.RetrievalCount += singleResponseSize
-		bandwidthMbps := 100.0
 
 		totalBytes := float64(singleResponseSize)
 		totalBits := totalBytes * 8.0
-		bandwidthBps := bandwidthMbps * 1000000.0
 
-		transmissionTimeSeconds := totalBits / bandwidthBps
+		// WAN Calculation: 400 Mbps bandwidth + 50ms latency
+		bandwidthMbpsWAN := 400.0
+		bandwidthBpsWAN := bandwidthMbpsWAN * 1000000.0
+		transmissionTimeSecondsWAN := totalBits / bandwidthBpsWAN
+		s.NetworkTimeWAN += transmissionTimeSecondsWAN + 0.05
 
-		// Assume 50ms delay for WAN, 5ms for LAN
-		s.NetworkTimeWAN += transmissionTimeSeconds + 0.05
-		s.NetworkTimeLAN += transmissionTimeSeconds + 0.005
+		// LAN Calculation: 10 Gbps (10,000 Mbps) bandwidth + 5ms latency
+		bandwidthMbpsLAN := 10000.0
+		bandwidthBpsLAN := bandwidthMbpsLAN * 1000000.0
+		transmissionTimeSecondsLAN := totalBits / bandwidthBpsLAN
+		s.NetworkTimeLAN += transmissionTimeSecondsLAN + 0.005
 
 	}
 
