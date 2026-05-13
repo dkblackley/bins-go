@@ -78,7 +78,8 @@ srun ./pir_app \
     -outFile "results" \
     -dataset "../datasets" \
     -debug 1 \
-    -save
+    -dim 192
+
 
 cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
 cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err" "${OUT_DIR}/error.log" || true
