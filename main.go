@@ -142,6 +142,10 @@ func main() {
 	outFile := flag.String("outFile", "out", "Where to save the answers")
 	outDir := flag.String("outDir", ".", "Directory to save the answers to")
 
+	// Flags for Pacmann method
+	stepN := flag.Uint("steps", 15, "How many steps to take in PACMANN/NN search")
+	neighbhourNum := flag.Uint("neighb", 32, "How many neighbours to retrieve at each step in pacmann")
+
 	// Flags for tree method
 	index := flag.String("index", "", "Path to Lucene index")
 	queries := flag.String("queries", "", "Path to queries.tsv file")
@@ -198,13 +202,15 @@ func main() {
 		DebugLevel:        *debugLevel,
 		CheckPointFolder:  *checkPointFolder,
 		// RTT:               *RTT,
-		Dimensions:  *dimensions,
-		OutFile:     *outFile,
-		OutDir:      *outDir,
-		QueryNum:    0,
-		DatasetMeta: meta,
-		IDLookup:    IDLookup,
-		Metadata:    make(map[string]string),
+		Dimensions:    *dimensions,
+		OutFile:       *outFile,
+		OutDir:        *outDir,
+		QueryNum:      0,
+		DatasetMeta:   meta,
+		IDLookup:      IDLookup,
+		StepN:         *stepN,
+		NeighbhourNum: *neighbhourNum,
+		Metadata:      make(map[string]string),
 
 		BinsConf: globals.BinsConf{
 			Index:   *index,

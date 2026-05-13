@@ -23,13 +23,15 @@ type Args struct {
 	DebugLevel        int
 	CheckPointFolder  string
 	// RTT               uint
-	OutFile     string
-	OutDir      string
-	QueryNum    uint
-	DatasetMeta DatasetMetadata
-	BinsConf    BinsConf
-	IDLookup    map[[32]byte]string
-	Metadata    map[string]string
+	OutFile       string
+	OutDir        string
+	QueryNum      uint
+	DatasetMeta   DatasetMetadata
+	BinsConf      BinsConf
+	IDLookup      map[[32]byte]string
+	Metadata      map[string]string
+	NeighbhourNum uint
+	StepN         uint
 }
 
 type BinsConf struct {

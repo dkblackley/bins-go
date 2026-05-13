@@ -5,10 +5,10 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=500G
-#SBATCH --time=0-06:30:00
+#SBATCH --time=0-07:30:00
 
-# Total Jobs: 6 (Indices 0 through 5)
-#SBATCH --array=0-5
+# Total Jobs: 18 (Indices 0 through 17)
+#SBATCH --array=0-17
 #SBATCH --output=logs/Pacmann_%A_%a.out
 #SBATCH --error=logs/Pacmann_%A_%a.err
 
@@ -25,14 +25,19 @@ export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${H
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
 # --- PARALLEL ARRAYS FOR ABLATION STUDY ---
-# Index:        0       1       2       3        4          5
-K_ARR=(         50      100     500     1000     50         50         )
-DATA_ARR=(      msmarco msmarco msmarco msmarco  scifact    trec-covid )
+# Index:         0       | 1       2       3       | 4          5          | 6       7       8       9       10      11      | 12      13      14      15      16      17
+# Test:          BASE    | VARY K                  | VARY DATA             | VARY STEPS                                      | VARY NEIGHBOUR
+K_ARR=(          50        100     500     1000      50         50           50      50      50      50      50      50        50      50      50      50      50      50   )
+DATA_ARR=(       msmarco   msmarco msmarco msmarco   scifact    trec-covid   msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco )
+STEPS_ARR=(      15        15      15      15        15         15           5       10      15      20      25      30        15      15      15      15      15      15   )
+NEIGHB_ARR=(     32        32      32      32        32         32           32      32      32      32      32      32        8       16      24      32      40      48   )
 
 task_id=$SLURM_ARRAY_TASK_ID
 
 k_val=${K_ARR[$task_id]}
 dataset=${DATA_ARR[$task_id]}
+steps_val=${STEPS_ARR[$task_id]}
+neighb_val=${NEIGHB_ARR[$task_id]}
 method="pacmann"
 
 # Set specific variables based on chosen dataset
@@ -47,7 +52,7 @@ else
     exit 1
 fi
 
-OUT_DIR="../results/${method}_${dataset}_k${k_val}"
+OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
@@ -55,15 +60,19 @@ echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Method:        $method"
 echo "Dataset:       $dataset"
 echo "K Value:       $k_val"
+echo "Steps:         $steps_val"
+echo "Neighbours:    $neighb_val"
 echo "Output Dir:    $OUT_DIR"
 echo "========================================"
 
-# Execute binary (no bin flags needed)
+# Execute binary
 srun ./pir_app \
     -n "$DB_SIZE" \
     -t "$method" \
     -name "$dataset" \
     -k "$k_val" \
+    -steps "$steps_val" \
+    -neighb "$neighb_val" \
     -outDir "$OUT_DIR" \
     -outFile "results" \
     -dataset "../datasets" \

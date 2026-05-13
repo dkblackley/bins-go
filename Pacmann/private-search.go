@@ -74,7 +74,7 @@ func genRandomGraph(n int, m int) [][]int {
 func PacmannMain(args globals.Args) *PIRGraphInfo {
 	numVectors := args.DBSize
 	dimVectors := args.Dimensions
-	neighborNum := 32
+	neighborNum := args.NeighbhourNum // number of neighbours to retrieve
 	outputNum := args.K
 	queryNum := args.QueryNum //TODO: make this a command line argument?
 	inputFile := args.DatasetMeta.Vectors.CorpusVec
@@ -83,7 +83,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 	//outputFile := args.DatasetsDirectory + "_pacmann_output.npy"
 	//gndFile := "" //TODO: we don't need this for MSmarco/test datasets
 	//reportFile := "pacmann_report.txt"
-	stepN := 15
+	stepN := args.StepN // how many steps to take
 	//parallelN := pianopir.ThreadNum
 	//benchmarking := false // always run in test mode
 	//rtt := args.RTT
@@ -93,7 +93,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 
 	n = int(numVectors)
 	dim = int(dimVectors)
-	m = neighborNum
+	m = int(neighborNum)
 	k = int(outputNum)
 	// q = queryNum
 	nonPrivateMode = false
@@ -138,28 +138,44 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 			graphFileName = filepath.Join(workingDir, dataset+"_graph.npy")
 		}
 
-		if _, err := os.Stat(graphFileName); os.IsNotExist(err) {
-			// in this case we need to generate the graph
-			log.Printf("Graph file %s does not exist. Generating the graph...\n", graphFileName)
-			start := time.Now()
-			graph = graphann.BuildGraph(n, dim, m, vectors, workingDir, dataset)
-			end := time.Now()
-			graphann.SaveGraphToFile(graphFileName, graph)
-			log.Printf("Graph generation time: %v\n", end.Sub(start))
+		// in this case we need to generate the graph
+		log.Printf("Graph file %s does not exist. Generating the graph...\n", graphFileName)
+		start := time.Now()
+		graph = graphann.BuildGraph(n, dim, m, vectors, workingDir, dataset)
+		end := time.Now()
+		graphann.SaveGraphToFile(graphFileName, graph)
+		log.Printf("Graph generation time: %v\n", end.Sub(start))
 
-			// we write the graph generation time to an auxiliary file
+		// we write the graph generation time to an auxiliary file
 
-			auxFileName := filepath.Join(workingDir, dataset+"_graph_aux.txt")
-			auxFile, _ := os.Create(auxFileName)
-			fmt.Fprintf(auxFile, "Dataset: %s\n", dataset)
-			fmt.Fprintf(auxFile, "Graph generation time: %v\n", end.Sub(start))
-		} else {
-			log.Printf("Loading graph from file %s\n", graphFileName)
-			graph, err = graphann.LoadIntMatrixFromFile(graphFileName, n, m)
-			if err != nil {
-				log.Fatalf("Error reading the graph file: %v", err)
-			}
-		}
+		auxFileName := filepath.Join(workingDir, dataset+"_graph_aux.txt")
+		auxFile, _ := os.Create(auxFileName)
+		fmt.Fprintf(auxFile, "Dataset: %s\n", dataset)
+		fmt.Fprintf(auxFile, "Graph generation time: %v\n", end.Sub(start))
+		args.Metadata["GraphGenerationTime"] = fmt.Sprintf("%v", end.Sub(start))
+
+		//if _, err := os.Stat(graphFileName); os.IsNotExist(err) {
+		//	// in this case we need to generate the graph
+		//	log.Printf("Graph file %s does not exist. Generating the graph...\n", graphFileName)
+		//	start := time.Now()
+		//	graph = graphann.BuildGraph(n, dim, m, vectors, workingDir, dataset)
+		//	end := time.Now()
+		//	graphann.SaveGraphToFile(graphFileName, graph)
+		//	log.Printf("Graph generation time: %v\n", end.Sub(start))
+		//
+		//	// we write the graph generation time to an auxiliary file
+		//
+		//	auxFileName := filepath.Join(workingDir, dataset+"_graph_aux.txt")
+		//	auxFile, _ := os.Create(auxFileName)
+		//	fmt.Fprintf(auxFile, "Dataset: %s\n", dataset)
+		//	fmt.Fprintf(auxFile, "Graph generation time: %v\n", end.Sub(start))
+		//} else {
+		//	log.Printf("Loading graph from file %s\n", graphFileName)
+		//	graph, err = graphann.LoadIntMatrixFromFile(graphFileName, n, m)
+		//	if err != nil {
+		//		log.Fatalf("Error reading the graph file: %v", err)
+		//	}
+		//}
 	}
 
 	// step 3: load queries
@@ -205,7 +221,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 		PIR:            nil,
 		queries:        queries,
 		queryMap:       queryMap,
-		stepN:          stepN,
+		stepN:          int(stepN),
 	}
 
 	return queryEngine
