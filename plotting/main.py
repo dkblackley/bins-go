@@ -2,7 +2,7 @@ import os
 import re
 import json
 import matplotlib.pyplot as plt
-from plot_experiments import generate_k_plots
+import generate_k_plots
 
 # ==========================================
 # GLOBAL CONSTANTS & AESTHETICS
