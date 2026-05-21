@@ -375,7 +375,6 @@ func (g *PIRGraphInfo) GetMetaData() map[string]string {
 
 type vertexIDs struct {
 	vertices []int
-	DocIDMap map[int]string
 }
 
 func (v vertexIDs) Decode(config globals.Args) []string {
