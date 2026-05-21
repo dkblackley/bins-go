@@ -375,6 +375,7 @@ func (g *PIRGraphInfo) GetMetaData() map[string]string {
 
 type vertexIDs struct {
 	vertices []int
+	DocIDMap map[int]string
 }
 
 func (v vertexIDs) Decode(config globals.Args) []string {
@@ -383,7 +384,8 @@ func (v vertexIDs) Decode(config globals.Args) []string {
 
 	finalIDs := make([]string, len(v.vertices))
 
-	docMap, _ := bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
+	// docMap, _ := bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
+	docMap := config.DocIDMapPacmann
 
 	for i, vertex := range v.vertices {
 		// TODO: This is where we MUST map back to the original doc ids!!

@@ -332,6 +332,7 @@ func main() {
 		progressbar.OptionSetDescription("Decoding stuff"),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 	)
+	config.DocIDMapPacmann, _ = bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
 	for qid, encodedAnswer := range encodedAnswers {
 		answers[qid] = encodedAnswer.Decode(config)
 		bar.Add(1)
