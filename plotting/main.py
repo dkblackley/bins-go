@@ -46,8 +46,8 @@ def setup_sleek_style():
         'figure.figsize': (10, 6),
         'lines.linewidth': 2.5,
         'lines.markersize': 9,
-        'axes.xmargin': 0.01,
-        'axes.ymargin': 0.05,
+        'axes.xmargin': 0.015,
+        'axes.ymargin': 0.015,
     })
 
 
@@ -72,75 +72,6 @@ def parse_duration_to_seconds(duration_str):
 
     return total_seconds
 
-
-def load_all_data(results_dir):
-    """Scans the results directory and builds a structured dictionary of the metrics."""
-    # Structure: { method_name: { k_value: { 'mrr': float, 'comm_cost': float, 'time_per_query': float } } }
-    data_store = {m: {} for m in METHOD_ORDER}
-
-    if not os.path.exists(results_dir):
-        print(f"Directory not found: {results_dir}")
-        return data_store
-
-    for folder in os.listdir(results_dir):
-        folder_path = os.path.join(results_dir, folder)
-        if not os.path.isdir(folder_path):
-            continue
-
-        # Identify the method
-        method = folder.split('_')[0]
-        if method not in METHOD_ORDER:
-            continue
-
-        # Ensure it matches the constant internal parameters for this method
-        if TARGET_CONFIGS[method] not in folder:
-            continue
-
-        # Extract k value
-        k_match = re.search(r'_k(\d+)', folder)
-        if not k_match:
-            continue
-        k_val = int(k_match.group(1))
-
-        # Load metadata
-        meta_path = os.path.join(folder_path, 'metadata.json')
-        if not os.path.exists(meta_path):
-            continue
-
-        with open(meta_path, 'r') as f:
-            meta = json.load(f)
-
-        # 1. MRR logic (Pre-rerank for pacmann, Post-rerank for others)
-        if method == 'pacmann':
-            mrr = float(meta.get('MRRPreReRank', 0))
-        else:
-            mrr = float(meta.get('MRR', 0))
-
-        # 2. Communication Cost
-        comm_cost = float(meta.get('CommCostPerBatchKB', 0))
-        # Basic extracted params
-        mrr = float(meta.get('MRRPreReRank', 0)) if method == 'pacmann' else float(meta.get('MRR', 0))
-        num_queries = float(meta.get('NumQueries', 1))
-
-        # --- NEW COMM COST MATH ---
-        total_uint64 = float(meta.get('TotalUint64Sent', 0))
-        # 1 uint64 = 8 bytes. Convert to MB, then divide by num_queries
-        comm_cost = (total_uint64 * 8) / (1024 * 1024) / num_queries
-
-        # 3. Latency logic
-        total_time_str = meta.get('TotalAnswerTime', '0s')
-        total_time_sec = parse_duration_to_seconds(total_time_str)
-        num_queries = float(meta.get('NumQueries', 1))
-        time_per_query = total_time_sec / num_queries
-
-        # Store
-        data_store[method][k_val] = {
-            'mrr': mrr,
-            'comm_cost': comm_cost,
-            'time_per_query': time_per_query
-        }
-
-    return data_store
 
 def load_extended_data(results_dir, method_order):
     """
@@ -230,14 +161,11 @@ if __name__ == "__main__":
 
     setup_sleek_style()
 
-    print("Loading classic filtered data for original plots...")
-    filtered_data = load_all_data(RESULTS_DIR)
-
     print("Loading extended flat data for multi-dimensional plots...")
     extended_data = load_extended_data(RESULTS_DIR, METHOD_ORDER)
 
     print("Generating classic k-plots...")
-    generate_k_plots.generate_k_plots(filtered_data, OUTPUT_DIR, METHOD_ORDER, COLORS)
+    generate_k_plots.generate_k_plots(extended_data, OUTPUT_DIR, METHOD_ORDER, COLORS, TARGET_CONFIGS)
 
     print("Generating new analytical plots...")
     plot_config_tradeoffs.plot_mrr_vs_time(extended_data, OUTPUT_DIR, COLORS)

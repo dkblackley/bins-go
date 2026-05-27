@@ -2,6 +2,7 @@ import os
 import matplotlib.pyplot as plt
 
 from main import SUBPLOT_SIZE
+from util import format_ticks
 
 
 def plot_bins_parameters(all_runs, output_dir, param='dpb'):
@@ -17,13 +18,13 @@ def plot_bins_parameters(all_runs, output_dir, param='dpb'):
     if param == 'dpb':
         target_runs = [r for r in target_runs if r['bs'] == 0.1 and r['dpb'] is not None]
         target_runs.sort(key=lambda x: x['dpb'])
-        x_vals = [r['dpb'] for r in target_runs]
+        x_vals = [r['dpb']*8841823 for r in target_runs]
         xlabel = 'Documents Per Bin (dpb)'
         filename = 'fig_bins_dpb_analysis.pdf'
     else:
         target_runs = [r for r in target_runs if r['dpb'] == 1000 and r['bs'] is not None]
         target_runs.sort(key=lambda x: x['bs'])
-        x_vals = [r['bs'] for r in target_runs]
+        x_vals = [int(r['bs']*8841823) for r in target_runs]
         xlabel = 'DB Size'
         filename = 'fig_bins_bs_analysis.pdf'
 
@@ -31,6 +32,14 @@ def plot_bins_parameters(all_runs, output_dir, param='dpb'):
 
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=SUBPLOT_SIZE)
     fig.suptitle("Changing Bin Size Effect on MSMarco")
+
+    labels = [format_ticks(k) for k in x_vals]
+
+    for ax in [ax1, ax2, ax3]:
+        ax.set_xscale('log')
+        ax.set_xticks(x_vals)
+        ax.set_xticklabels(labels)
+        ax.minorticks_off()
 
     # Graph 1: MRR
     ax1.plot(x_vals, [r['mrr'] for r in target_runs], marker='o', color='#009E73', linewidth=2)

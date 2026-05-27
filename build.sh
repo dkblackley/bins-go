@@ -13,6 +13,9 @@ rm -rf ../datasets/trec-covid/*.ngt
 rm -rf ../datasets/msmarco/*.ngt
 rm -rf ../datasets/scifact/*.ngt
 
+rm -rf logs/Pacmann_*
+rm -rf logs/Bins_*
+
 # Clean module state and load Hopper defaults + compilers
 module --quiet purge
 module load hosts/hopper
