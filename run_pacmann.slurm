@@ -24,13 +24,29 @@ export HNSW_PREFIX="$HOME/opt/hnsw"
 export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
-# --- PARALLEL ARRAYS FOR ABLATION STUDY ---
-# Index:         0       | 1       2       3       | 4          5          | 6       7       8       9       10      11      | 12      13      14      15      16      17
-# Test:          BASE    | VARY K                  | VARY DATA             | VARY STEPS                                      | VARY NEIGHBOUR
-K_ARR=(          100        50     500     1000      100         100           100      100      100      100      100      100        100      100      100      100      100      100   )
-DATA_ARR=(       msmarco   msmarco msmarco msmarco   scifact    trec-covid   msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco )
-STEPS_ARR=(      15        15      15      15        15         15           5       10      15      20      25      30        15      15      15      15      15      15   )
-NEIGHB_ARR=(     32        32      32      32        32         32           32      32      32      32      32      32        8       16      24      32      40      48   )
+# 1. BASE, VARY K, and VARY DATA
+# Index:         0       | 1       2       3       | 4          5
+# Test:          BASE    | VARY K                  | VARY DATA
+K_ARR=(          100       50      500     1000      100        100          )
+DATA_ARR=(       msmarco   msmarco msmarco msmarco   scifact    trec-covid   )
+STEPS_ARR=(      15        15      15      15        15         15           )
+NEIGHB_ARR=(     32        32      32      32        32         32           )
+
+# 2. VARY STEPS
+# Index:         6       7       8       9       10      11
+# Test:          VARY STEPS
+K_ARR+=(         100     100     100     100     100     100     )
+DATA_ARR+=(      msmarco msmarco msmarco msmarco msmarco msmarco )
+STEPS_ARR+=(     5       10      15      20      25      30      )
+NEIGHB_ARR+=(    32      32      32      32      32      32      )
+
+# 3. VARY NEIGHBOUR
+# Index:         12      13      14      15      16      17
+# Test:          VARY NEIGHBOUR
+K_ARR+=(         100     100     100     100     100     100     )
+DATA_ARR+=(      msmarco msmarco msmarco msmarco msmarco msmarco )
+STEPS_ARR+=(     15      15      15      15      15      15      )
+NEIGHB_ARR+=(    8       16      24      32      40      48      )
 
 task_id=$SLURM_ARRAY_TASK_ID
 
