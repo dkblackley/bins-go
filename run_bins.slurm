@@ -31,7 +31,7 @@ export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 # 1. BASE, VARY K, and VARY DATA
 # Index:    0       | 1       2       3       4       5       | 6          7
 # Test:     BASE    | VARY K                                  | VARY DATA
-K_ARR=(     50        10      100     500     1000    5000      50         50           )
+K_ARR=(     50        10      100     500     1000    5000      100         100           )
 DATA_ARR=(  msmarco   msmarco msmarco msmarco msmarco msmarco   scifact    trec-covid   )
 BS_ARR=(    0.1       0.1     0.1     0.1     0.1     0.1       0.1        0.1          )
 DPB_ARR=(   1000      1000    1000    1000    1000    1000      1000       1000         )

@@ -27,7 +27,7 @@ export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 # --- PARALLEL ARRAYS FOR ABLATION STUDY ---
 # Index:         0       | 1       2       3       | 4          5          | 6       7       8       9       10      11      | 12      13      14      15      16      17
 # Test:          BASE    | VARY K                  | VARY DATA             | VARY STEPS                                      | VARY NEIGHBOUR
-K_ARR=(          50        100     500     1000      50         50           50      50      50      50      50      50        50      50      50      50      50      50   )
+K_ARR=(          100        50     500     1000      100         100           100      100      100      100      100      100        100      100      100      100      100      100   )
 DATA_ARR=(       msmarco   msmarco msmarco msmarco   scifact    trec-covid   msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco )
 STEPS_ARR=(      15        15      15      15        15         15           5       10      15      20      25      30        15      15      15      15      15      15   )
 NEIGHB_ARR=(     32        32      32      32        32         32           32      32      32      32      32      32        8       16      24      32      40      48   )
