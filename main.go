@@ -298,7 +298,9 @@ func main() {
 	end_pre := time.Now()
 	logrus.Infof("Preprocessing finished in %s seconds", end_pre.Sub(start_pre))
 
-	config.Metadata = PIRImplemented.GetMetaData()
+	for key, value := range PIRImplemented.GetMetaData() {
+		config.Metadata[key] = value
+	}
 
 	keys := make([]string, 0, len(config.Metadata))
 	for k := range config.Metadata {
