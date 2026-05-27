@@ -28,13 +28,12 @@ export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 # The columns line up exactly to define 13 specific job configurations.
 # Variable being tested is grouped.
 
-# Index:    0       | 1       2       3       | 4          5          | 6       7       | 8       9       10      11      12
-# Test:     BASE    | VARY K                  | VARY DATA             | VARY BIN SIZE   | VARY DOCS PER BIN
-K_ARR=(     50        100     500     1000      50         50           50      50        50      50      50      50      50   )
-DATA_ARR=(  msmarco   msmarco msmarco msmarco   scifact    trec-covid   msmarco msmarco   msmarco msmarco msmarco msmarco msmarco )
-BS_ARR=(    0.1       0.1     0.1     0.1       0.1        0.1          1.0     0.001     0.1     0.1     0.1     0.1     0.1  )
-DPB_ARR=(   1000      1000    1000    1000      1000       1000         1000    1000      10      50      100     500     5000 )
-
+# Index:    0       | 1       2       3       4       5       | 6          7          | 8       9       | 10      11      12      13      14
+# Test:     BASE    | VARY K                                  | VARY DATA             | VARY BIN SIZE   | VARY DOCS PER BIN
+K_ARR=(     50        10      100     500     1000    5000      50         50           50      50        50      50      50      50      50   )
+DATA_ARR=(  msmarco   msmarco msmarco msmarco msmarco msmarco   scifact    trec-covid   msmarco msmarco   msmarco msmarco msmarco msmarco msmarco )
+BS_ARR=(    0.1       0.1     0.1     0.1     0.1     0.1       0.1        0.1          1.0     0.001     0.1     0.1     0.1     0.1     0.1  )
+DPB_ARR=(   1000      1000    1000    1000    1000    1000      1000       1000         1000    1000      10      50      100     500     5000 )
 task_id=$SLURM_ARRAY_TASK_ID
 
 k_val=${K_ARR[$task_id]}
