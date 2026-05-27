@@ -43,7 +43,9 @@ def setup_sleek_style():
         'grid.alpha': 0.7,
         'figure.figsize': (8, 6),
         'lines.linewidth': 2.5,
-        'lines.markersize': 9
+        'lines.markersize': 9,
+        'axes.xmargin': 0.01,
+        'axes.ymargin': 0.05
     })
 
 

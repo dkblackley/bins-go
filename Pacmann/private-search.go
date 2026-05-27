@@ -71,7 +71,7 @@ func genRandomGraph(n int, m int) [][]int {
 	return ret
 }
 
-func PacmannMain(args globals.Args) *PIRGraphInfo {
+func PacmannMain(args *globals.Args) *PIRGraphInfo {
 	numVectors := args.DBSize
 	dimVectors := args.Dimensions
 	neighborNum := args.NeighbhourNum // number of neighbours to retrieve
@@ -382,7 +382,7 @@ type vertexIDs struct {
 	vertices []int
 }
 
-func (v vertexIDs) Decode(config globals.Args) []string {
+func (v vertexIDs) Decode(config *globals.Args) []string {
 	// Because we build the graph in the same order as wel laod the vertices, the vertex IDs SHOULD be the same as the
 	// matching docID at the same row..... In msmarco they're labelled in ascending order, so we just assume they're correct!!
 

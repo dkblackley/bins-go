@@ -283,11 +283,11 @@ func main() {
 	// TODO: is it sensible to start the 'pre-processing' timer here? If so replace if with switch case!
 
 	if *searchType == "bins" {
-		PIRImplemented = bins.MakeVecDb(config)
+		PIRImplemented = bins.MakeVecDb(&config)
 	} else if *searchType == "pacmann" {
-		PIRImplemented = Pacmann.PacmannMain(config)
+		PIRImplemented = Pacmann.PacmannMain(&config)
 	} else if *searchType == "tree" {
-		PIRImplemented = run_tree.Runtree(config)
+		PIRImplemented = run_tree.Runtree(&config)
 	} else {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return
@@ -311,7 +311,7 @@ func main() {
 	}
 
 	start := time.Now()
-	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K), config)
+	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K), &config)
 	end := time.Now()
 
 	config.Metadata = PIRImplemented.GetMetaData()
@@ -334,14 +334,14 @@ func main() {
 	)
 	config.DocIDMapPacmann, _ = bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
 	for qid, encodedAnswer := range encodedAnswers {
-		answers[qid] = encodedAnswer.Decode(config)
+		answers[qid] = encodedAnswer.Decode(&config)
 		bar.Add(1)
 	}
 
 	bar.Finish()
 
 	start = time.Now()
-	reRanked := CosineReRank(answers, config)
+	reRanked := CosineReRank(answers, &config)
 	end = time.Now()
 
 	config.Metadata["ReRankTime"] = end.Sub(start).String()
@@ -417,7 +417,7 @@ func getQIDS(config globals.Args) []string {
 
 }
 
-func doPIRSearch(PIRImplemented PIRImplement, qids []string, k int, config globals.Args) map[string]globals.Decodable {
+func doPIRSearch(PIRImplemented PIRImplement, qids []string, k int, config *globals.Args) map[string]globals.Decodable {
 
 	logrus.Infof("Starting PIR search on %d queries", config.QueryNum)
 
@@ -488,7 +488,7 @@ type ScoredDoc struct {
 	Score float32
 }
 
-func CosineReRank(results map[string][]string, config globals.Args) map[string][]string {
+func CosineReRank(results map[string][]string, config *globals.Args) map[string][]string {
 
 	// docIDMap, queryIDMap := bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
 

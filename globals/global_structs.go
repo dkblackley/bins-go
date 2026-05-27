@@ -101,7 +101,7 @@ type DatasetMetadata struct {
 
 // Hacky interface
 type Decodable interface {
-	Decode(config Args) []string
+	Decode(config *Args) []string
 }
 
 type Query struct {

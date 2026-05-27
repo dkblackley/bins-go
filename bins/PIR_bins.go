@@ -51,7 +51,7 @@ type DBentry struct {
 	entry [][]uint64
 }
 
-func (d DBentry) Decode(config globals.Args) []string {
+func (d DBentry) Decode(config *globals.Args) []string {
 
 	results := d.entry // This might literally always be of size 1. But hey, it works I guess
 	empty := 0
@@ -137,7 +137,7 @@ func (v VecBins) MakeIndices(QID string) []uint64 {
 
 // MakeVecDb Takes in args from command line and then outputs a 'VecBins' object that implements the functions required for
 // binsDB.
-func MakeVecDb(config globals.Args) VecBins {
+func MakeVecDb(config *globals.Args) VecBins {
 
 	metaData := config.DatasetMeta
 
@@ -161,7 +161,7 @@ func MakeVecDb(config globals.Args) VecBins {
 	} else {
 		reader, _ := bluge.OpenReader(bluge.DefaultConfig(metaData.IndexDir))
 		defer reader.Close()
-		DB = MakeUnigramDB(reader, metaData, config)
+		DB = MakeUnigramDB(reader, metaData, *config)
 		Must(err)
 
 		if config.Save {
@@ -264,7 +264,7 @@ func MakeVecDb(config globals.Args) VecBins {
 
 }
 
-func ProcessVecDB(config globals.Args, maxRowSize uint, vectorsInBins [][][]float32) VecBins {
+func ProcessVecDB(config *globals.Args, maxRowSize uint, vectorsInBins [][][]float32) VecBins {
 	//DBEntrySize := config.Dimensions * 4 * maxRowSize // bytes per DB entry (maxRowSize vectors × config.Dimensions float32s)
 	DBSize := len(vectorsInBins)
 

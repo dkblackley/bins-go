@@ -143,7 +143,7 @@ func (P *PIRTree) Preprocess() {
 
 }
 
-func Runtree(config globals.Args) *PIRTree {
+func Runtree(config *globals.Args) *PIRTree {
 
 	binsconf := config.BinsConf
 
@@ -385,7 +385,7 @@ func Runtree(config globals.Args) *PIRTree {
 		layout:     layout,
 		luceneIdx:  luceneIdx,
 		stage3:     stage3,
-		config:     config,
+		config:     *config,
 		qrelsMap:   qrelsMap,
 		loadedHits: loadedHits,
 		queryMap:   queryMap,
@@ -436,7 +436,7 @@ type results struct {
 	luceneIdx *bm25.LuceneIndex
 }
 
-func (r results) Decode(_ globals.Args) []string {
+func (r results) Decode(_ *globals.Args) []string {
 
 	if r.hits == nil {
 		return r.docIDs
