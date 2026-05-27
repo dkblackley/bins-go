@@ -113,6 +113,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 	bar.Finish()
 
 	logrus.Infof("Total items in vocab: %d", total_items_in_set)
+	config.Metadata["VocabSize"] = strconv.Itoa(total_items_in_set)
 
 	realBinSize := uint(float64(total_items_in_set) * config.BinSize)
 

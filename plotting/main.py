@@ -132,8 +132,8 @@ def load_all_data(results_dir):
 
 
 if __name__ == "__main__":
-    RESULTS_DIR = "../results"
-    OUTPUT_DIR = "../plots"
+    RESULTS_DIR = "../../../../datasets/results"
+    OUTPUT_DIR = "./plots"
 
     # 1. Apply global style
     setup_sleek_style()
@@ -144,5 +144,5 @@ if __name__ == "__main__":
 
     # 3. Generate figures
     print("Generating plots...")
-    generate_k_plots(data, OUTPUT_DIR, METHOD_ORDER, COLORS)
+    generate_k_plots.generate_k_plots(data, OUTPUT_DIR, METHOD_ORDER, COLORS)
     print(f"Done! Plots saved to {OUTPUT_DIR}/")

@@ -134,8 +134,11 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 		log.Print("Generated synthetic graph...")
 	} else {
 		if graphFile == "" {
+
 			// we will use the default name
-			graphFileName = filepath.Join(workingDir, dataset+"_graph.npy")
+			// add neighbor and step num to name
+			uniq_nam := fmt.Sprintf("%s_%d_%d_graph.npy", dataset, m, stepN)
+			graphFileName = filepath.Join(workingDir, uniq_nam)
 		}
 
 		// in this case we need to generate the graph
