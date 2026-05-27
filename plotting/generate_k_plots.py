@@ -24,9 +24,15 @@ def generate_k_plots(data_store, output_dir, method_order, colors):
 
         ax1.plot(sorted_k, y_vals, marker='o', label=method.capitalize(), color=colors[method], zorder=3)
 
+
+    ax1.set_xscale('log')
     ax1.set_xlabel('Retrieved Documents ($k$)')
+    all_k = sorted(list(set(k for m in data_store.values() for k in m.keys())))
+    ax1.set_xticks(all_k)
+    ax1.set_xticklabels([str(k) for k in all_k])
+    ax1.minorticks_off()
+
     ax1.set_ylabel('MRR Score')
-    ax1.set_title('Effectiveness vs. Retrieval Depth')
     ax1.grid(True, zorder=0)
     ax1.legend()
     plt.tight_layout()
@@ -49,8 +55,10 @@ def generate_k_plots(data_store, output_dir, method_order, colors):
         ax2.plot(sorted_k, y_vals, marker='s', label=method.capitalize(), color=colors[method], zorder=3)
 
     ax2.set_xlabel('Retrieved Documents ($k$)')
+    ax2.set_xticks(all_k)
+    ax2.set_xticklabels([str(k) for k in all_k])
+    ax2.minorticks_off()
     ax2.set_ylabel('Comm Cost per Batch (KB)')
-    ax2.set_title('Bandwidth Efficiency vs. Retrieval Depth')
     ax2.grid(True, zorder=0)
     ax2.legend()
     plt.tight_layout()
@@ -73,8 +81,10 @@ def generate_k_plots(data_store, output_dir, method_order, colors):
         ax3.plot(sorted_k, y_vals, marker='D', label=method.capitalize(), color=colors[method], zorder=3)
 
     ax3.set_xlabel('Retrieved Documents ($k$)')
+    ax3.set_xticks(all_k)
+    ax3.set_xticklabels([str(k) for k in all_k])
+    ax3.minorticks_off()
     ax3.set_ylabel('Avg. Time per Query (seconds)')
-    ax3.set_title('Computational Latency vs. Retrieval Depth')
     ax3.grid(True, zorder=0)
     ax3.legend()
     plt.tight_layout()

@@ -292,7 +292,7 @@ func main() {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return
 	}
-
+	config.DocIDMapPacmann, _ = bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
 	start_pre := time.Now()
 	PIRImplemented.Preprocess()
 	end_pre := time.Now()
@@ -332,7 +332,6 @@ func main() {
 		progressbar.OptionSetDescription("Decoding stuff"),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 	)
-	config.DocIDMapPacmann, _ = bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
 	for qid, encodedAnswer := range encodedAnswers {
 		answers[qid] = encodedAnswer.Decode(&config)
 		bar.Add(1)

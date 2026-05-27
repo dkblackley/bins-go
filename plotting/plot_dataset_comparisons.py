@@ -25,7 +25,7 @@ def plot_cross_dataset_metrics(all_runs, output_dir, target_configs, colors, met
     # ---------------------------------------------------------
     # Figure 1: Quality Metrics (1x3 Grid)
     # ---------------------------------------------------------
-    fig1, axes1 = plt.subplots(1, 3, figsize=(18, 5), sharey=True)
+    fig1, axes1 = plt.subplots(1, 3,  sharey=True)
     metrics = [('mrr', 'MRR'), ('faithfulness', 'Faithfulness'), ('answer_relevancy', 'Answer Relevancy')]
 
     for idx, (metric_key, title) in enumerate(metrics):
@@ -51,7 +51,7 @@ def plot_cross_dataset_metrics(all_runs, output_dir, target_configs, colors, met
     # ---------------------------------------------------------
     # Figure 2: Runtimes and Network (1x2 Grid)
     # ---------------------------------------------------------
-    fig2, (ax_rt, ax_net) = plt.subplots(1, 2, figsize=(14, 5))
+    fig2, (ax_rt, ax_net) = plt.subplots(1, 2)
 
     # Total Answer Time
     matrix_time = get_matrix('total_time')

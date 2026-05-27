@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 def plot_wan_lan_vs_k(all_runs, output_dir, target_configs, colors, methods):
     os.makedirs(output_dir, exist_ok=True)
-    fig, (ax_wan, ax_lan) = plt.subplots(1, 2, figsize=(14, 5))
+    fig, (ax_wan, ax_lan) = plt.subplots(1, 2)
 
     for method in methods:
         target_config = target_configs.get(method)

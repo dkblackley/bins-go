@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 def plot_mrr_vs_time(all_runs, output_dir, colors):
     os.makedirs(output_dir, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(9, 6))
+    fig, ax = plt.subplots()
 
     # Filter purely for MSMARCO
     msmarco_runs = [r for r in all_runs if r['dataset'] == 'msmarco']

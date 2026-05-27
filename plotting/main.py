@@ -16,7 +16,7 @@ COLORS = {
 }
 
 METHOD_ORDER = ['tree',  'bins', 'pacmann']
-FONT_SIZE = 16
+FONT_SIZE = 26
 
 # The target internal parameters that should remain constant across k-values
 TARGET_CONFIGS = {
@@ -25,6 +25,8 @@ TARGET_CONFIGS = {
     'tree': 'b32_r128'
 }
 
+SUBPLOT_SIZE=(20, 5)
+
 
 def setup_sleek_style():
     """Applies a modern, flat, and highly readable style to all matplotlib plots."""
@@ -32,20 +34,20 @@ def setup_sleek_style():
         'font.size': FONT_SIZE,
         'axes.titlesize': FONT_SIZE + 2,
         'axes.labelsize': FONT_SIZE,
-        'xtick.labelsize': FONT_SIZE - 2,
-        'ytick.labelsize': FONT_SIZE - 2,
-        'legend.fontsize': FONT_SIZE - 2,
+        'xtick.labelsize': FONT_SIZE - 8,
+        'ytick.labelsize': FONT_SIZE - 8,
+        'legend.fontsize': FONT_SIZE - 4,
         'axes.linewidth': 1.2,
         'axes.spines.top': False,
         'axes.spines.right': False,
         'grid.color': '#E5E5E5',
         'grid.linestyle': '--',
         'grid.alpha': 0.7,
-        'figure.figsize': (8, 6),
+        'figure.figsize': (10, 6),
         'lines.linewidth': 2.5,
         'lines.markersize': 9,
         'axes.xmargin': 0.01,
-        'axes.ymargin': 0.05
+        'axes.ymargin': 0.05,
     })
 
 
@@ -116,6 +118,14 @@ def load_all_data(results_dir):
 
         # 2. Communication Cost
         comm_cost = float(meta.get('CommCostPerBatchKB', 0))
+        # Basic extracted params
+        mrr = float(meta.get('MRRPreReRank', 0)) if method == 'pacmann' else float(meta.get('MRR', 0))
+        num_queries = float(meta.get('NumQueries', 1))
+
+        # --- NEW COMM COST MATH ---
+        total_uint64 = float(meta.get('TotalUint64Sent', 0))
+        # 1 uint64 = 8 bytes. Convert to MB, then divide by num_queries
+        comm_cost = (total_uint64 * 8) / (1024 * 1024) / num_queries
 
         # 3. Latency logic
         total_time_str = meta.get('TotalAnswerTime', '0s')
@@ -177,6 +187,15 @@ def load_extended_data(results_dir, method_order):
             if dpb_match: dpb = int(dpb_match.group(1))
             if bs_match: bs = float(bs_match.group(1))
 
+        # Basic extracted params
+        mrr = float(meta.get('MRRPreReRank', 0)) if method == 'pacmann' else float(meta.get('MRR', 0))
+        num_queries = float(meta.get('NumQueries', 1))
+
+        # --- NEW COMM COST MATH ---
+        total_uint64 = float(meta.get('TotalUint64Sent', 0))
+        # 1 uint64 = 8 bytes. Convert to MB, then divide by num_queries
+        comm_cost_mb = (total_uint64 * 8) / (1024 * 1024) / num_queries
+
         # Note: TotalWANTime is significantly larger than AnswerTime, suggesting
         # it is an aggregated threaded metric in seconds.
         run_info = {
@@ -187,7 +206,7 @@ def load_extended_data(results_dir, method_order):
             'dpb': dpb,
             'bs': bs,
             'mrr': mrr,
-            'comm_cost': float(meta.get('CommCostPerBatchKB', 0)),
+            'comm_cost': comm_cost_mb,
             'total_time': parse_duration_to_seconds(meta.get('TotalAnswerTime', '0s')),
             'wan_time': float(meta.get('TotalWANTime', 0)) / num_queries, # Normalized per query
             'lan_time': float(meta.get('TotalLANTime', 0)) / num_queries, # Normalized per query
