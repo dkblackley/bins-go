@@ -145,7 +145,8 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 		// in this case we need to generate the graph
 		log.Printf("Graph file %s does not exist. Generating the graph...\n", graphFileName)
 		start := time.Now()
-		graph = graphann.BuildGraph(n, dim, m, vectors, workingDir, dataset)
+		uniq_ngt := fmt.Sprintf("%s_neigh%d_step%d_k%d", dataset, m, stepN, k)
+		graph = graphann.BuildGraph(n, dim, m, vectors, workingDir, uniq_ngt)
 		end := time.Now()
 		graphann.SaveGraphToFile(graphFileName, graph)
 		log.Printf("Graph generation time: %v\n", end.Sub(start))
