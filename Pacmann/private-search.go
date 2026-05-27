@@ -78,8 +78,9 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 	outputNum := args.K
 	queryNum := args.QueryNum //TODO: make this a command line argument?
 	inputFile := args.DatasetMeta.Vectors.CorpusVec
-	graphFile := args.DatasetMeta.Vectors.Graph
+	// graphFile := args.DatasetMeta.Vectors.Graph
 	queryFile := args.DatasetMeta.Vectors.QueryVec
+	graphFile := ""
 	//outputFile := args.DatasetsDirectory + "_pacmann_output.npy"
 	//gndFile := "" //TODO: we don't need this for MSmarco/test datasets
 	//reportFile := "pacmann_report.txt"
