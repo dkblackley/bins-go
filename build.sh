@@ -4,6 +4,15 @@
 
 set -euo pipefail
 
+
+rm -rf ../datasets/trec-covid/*graph_aux.txt
+rm -rf ../datasets/scifact/*graph_aux.txt
+rm -rf ../datasets/msmarco/*graph_aux.txt
+
+rm -rf ../datasets/trec-covid/*.ngt
+rm -rf ../datasets/msmarco/*.ngt
+rm -rf ../datasets/scifact/*.ngt
+
 # Clean module state and load Hopper defaults + compilers
 module --quiet purge
 module load hosts/hopper
