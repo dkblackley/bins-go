@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=480G
-#SBATCH --time=0-07:30:00
+#SBATCH --time=0-05:30:00
 
 # Total Jobs: 13 (Indices 0 through 12)
 #SBATCH --array=0-12
