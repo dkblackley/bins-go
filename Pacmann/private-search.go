@@ -137,7 +137,7 @@ func PacmannMain(args globals.Args) *PIRGraphInfo {
 
 			// we will use the default name
 			// add neighbor and step num to name
-			uniq_nam := fmt.Sprintf("%s_%d_%d_%d_graph.npy", dataset, m, stepN, k)
+			uniq_nam := fmt.Sprintf("%s_neigh%d_step%d_k%d_graph.npy", dataset, m, stepN, k)
 			graphFileName = filepath.Join(workingDir, uniq_nam)
 		}
 
