@@ -29,29 +29,28 @@ export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 # Variable being tested is grouped.
 
 # 1. BASE, VARY K, and VARY DATA
-# Index:    0       | 1       2       3       4       5       | 6          7
+# Index:    0       | 1       2       3       4       5       | 6         7
 # Test:     BASE    | VARY K                                  | VARY DATA
 K_ARR=(     50        10      100     500     1000    5000      100         100           )
-DATA_ARR=(  msmarco   msmarco msmarco msmarco msmarco msmarco   scifact    trec-covid   )
-BS_ARR=(    0.1       0.1     0.1     0.1     0.1     0.1       0.1        0.1          )
-DPB_ARR=(   1000      1000    1000    1000    1000    1000      1000       1000         )
+DATA_ARR=(  msmarco   msmarco msmarco msmarco msmarco msmarco   scifact     trec-covid    )
+BS_ARR=(    0.1       0.1     0.1     0.1     0.1     0.1       0.1         0.1           )
+DPB_ARR=(   1000      1000    1000    1000    1000    1000      1000        1000          )
 
-# 2. VARY BIN SIZE (Expanding BS=1.0 and 0.001 across K = 10, 50, 100, 500, 1000, 5000)
-# Index:    8       9       | 10      11      | 12      13      | 14      15      | 16      17      | 18      19
-# K Value:  K=10            | K=50            | K=100           | K=500           | K=1000          | K=5000
-K_ARR+=(    10      10        50      50        100     100       500     500       1000    1000      5000    5000     )
-DATA_ARR+=( msmarco msmarco   msmarco msmarco   msmarco msmarco   msmarco msmarco   msmarco msmarco   msmarco msmarco  )
-BS_ARR+=(   1.0     0.001     1.0     0.001     1.0     0.001     1.0     0.001     1.0     0.001     1.0     0.001    )
-DPB_ARR+=(  1000    1000      1000    1000      1000    1000      1000    1000      1000    1000      1000    1000     )
+# 2. VARY BIN SIZE (Expanding BS=1.0 and 0.001 across K = 10 and 100)
+# Index:    8       9       | 10      11
+# K Value:  K=10            | K=100
+K_ARR+=(    10      10        100     100     )
+DATA_ARR+=( msmarco msmarco   msmarco msmarco )
+BS_ARR+=(   1.0     0.001     1.0     0.001   )
+DPB_ARR+=(  1000    1000      1000    1000    )
 
-# 3. VARY DOCS PER BIN (Expanding DPB=10 and 50 across K variations) + (Original DPB=100, 500, 5000 for K=50)
-# Index:    20      21      | 22      23      | 24      25      | 26      27      | 28      29      | 30      31      | 32      33      34
-# K Value:  K=10            | K=50            | K=100           | K=500           | K=1000          | K=5000          | Orig DPB (K=50)
-K_ARR+=(    10      10        50      50        100     100       500     500       1000    1000      5000    5000      50      50      50   )
-DATA_ARR+=( msmarco msmarco   msmarco msmarco   msmarco msmarco   msmarco msmarco   msmarco msmarco   msmarco msmarco   msmarco msmarco msmarco )
-BS_ARR+=(   0.1     0.1       0.1     0.1       0.1     0.1       0.1     0.1       0.1     0.1       0.1     0.1       0.1     0.1     0.1  )
-DPB_ARR+=(  10      50        10      50        10      50        10      50        10      50        10      50        100     500     5000 )
-
+# 3. VARY DOCS PER BIN (Expanding DPB=10, 50, 100, 500, 1000, 5000 across K = 10 and 100)
+# Index:    12      13      14      15      16      17      | 18      19      20      21      22      23
+# K Value:  K=10                                            | K=100
+K_ARR+=(    10      10      10      10      10      10        100     100     100     100     100     100     )
+DATA_ARR+=( msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco )
+BS_ARR+=(   0.1     0.1     0.1     0.1     0.1     0.1       0.1     0.1     0.1     0.1     0.1     0.1     )
+DPB_ARR+=(  10      50      100     500     1000    5000      100     500     1000    5000    10      50      )
 
 task_id=$SLURM_ARRAY_TASK_ID
 
