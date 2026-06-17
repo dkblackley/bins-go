@@ -159,6 +159,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 		logrus.Debugf("Loaded DB with %d items from %s", len(DB), config.DataName+"_unigram_DB.csv")
 
 	} else {
+		logrus.Debugf("About to laod data from %s", metaData.IndexDir)
 		reader, _ := bluge.OpenReader(bluge.DefaultConfig(metaData.IndexDir))
 		defer reader.Close()
 		DB = MakeUnigramDB(reader, metaData, config)
