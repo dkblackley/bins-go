@@ -58,7 +58,7 @@ func strictEnglishAnalyzer() *analysis.Analyzer {
 }
 
 // TODO: Replace bluge.reader with a generic implements
-func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config globals.Args) [][]string {
+func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config *globals.Args) [][]string {
 
 	//tokeniser := en.NewAnalyzer()
 

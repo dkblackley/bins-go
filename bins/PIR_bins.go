@@ -161,7 +161,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 	} else {
 		reader, _ := bluge.OpenReader(bluge.DefaultConfig(metaData.IndexDir))
 		defer reader.Close()
-		DB = MakeUnigramDB(reader, metaData, *config)
+		DB = MakeUnigramDB(reader, metaData, config)
 		Must(err)
 
 		if config.Save {
