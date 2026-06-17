@@ -33,23 +33,23 @@ export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 # Test:     BASE    | VARY K                                  | VARY DATA
 K_ARR=(     50        10      100     500     1000    5000      100         100           )
 DATA_ARR=(  msmarco   msmarco msmarco msmarco msmarco msmarco   scifact     trec-covid    )
-BS_ARR=(    0.1       0.1     0.1     0.1     0.1     0.1       0.1         0.1           )
+BS_ARR=(    1.0       1.0     1.0     1.0     1.0     1.0       1.0         1.0           )
 DPB_ARR=(   1000      1000    1000    1000    1000    1000      1000        1000          )
 
-# 2. VARY BIN SIZE (Expanding BS=1.0 and 0.001 across K = 10 and 100)
-# Index:    8       9       | 10      11
-# K Value:  K=10            | K=100
-K_ARR+=(    10      10        100     100     )
-DATA_ARR+=( msmarco msmarco   msmarco msmarco )
-BS_ARR+=(   1.0     0.001     1.0     0.001   )
-DPB_ARR+=(  1000    1000      1000    1000    )
+# 2. VARY BIN SIZE (Expanding BS=2.0, 1.5, 1.0, 0.5, 0.1, 0.05, 0.01 across K = 10 and 100)
+# Index:    8       9       10      11      12      13      14      | 15      16      17      18      19      20      21
+# K Value:  K=10                                                    | K=100
+K_ARR+=(    10      10      10      10      10      10      10        100     100     100     100     100     100     100     )
+DATA_ARR+=( msmarco msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco msmarco )
+BS_ARR+=(   2.0     1.5     1.0     0.5     0.1     0.05    0.01      2.0     1.5     1.0     0.5     0.1     0.05    0.01    )
+DPB_ARR+=(  1000    1000    1000    1000    1000    1000    1000      1000    1000    1000    1000    1000    1000    1000    )
 
 # 3. VARY DOCS PER BIN (Expanding DPB=10, 50, 100, 500, 1000, 5000 across K = 10 and 100)
 # Index:    12      13      14      15      16      17      | 18      19      20      21      22      23
 # K Value:  K=10                                            | K=100
 K_ARR+=(    10      10      10      10      10      10        100     100     100     100     100     100     )
 DATA_ARR+=( msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco )
-BS_ARR+=(   0.1     0.1     0.1     0.1     0.1     0.1       0.1     0.1     0.1     0.1     0.1     0.1     )
+BS_ARR+=(   1.0     1.0     1.0     1.0     1.0     1.0       1.0     1.0     1.0     1.0     1.0     1.0     )
 DPB_ARR+=(  10      50      100     500     1000    5000      100     500     1000    5000    10      50      )
 
 task_id=$SLURM_ARRAY_TASK_ID
