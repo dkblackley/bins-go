@@ -13,6 +13,10 @@ rm -rf ../datasets/trec-covid/*.ngt
 rm -rf ../datasets/msmarco/*.ngt
 rm -rf ../datasets/scifact/*.ngt
 
+rm -rf ../results/bins_*
+rm -rf ../results/pacmann_*
+
+
 rm -rf logs/Pacmann_*
 rm -rf logs/Bins_*
 
