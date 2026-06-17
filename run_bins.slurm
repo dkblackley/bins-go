@@ -8,7 +8,7 @@
 #SBATCH --time=0-02:30:00
 
 # Total Jobs: 13 (Indices 0 through 12)
-#SBATCH --array=0-23
+#SBATCH --array=0-33
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 
@@ -45,7 +45,7 @@ BS_ARR+=(   2.0     1.5     1.0     0.5     0.1     0.05    0.01      2.0     1.
 DPB_ARR+=(  1000    1000    1000    1000    1000    1000    1000      1000    1000    1000    1000    1000    1000    1000    )
 
 # 3. VARY DOCS PER BIN (Expanding DPB=10, 50, 100, 500, 1000, 5000 across K = 10 and 100)
-# Index:    12      13      14      15      16      17      | 18      19      20      21      22      23
+# Index:    22      23      24      25      26      27      | 28      29      30      31      32      33
 # K Value:  K=10                                            | K=100
 K_ARR+=(    10      10      10      10      10      10        100     100     100     100     100     100     )
 DATA_ARR+=( msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco )
