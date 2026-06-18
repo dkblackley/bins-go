@@ -509,6 +509,7 @@ func CosineReRank(results map[string][]string, config *globals.Args) map[string]
 	bins.Must(err)
 
 	config.Metadata["MRRPreReRank"] = fmt.Sprintf("%.4f", calcMRR(results, qrels))
+	config.Metadata["RecallPreReRank"] = fmt.Sprintf("%.4f", calcRecall(results, qrels))
 
 	// Now load embeddings
 	docEmbedPath := config.DatasetMeta.Vectors.CorpusVec
@@ -590,7 +591,9 @@ func CosineReRank(results map[string][]string, config *globals.Args) map[string]
 	logrus.Infof("Missed %d docs", missed)
 
 	config.Metadata["MRR"] = fmt.Sprintf("%.4f", calcMRR(new_results, qrels))
+	config.Metadata["Recall"] = fmt.Sprintf("%.4f", calcMRR(new_results, qrels))
 	logrus.Infof("MRR Pre re-rank: %s, Post re-rank: %s", config.Metadata["MRRPreReRank"], config.Metadata["MRR"])
+	logrus.Infof("Recall Pre re-rank: %s, Post re-rank: %s", config.Metadata["RecallPreReRank"], config.Metadata["Recall"])
 
 	return new_results
 
@@ -645,4 +648,39 @@ func calcMRR(results map[string][]string, qrels map[string]map[string]int) float
 	}
 
 	return sumMRR / float64(queryCount)
+}
+
+func calcRecall(results map[string][]string, qrels map[string]map[string]int) float64 {
+	sumRecall := 0.0
+	queryCount := 0
+
+	for qid, rankedDocs := range results {
+		// 1. Get the map of relevant docs for this query
+		relDocs, exists := qrels[qid]
+		if !exists || len(relDocs) == 0 {
+			continue // Skip queries that have no ground truth data
+		}
+
+		relevantRetrievedCount := 0
+
+		// 2. Iterate through all ranked results to count total relevant matches
+		for _, docID := range rankedDocs {
+			if _, isRelevant := relDocs[docID]; isRelevant {
+				relevantRetrievedCount++
+			}
+		}
+
+		// 3. Calculate recall for this specific query and add to the sum
+		// Recall = (relevant docs retrieved) / (total known relevant docs)
+		queryRecall := float64(relevantRetrievedCount) / float64(len(relDocs))
+		sumRecall += queryRecall
+
+		queryCount++
+	}
+
+	if queryCount == 0 {
+		return 0.0
+	}
+
+	return sumRecall / float64(queryCount)
 }
