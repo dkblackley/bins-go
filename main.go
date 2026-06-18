@@ -591,7 +591,7 @@ func CosineReRank(results map[string][]string, config *globals.Args) map[string]
 	logrus.Infof("Missed %d docs", missed)
 
 	config.Metadata["MRR"] = fmt.Sprintf("%.4f", calcMRR(new_results, qrels))
-	config.Metadata["Recall"] = fmt.Sprintf("%.4f", calcMRR(new_results, qrels))
+	config.Metadata["Recall"] = fmt.Sprintf("%.4f", calcRecall(new_results, qrels))
 	logrus.Infof("MRR Pre re-rank: %s, Post re-rank: %s", config.Metadata["MRRPreReRank"], config.Metadata["MRR"])
 	logrus.Infof("Recall Pre re-rank: %s, Post re-rank: %s", config.Metadata["RecallPreReRank"], config.Metadata["Recall"])
 
