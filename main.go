@@ -316,7 +316,10 @@ func main() {
 	encodedAnswers := doPIRSearch(PIRImplemented, qids, int(config.K), &config)
 	end := time.Now()
 
-	config.Metadata = PIRImplemented.GetMetaData()
+	for key, value := range PIRImplemented.GetMetaData() {
+		config.Metadata[key] = value
+	}
+
 	config.Metadata["PreprocessingTime"] = end_pre.Sub(start_pre).String()
 	config.Metadata["NumQueries"] = strconv.Itoa(int(config.QueryNum))
 

@@ -117,13 +117,13 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 	realBinSize := uint(float64(total_items_in_set) * config.BinSize)
 
-	logrus.Infof("Size of/number of bins: %d", realBinSize)
+	logrus.Infof("Size of/number of bins: %d with binsize %f", realBinSize, config.BinSize)
 	config.Metadata["RealBinSize"] = strconv.Itoa(int(realBinSize))
 
 	// Very 'hacky' a mapping to a 'set' which is a mapping to globals. Is converted into a regular bin at the end.
 	setsBins := make(map[uint]map[string]struct{})
 
-	bar = progressbar.Default(int64(len(docs)), fmt.Sprintf("Putting items into bins %s", dataset.Name))
+	bar = progressbar.Default(int64(total_items_in_set), fmt.Sprintf("Putting items into bins %s", dataset.Name))
 
 	for word := range set {
 
@@ -164,10 +164,6 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 			doc_ids = append(doc_ids, docID)
 		}
 
-		if len(doc_ids) <= int(config.Threshold) {
-			continue
-		}
-
 		Must(err)
 
 		var storedIDs []string
@@ -175,7 +171,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 		for rank := uint(0); rank <= config.K; rank++ {
 
-			if int(rank) >= len(doc_ids) { // Ran out of hits
+			if int(rank) >= len(doc_ids) || int(rank) >= int(config.DocsPerBin) { // Ran out of hits
 				break
 			}
 			storedIDs = append(storedIDs, doc_ids[rank])
