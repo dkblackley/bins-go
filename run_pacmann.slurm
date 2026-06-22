@@ -7,9 +7,8 @@
 #SBATCH --mem=480G
 #SBATCH --time=0-03:30:00
 
-# Total Jobs: 18 (Indices 0 through 17)
-#SBATCH --array=0-17
-#SBATCH --output=logs/Pacmann_%A_%a.out
+#SBATCH --array=0-47
+# SBATCH --output=logs/Pacmann_%A_%a.out
 #SBATCH --error=logs/Pacmann_%A_%a.err
 
 set -euo pipefail
@@ -24,34 +23,40 @@ export HNSW_PREFIX="$HOME/opt/hnsw"
 export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
-# 1. BASE, VARY K, and VARY DATA
-# Index:         0       | 1       2       3       | 4          5
-# Test:          BASE    | VARY K                  | VARY DATA
-K_ARR=(          100       50      500     1000      100        100          )
-DATA_ARR=(       msmarco   msmarco msmarco msmarco   scifact    trec-covid   )
-STEPS_ARR=(      15        15      15      15        15         15           )
-NEIGHB_ARR=(     32        32      32      32        32         32           )
+DATA_ARR=()
+K_ARR=()
+STEPS_ARR=()
+NEIGHB_ARR=()
 
-# 2. VARY STEPS
-# Index:         6       7       8       9       10      11
-# Test:          VARY STEPS
-K_ARR+=(         100     100     100     100     100     100     )
-DATA_ARR+=(      msmarco msmarco msmarco msmarco msmarco msmarco )
-STEPS_ARR+=(     5       10      15      20      25      30      )
-NEIGHB_ARR+=(    32      32      32      32      32      32      )
+# Helper function to generate the 16 ablations per dataset
+add_pacmann_ablations() {
+    local d=$1
 
-# 3. VARY NEIGHBOUR
-# Index:         12      13      14      15      16      17
-# Test:          VARY NEIGHBOUR
-K_ARR+=(         100     100     100     100     100     100     )
-DATA_ARR+=(      msmarco msmarco msmarco msmarco msmarco msmarco )
-STEPS_ARR+=(     15      15      15      15      15      15      )
-NEIGHB_ARR+=(    8       16      24      32      40      48      )
+    # 1. VARY K (Steps=15, Neighb=32) -> 4 combinations
+    for k in 50 100 500 1000; do
+        DATA_ARR+=("$d"); K_ARR+=("$k"); STEPS_ARR+=("15"); NEIGHB_ARR+=("32")
+    done
+
+    # 2. VARY STEPS (K=100, Neighb=32) -> 6 combinations
+    for steps in 5 10 15 20 25 30; do
+        DATA_ARR+=("$d"); K_ARR+=("100"); STEPS_ARR+=("$steps"); NEIGHB_ARR+=("32")
+    done
+
+    # 3. VARY NEIGHBOUR (K=100, Steps=15) -> 6 combinations
+    for neighb in 8 16 24 32 40 48; do
+        DATA_ARR+=("$d"); K_ARR+=("100"); STEPS_ARR+=("15"); NEIGHB_ARR+=("$neighb")
+    done
+}
+
+# Build the setups for all datasets
+add_pacmann_ablations "msmarco"
+add_pacmann_ablations "scifact"
+add_pacmann_ablations "trec-covid"
 
 task_id=$SLURM_ARRAY_TASK_ID
 
-k_val=${K_ARR[$task_id]}
 dataset=${DATA_ARR[$task_id]}
+k_val=${K_ARR[$task_id]}
 steps_val=${STEPS_ARR[$task_id]}
 neighb_val=${NEIGHB_ARR[$task_id]}
 method="pacmann"

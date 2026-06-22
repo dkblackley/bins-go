@@ -7,7 +7,7 @@ def plot_cross_dataset_metrics(all_runs, output_dir, target_configs, colors, met
     datasets = ['scifact', 'trec-covid', 'msmarco']
 
     # Filter for standard k=50 baseline targets
-    baseline_runs = [r for r in all_runs if r['k'] == 50 and r['config'] == target_configs.get(r['method']) and r['dataset'] in datasets]
+    baseline_runs = [r for r in all_runs if r['k'] == 100 and r['config'] == target_configs.get(r['method']) and r['dataset'] in datasets]
 
     def get_matrix(metric_key):
         matrix = []

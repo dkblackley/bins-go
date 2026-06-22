@@ -20,9 +20,9 @@ FONT_SIZE = 26
 
 # The target internal parameters that should remain constant across k-values
 TARGET_CONFIGS = {
-    'bins': 'bs0.1_dpb1000',
+    'bins': 'bs1.0_dpb1000',
     'pacmann': 'steps15_neighb32',
-    'tree': 'b32_r128'
+    'tree': 'b64_r128'
 }
 
 SUBPLOT_SIZE=(20, 5)
@@ -105,10 +105,6 @@ def load_extended_data(results_dir, method_order):
 
         with open(meta_path, 'r') as f:
             meta = json.load(f)
-
-        # Basic extracted params
-        mrr = float(meta.get('MRRPreReRank', 0)) if method == 'pacmann' else float(meta.get('MRR', 0))
-        num_queries = float(meta.get('NumQueries', 1))
 
         # Bins specific config parsing for the Bins analysis plot
         dpb, bs = None, None

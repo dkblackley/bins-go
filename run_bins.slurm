@@ -8,8 +8,8 @@
 #SBATCH --time=0-02:30:00
 
 # Total Jobs: 13 (Indices 0 through 12)
-#SBATCH --array=0-33
-#SBATCH --output=logs/Bins_%A_%a.out
+#SBATCH --array=0-95
+# SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 
 set -euo pipefail
@@ -24,38 +24,44 @@ export HNSW_PREFIX="$HOME/opt/hnsw"
 export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
-# --- PARALLEL ARRAYS FOR ABLATION STUDY ---
-# The columns line up exactly to define 13 specific job configurations.
-# Variable being tested is grouped.
+DATA_ARR=()
+K_ARR=()
+BS_ARR=()
+DPB_ARR=()
 
-# 1. BASE, VARY K, and VARY DATA
-# Index:    0       | 1       2       3       4       5       | 6         7
-# Test:     BASE    | VARY K                                  | VARY DATA
-K_ARR=(     50        10      100     500     1000    5000      100         100           )
-DATA_ARR=(  msmarco   msmarco msmarco msmarco msmarco msmarco   scifact     trec-covid    )
-BS_ARR=(    1.0       1.0     1.0     1.0     1.0     1.0       1.0         1.0           )
-DPB_ARR=(   1000      1000    1000    1000    1000    1000      1000        1000          )
+# Helper function to generate the 32 ablations per dataset
+add_bins_ablations() {
+    local d=$1
 
-# 2. VARY BIN SIZE (Expanding BS=2.0, 1.5, 1.0, 0.5, 0.1, 0.05, 0.01 across K = 10 and 100)
-# Index:    8       9       10      11      12      13      14      | 15      16      17      18      19      20      21
-# K Value:  K=10                                                    | K=100
-K_ARR+=(    10      10      10      10      10      10      10        100     100     100     100     100     100     100     )
-DATA_ARR+=( msmarco msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco msmarco )
-BS_ARR+=(   2.0     1.5     1.0     0.5     0.1     0.05    0.01      2.0     1.5     1.0     0.5     0.1     0.05    0.01    )
-DPB_ARR+=(  1000    1000    1000    1000    1000    1000    1000      1000    1000    1000    1000    1000    1000    1000    )
+    # 1. VARY K (BS=1.0, DPB=1000) -> 6 combinations
+    for k in 10 50 100 500 1000 5000; do
+        DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("1000")
+    done
 
-# 3. VARY DOCS PER BIN (Expanding DPB=10, 50, 100, 500, 1000, 5000 across K = 10 and 100)
-# Index:    22      23      24      25      26      27      | 28      29      30      31      32      33
-# K Value:  K=10                                            | K=100
-K_ARR+=(    10      10      10      10      10      10        100     100     100     100     100     100     )
-DATA_ARR+=( msmarco msmarco msmarco msmarco msmarco msmarco   msmarco msmarco msmarco msmarco msmarco msmarco )
-BS_ARR+=(   1.0     1.0     1.0     1.0     1.0     1.0       1.0     1.0     1.0     1.0     1.0     1.0     )
-DPB_ARR+=(  10      50      100     500     1000    5000      100     500     1000    5000    10      50      )
+    # 2. VARY BIN SIZE across K=10 and K=100 (DPB=1000) -> 14 combinations
+    for k in 10 100; do
+        for bs in 2.0 1.5 1.0 0.5 0.1 0.05 0.01; do
+            DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("1000")
+        done
+    done
+
+    # 3. VARY DOCS PER BIN across K=10 and K=100 (BS=1.0) -> 12 combinations
+    for k in 10 100; do
+        for dpb in 10 50 100 500 1000 5000; do
+            DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("$dpb")
+        done
+    done
+}
+
+# Build the setups for all datasets
+add_bins_ablations "msmarco"
+add_bins_ablations "scifact"
+add_bins_ablations "trec-covid"
 
 task_id=$SLURM_ARRAY_TASK_ID
 
-k_val=${K_ARR[$task_id]}
 dataset=${DATA_ARR[$task_id]}
+k_val=${K_ARR[$task_id]}
 bin_size=${BS_ARR[$task_id]}
 docs_val=${DPB_ARR[$task_id]}
 method="bins"

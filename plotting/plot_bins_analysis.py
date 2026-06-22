@@ -13,7 +13,7 @@ def plot_bins_parameters(all_runs, output_dir, param='dpb'):
     os.makedirs(output_dir, exist_ok=True)
 
     # Isolate bins, msmarco, k=50 (the baseline standard found in your results)
-    target_runs = [r for r in all_runs if r['method'] == 'bins' and r['dataset'] == 'msmarco' and r['k'] == 50]
+    target_runs = [r for r in all_runs if r['method'] == 'bins' and r['dataset'] == 'msmarco' and r['k'] == 100]
 
     if param == 'dpb':
         target_runs = [r for r in target_runs if r['bs'] == 0.1 and r['dpb'] is not None]
