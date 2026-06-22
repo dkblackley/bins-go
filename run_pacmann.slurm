@@ -8,7 +8,7 @@
 #SBATCH --time=0-03:30:00
 
 #SBATCH --array=0-47
-# SBATCH --output=logs/Pacmann_%A_%a.out
+#SBATCH --output=logs/Pacmann_%A_%a.out
 #SBATCH --error=logs/Pacmann_%A_%a.err
 
 set -euo pipefail

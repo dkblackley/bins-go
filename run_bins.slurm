@@ -9,7 +9,7 @@
 
 # Total Jobs: 13 (Indices 0 through 12)
 #SBATCH --array=0-95
-# SBATCH --output=logs/Bins_%A_%a.out
+#SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 
 set -euo pipefail
