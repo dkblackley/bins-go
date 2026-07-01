@@ -1,114 +1,69 @@
 import matplotlib.pyplot as plt
 import os
+from util import enforce_monotonic_increasing
 
 
 def generate_k_plots(extended_data, output_dir, method_order, colors, target_configs):
     """
-    Generates three distinct figures comparing the methods across different k values.
+    Generates three distinct figures comparing the methods across Network Time (LAN/WAN),
+    ensuring all plotted lines are monotonically increasing.
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    # ---------------------------------------------------------
-    # Figure 1: MRR vs k
-    # ---------------------------------------------------------
-    fig1, ax1 = plt.subplots()
+    metrics = [
+        ('mrr', 'MRR Score', 'fig1_mrr_vs_networktime.pdf'),
+        ('faithfulness', 'Faithfulness Score', 'fig2_faithfulness_vs_networktime.pdf'),
+        ('answer_relevancy', 'Answer Relevancy Score', 'fig3_ansrel_vs_networktime.pdf')
+    ]
 
-    for method in method_order:
-        # Filter for the specific method and its target config
-        method_runs = [
-            run for run in extended_data
-            if run['method'] == method and run['config'] == target_configs.get(method, run['config']) and run['dataset'] == "msmarco"
-        ]
-        if not method_runs:
-            continue
+    for y_key, y_label, filename in metrics:
+        fig, ax = plt.subplots()
 
-        # Sort by k so lines draw sequentially left to right
-        method_runs.sort(key=lambda x: x['k'])
+        for method in method_order:
+            method_runs = [
+                run for run in extended_data
+                if run['method'] == method
+                   and run['config'] == target_configs.get(method, run['config'])
+                   and run['dataset'] == "msmarco"
+            ]
 
-        sorted_k = [run['k'] for run in method_runs]
-        y_vals = [run['mrr'] for run in method_runs]
+            if not method_runs:
+                continue
 
-        ax1.plot(sorted_k, y_vals, marker='o', label=method.capitalize(), color=colors[method], zorder=3)
+            # Check for missing/zero data before filtering
+            for run in method_runs:
+                if run[y_key] == 0:
+                    print(
+                        f"[DEBUG - Zero Value] {method.upper()} on msmarco (k={run['k']}, config={run['config']}) has 0.0 for {y_key}.")
+                if run['wan_time'] == 0 or run['lan_time'] == 0:
+                    print(
+                        f"[DEBUG - Zero Network] {method.upper()} on msmarco (k={run['k']}, config={run['config']}) has 0.0 WAN/LAN Time.")
 
+            # Apply monotonic filter using LAN time
+            filtered_lan = enforce_monotonic_increasing(method_runs, 'lan_time', y_key)
+            if filtered_lan:
+                x_lan = [run['lan_time'] for run in filtered_lan]
+                y_lan = [run[y_key] for run in filtered_lan]
+                ax.plot(x_lan, y_lan, marker='s', linestyle=':',
+                        label=f"{method.capitalize()} (LAN)", color=colors[method], zorder=3)
 
-    ax1.set_xscale('log')
-    ax1.set_xlabel('Retrieved Documents ($k$)')
-    all_k = sorted(list(set(run['k'] for run in extended_data)))
-    ax1.set_xticks(all_k)
-    ax1.set_xticklabels([str(k) for k in all_k])
-    ax1.minorticks_off()
+            # Apply monotonic filter using WAN time
+            filtered_wan = enforce_monotonic_increasing(method_runs, 'wan_time', y_key)
+            if filtered_wan:
+                x_wan = [run['wan_time'] for run in filtered_wan]
+                y_wan = [run[y_key] for run in filtered_wan]
+                ax.plot(x_wan, y_wan, marker='o', linestyle='--',
+                        label=f"{method.capitalize()} (WAN)", color=colors[method], zorder=3)
 
-    ax1.set_ylabel('MRR Score')
-    ax1.grid(True, zorder=0)
-    ax1.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'fig1_mrr_vs_k.pdf'), format='pdf')
-    plt.close(fig1)
+        # Log scale is required since LAN and WAN times are an order of magnitude apart
+        ax.set_xscale('log')
+        ax.set_xlabel('Per-Query Network Time (seconds)')
+        ax.set_ylabel(y_label)
+        ax.grid(True, zorder=0)
 
-    # ---------------------------------------------------------
-    # Figure 2: Communication Cost vs k
-    # ---------------------------------------------------------
-    fig2, ax2 = plt.subplots()
+        # Position legend carefully since there are now 2x the lines
+        ax.legend(fontsize='small')
 
-    for method in method_order:
-        # Filter for the specific method and its target config
-        method_runs = [
-            run for run in extended_data
-            if run['method'] == method and run['config'] == target_configs.get(method, run['config']) and run['dataset'] == "msmarco"
-        ]
-        if not method_runs:
-            continue
-
-        # Sort by k so lines draw sequentially left to right
-        method_runs.sort(key=lambda x: x['k'])
-
-        sorted_k = [run['k'] for run in method_runs]
-        y_vals = [run['comm_cost'] for run in method_runs]
-
-        ax2.plot(sorted_k, y_vals, marker='o', label=method.capitalize(), color=colors[method], zorder=3)
-
-    ax2.set_xscale('log')
-    ax2.set_xlabel('Retrieved Documents ($k$)')
-    ax2.set_xticks(all_k)
-    ax2.set_xticklabels([str(k) for k in all_k])
-    ax2.minorticks_off()
-    ax2.set_ylabel('Total data sent (MB)')
-    ax2.grid(True, zorder=0)
-    ax2.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'fig2_commcost_vs_k.pdf'), format='pdf')
-    plt.close(fig2)
-
-    # ---------------------------------------------------------
-    # Figure 3: Time Per Query vs k
-    # ---------------------------------------------------------
-    fig3, ax3 = plt.subplots()
-
-    for method in method_order:
-        # Filter for the specific method and its target config
-        method_runs = [
-            run for run in extended_data
-            if run['method'] == method and run['config'] == target_configs.get(method, run['config']) and run['dataset'] == "msmarco"
-        ]
-        if not method_runs:
-            continue
-
-        # Sort by k so lines draw sequentially left to right
-        method_runs.sort(key=lambda x: x['k'])
-
-        sorted_k = [run['k'] for run in method_runs]
-        y_vals = [run['total_time'] for run in method_runs]
-
-        ax3.plot(sorted_k, y_vals, marker='o', label=method.capitalize(), color=colors[method], zorder=3)
-
-    ax3.set_xscale('log')
-    ax3.set_xlabel('Retrieved Documents ($k$)')
-    ax3.set_xticks(all_k)
-    ax3.set_xticklabels([str(k) for k in all_k])
-    ax3.minorticks_off()
-    ax3.set_ylabel('Avg. Time per Query (seconds)')
-    ax3.grid(True, zorder=0)
-    ax3.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'fig3_latency_vs_k.pdf'), format='pdf')
-    plt.close(fig3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, filename), format='pdf')
+        plt.close(fig)

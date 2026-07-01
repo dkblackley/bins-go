@@ -123,8 +123,7 @@ def load_extended_data(results_dir, method_order):
         # 1 uint64 = 8 bytes. Convert to MB, then divide by num_queries
         comm_cost_mb = (total_uint64 * 8) / (1024 * 1024) / num_queries
 
-        # Note: TotalWANTime is significantly larger than AnswerTime, suggesting
-        # it is an aggregated threaded metric in seconds.
+        # Network timers in Go are returning milliseconds. Divide by 1000 for seconds.
         run_info = {
             'method': method,
             'dataset': dataset,
@@ -134,9 +133,10 @@ def load_extended_data(results_dir, method_order):
             'bs': bs,
             'mrr': mrr,
             'comm_cost': comm_cost_mb,
-            'total_time': parse_duration_to_seconds(meta.get('TotalAnswerTime', '0s')),
-            'wan_time': float(meta.get('TotalWANTime', 0)) / num_queries, # Normalized per query
-            'lan_time': float(meta.get('TotalLANTime', 0)) / num_queries, # Normalized per query
+            # Normalize total time to strictly Per-Query
+            'total_time': parse_duration_to_seconds(meta.get('TotalAnswerTime', '0s')) / num_queries,
+            'wan_time': (float(meta.get('TotalWANTime', 0)) ) / num_queries,
+            'lan_time': (float(meta.get('TotalLANTime', 0)) ) / num_queries,
             'faithfulness': float(meta.get('Faithfulness', 0)),
             'answer_relevancy': float(meta.get('AnswerRelevancy', 0)),
             'db_size_mb': float(meta.get('DBSizeInBytesMB', 0))

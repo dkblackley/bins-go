@@ -1,79 +1,123 @@
 import os
-import numpy as np
 import matplotlib.pyplot as plt
+
 
 def plot_cross_dataset_metrics(all_runs, output_dir, target_configs, colors, methods):
     os.makedirs(output_dir, exist_ok=True)
     datasets = ['scifact', 'trec-covid', 'msmarco']
 
-    # Filter for standard k=50 baseline targets
-    baseline_runs = [r for r in all_runs if r['k'] == 100 and r['config'] == target_configs.get(r['method']) and r['dataset'] in datasets]
+    baseline_runs = [r for r in all_runs if
+                     r['k'] == 100 and r['config'] == target_configs.get(r['method']) and r['dataset'] in datasets]
 
-    def get_matrix(metric_key):
-        matrix = []
-        for m in methods:
-            row = []
-            for d in datasets:
-                val = next((r[metric_key] for r in baseline_runs if r['method'] == m and r['dataset'] == d), 0)
-                row.append(val)
-            matrix.append(row)
-        return matrix
+    metrics = [
+        ('mrr', 'MRR Score', 'fig_dataset_mrr.pdf'),
+        ('faithfulness', 'Faithfulness Score', 'fig_dataset_faithfulness.pdf'),
+        ('answer_relevancy', 'Answer Relevancy Score', 'fig_dataset_ansrel.pdf'),
+        ('total_time', 'Total Answer Time (s)', 'fig_dataset_total_time.pdf'),
+        ('wan_time', 'Avg WAN Time (s)', 'fig_dataset_wan_time.pdf')
+    ]
 
-    x = np.arange(len(datasets))
-    width = 0.25
+    for metric_key, y_label, filename in metrics:
+        fig, ax = plt.subplots()
 
-    # ---------------------------------------------------------
-    # Figure 1: Quality Metrics (1x3 Grid)
-    # ---------------------------------------------------------
-    fig1, axes1 = plt.subplots(1, 3,  sharey=True)
-    metrics = [('mrr', 'MRR'), ('faithfulness', 'Faithfulness'), ('answer_relevancy', 'Answer Relevancy')]
+        for method in methods:
+            method_runs = [r for r in baseline_runs if r['method'] == method]
 
-    for idx, (metric_key, title) in enumerate(metrics):
-        ax = axes1[idx]
-        matrix = get_matrix(metric_key)
+            # Sort by database size to draw a clean line from smallest DB to largest DB
+            method_runs.sort(key=lambda x: x['db_size_mb'])
 
-        for m_idx, m in enumerate(methods):
-            offset = width * m_idx - width
-            ax.bar(x + offset, matrix[m_idx], width, label=m.capitalize(), color=colors.get(m))
+            if not method_runs:
+                continue
 
-        ax.set_xticks(x)
-        ax.set_xticklabels([d.capitalize() for d in datasets])
-        ax.set_title(title)
-        ax.grid(axis='y', zorder=0)
-        if idx == 0:
-            ax.set_ylabel('Score')
-            ax.legend()
+            x_vals = [r['db_size_mb'] for r in method_runs]
+            y_vals = [r[metric_key] for r in method_runs]
 
-    plt.tight_layout()
-    fig1.savefig(os.path.join(output_dir, 'fig_dataset_quality.pdf'), format='pdf')
-    plt.close(fig1)
+            # Log missing data to terminal
+            for run in method_runs:
+                if run[metric_key] == 0:
+                    print(f"[DEBUG - Missing Data] {method.upper()} on {run['dataset']} has 0.0 for {metric_key}.")
 
-    # ---------------------------------------------------------
-    # Figure 2: Runtimes and Network (1x2 Grid)
-    # ---------------------------------------------------------
-    fig2, (ax_rt, ax_net) = plt.subplots(1, 2)
+            ax.plot(x_vals, y_vals, marker='o', label=method.capitalize(), color=colors.get(method), zorder=3)
 
-    # Total Answer Time
-    matrix_time = get_matrix('total_time')
-    for m_idx, m in enumerate(methods):
-        ax_rt.bar(x + (width * m_idx - width), matrix_time[m_idx], width, label=m.capitalize(), color=colors.get(m))
-    ax_rt.set_xticks(x)
-    ax_rt.set_xticklabels([d.capitalize() for d in datasets])
-    ax_rt.set_title('Total Answer Time by Dataset')
-    ax_rt.set_ylabel('Time (s)')
-    ax_rt.grid(axis='y')
-    ax_rt.legend()
+            # Annotate the points with the dataset names so you still know which is which
+            for r in method_runs:
+                ax.annotate(r['dataset'].capitalize(),
+                            (r['db_size_mb'], r[metric_key]),
+                            textcoords="offset points",
+                            xytext=(0, 10),
+                            ha='center',
+                            fontsize=10)
 
-    # Total WAN Time
-    matrix_wan = get_matrix('wan_time')
-    for m_idx, m in enumerate(methods):
-        ax_net.bar(x + (width * m_idx - width), matrix_wan[m_idx], width, label=m.capitalize(), color=colors.get(m))
-    ax_net.set_xticks(x)
-    ax_net.set_xticklabels([d.capitalize() for d in datasets])
-    ax_net.set_title('Avg WAN Time per Query by Dataset')
-    ax_net.set_ylabel('Time (s)')
-    ax_net.grid(axis='y')
+        ax.set_xscale('log')
+        ax.set_xlabel('Database Size (MB)')
+        ax.set_ylabel(y_label)
+        ax.grid(True, zorder=0)
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, filename), format='pdf')
+        plt.close(fig)
 
-    plt.tight_layout()
-    fig2.savefig(os.path.join(output_dir, 'fig_dataset_runtime.pdf'), format='pdf')
-    plt.close(fig2)
+
+
+def plot_cross_dataset_metrics_hardcoded(all_runs, output_dir, target_configs, colors, methods):
+    os.makedirs(output_dir, exist_ok=True)
+    datasets = ['scifact', 'trec-covid', 'msmarco']
+
+    # Using known dataset document counts since JSON NumDocs is null
+    dataset_sizes = {
+        'scifact': 5183,
+        'trec-covid': 171332,
+        'msmarco': 8841823
+    }
+
+    baseline_runs = [r for r in all_runs if
+                     r['k'] == 100 and r['config'] == target_configs.get(r['method']) and r['dataset'] in datasets]
+
+    metrics = [
+        ('mrr', 'MRR Score', 'fig_dataset_mrr.pdf'),
+        ('faithfulness', 'Faithfulness Score', 'fig_dataset_faithfulness.pdf'),
+        ('answer_relevancy', 'Answer Relevancy Score', 'fig_dataset_ansrel.pdf'),
+        ('total_time', 'Per-Query Answer Time (s)', 'fig_dataset_total_time.pdf'),
+        ('wan_time', 'Per-Query WAN Time (s)', 'fig_dataset_wan_time.pdf')
+    ]
+
+    for metric_key, y_label, filename in metrics:
+        fig, ax = plt.subplots()
+
+        for method in methods:
+            method_runs = [r for r in baseline_runs if r['method'] == method]
+
+            # Map the document count to the run and sort by it
+            for r in method_runs:
+                r['num_docs'] = dataset_sizes[r['dataset']]
+            method_runs.sort(key=lambda x: x['num_docs'])
+
+            if not method_runs:
+                continue
+
+            x_vals = [r['num_docs'] for r in method_runs]
+            y_vals = [r[metric_key] for r in method_runs]
+
+            ax.plot(x_vals, y_vals, marker='o', label=method.capitalize(), color=colors.get(method), zorder=3)
+
+            for r in method_runs:
+                ax.annotate(r['dataset'].capitalize(),
+                            (r['num_docs'], r[metric_key]),
+                            textcoords="offset points",
+                            xytext=(0, 10),
+                            ha='center',
+                            fontsize=10)
+
+        ax.set_xscale('log')
+
+        # Use log scale for time plots so fast queries don't look like 0
+        if 'time' in metric_key:
+            ax.set_yscale('log')
+
+        ax.set_xlabel('Number of Documents in Corpus')
+        ax.set_ylabel(y_label)
+        ax.grid(True, zorder=0)
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, filename), format='pdf')
+        plt.close(fig)
