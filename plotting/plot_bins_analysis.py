@@ -32,7 +32,7 @@ def plot_bins_parameters(all_runs, output_dir, param='dpb'):
 
     # Only show ticks for the actual data points to prevent squishing
     for ax in [ax1, ax2, ax3]:
-        ax.set_xscale('log')
+        # ax.set_xscale('log')
         ax.set_xticks(x_vals)
         ax.set_xticklabels([format_ticks(x) for x in x_vals])
         ax.minorticks_off()

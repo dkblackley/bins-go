@@ -7,7 +7,6 @@
 #SBATCH --mem=480G
 #SBATCH --time=0-02:30:00
 
-# Total Jobs: 13 (Indices 0 through 12)
 #SBATCH --array=0-95
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
@@ -38,9 +37,9 @@ add_bins_ablations() {
         DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("1000")
     done
 
-    # 2. VARY BIN SIZE across K=10 and K=100 (DPB=1000) -> 14 combinations
+    # 2. VARY BIN SIZE across K=10 and K=100 (DPB=1000) -> 8 combinations
     for k in 10 100; do
-        for bs in 2.0 1.5 1.0 0.5 0.1 0.05 0.01; do
+        for bs in 2.0 1.0 0.1 0.01; do
             DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("1000")
         done
     done
