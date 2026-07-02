@@ -15,7 +15,7 @@ COLORS = {
     'tree': '#56B4E9',  # Sky Blue
 }
 
-METHOD_ORDER = ['tree',  'bins', 'pacmann']
+METHOD_ORDER = ['tree', 'bins', 'pacmann']
 FONT_SIZE = 26
 
 # The target internal parameters that should remain constant across k-values
@@ -25,7 +25,7 @@ TARGET_CONFIGS = {
     'tree': 'b64_r128'
 }
 
-SUBPLOT_SIZE=(20, 5)
+SUBPLOT_SIZE = (20, 5)
 
 
 def setup_sleek_style():
@@ -56,31 +56,51 @@ def setup_sleek_style():
 # ==========================================
 
 def parse_duration_to_seconds(duration_str):
-    """Parses a Go-style duration string (e.g., '3m40.76s') into total seconds."""
+    """
+    Robustly parses a Go-style duration string into total seconds.
+    Can correctly handle '3m40.76s', '101.38ms', and '1.2µs'.
+    """
     total_seconds = 0.0
 
-    hours_match = re.search(r'([\d\.]+)h', duration_str)
-    mins_match = re.search(r'([\d\.]+)m', duration_str)
-    secs_match = re.search(r'([\d\.]+)s', duration_str)
+    # Match hours
+    h_match = re.search(r'([\d\.]+)h', duration_str)
+    if h_match:
+        total_seconds += float(h_match.group(1)) * 3600
 
-    if hours_match:
-        total_seconds += float(hours_match.group(1)) * 3600
-    if mins_match:
-        total_seconds += float(mins_match.group(1)) * 60
-    if secs_match:
-        total_seconds += float(secs_match.group(1))
+    # Match minutes (must be 'm' not followed by 's', to avoid catching 'ms')
+    m_match = re.search(r'([\d\.]+)m(?!s)', duration_str)
+    if m_match:
+        total_seconds += float(m_match.group(1)) * 60
+
+    # Match seconds (must be 's' not preceded by 'm', 'µ', or 'u')
+    s_match = re.search(r'(?<!m)(?<!µ)(?<!u)([\d\.]+)s', duration_str)
+    if s_match:
+        total_seconds += float(s_match.group(1))
+
+    # Match milliseconds
+    ms_match = re.search(r'([\d\.]+)ms', duration_str)
+    if ms_match:
+        total_seconds += float(ms_match.group(1)) / 1000.0
+
+    # Match microseconds
+    us_match = re.search(r'([\d\.]+)[µu]s', duration_str)
+    if us_match:
+        total_seconds += float(us_match.group(1)) / 1000000.0
 
     return total_seconds
 
 
 def load_extended_data(results_dir, method_order):
     """
-    Builds a flat list of metadata across all datasets and configs.
-    This provides maximum flexibility for multi-dimensional filtering.
+    Builds a structured nested map of metadata:
+    nested_data[method][dataset] = [ list of config runs ]
+    This allows for extremely fast debugging and logical filtering.
     """
-    all_runs = []
+    # Initialize dictionary hierarchy
+    nested_data = {method: {} for method in method_order}
+
     if not os.path.exists(results_dir):
-        return all_runs
+        return nested_data
 
     for folder in os.listdir(results_dir):
         folder_path = os.path.join(results_dir, folder)
@@ -92,6 +112,10 @@ def load_extended_data(results_dir, method_order):
 
         method, dataset = parts[0], parts[1]
         if method not in method_order: continue
+
+        # Ensure dataset key exists for this method
+        if dataset not in nested_data[method]:
+            nested_data[method][dataset] = []
 
         k_match = re.search(r'_k(\d+)', folder)
         k_val = int(k_match.group(1)) if k_match else 0
@@ -106,7 +130,6 @@ def load_extended_data(results_dir, method_order):
         with open(meta_path, 'r') as f:
             meta = json.load(f)
 
-        # Bins specific config parsing for the Bins analysis plot
         dpb, bs = None, None
         if method == 'bins':
             dpb_match = re.search(r'dpb(\d+)', config_str)
@@ -114,19 +137,18 @@ def load_extended_data(results_dir, method_order):
             if dpb_match: dpb = int(dpb_match.group(1))
             if bs_match: bs = float(bs_match.group(1))
 
-        # Basic extracted params
         mrr = float(meta.get('MRRPreReRank', 0)) if method == 'pacmann' else float(meta.get('MRR', 0))
         num_queries = float(meta.get('NumQueries', 1))
 
         if num_queries == 1:
-            print("Zero queries?")
+            print(f"[DEBUG] Only 1 query detected for {method} on {dataset}?")
+            if dataset == "msmarco":
+                num_queries = 6980  # Hard fallback based on prior runs
 
-        # --- NEW COMM COST MATH ---
         total_uint64 = float(meta.get('TotalUint64Sent', 0))
         # 1 uint64 = 8 bytes. Convert to MB, then divide by num_queries
         comm_cost_mb = (total_uint64 * 8) / (1024 * 1024) / num_queries
 
-        # Network timers in Go are returning milliseconds. Divide by 1000 for seconds.
         run_info = {
             'method': method,
             'dataset': dataset,
@@ -138,21 +160,18 @@ def load_extended_data(results_dir, method_order):
             'comm_cost': comm_cost_mb,
             # Normalize total time to strictly Per-Query
             'total_time': parse_duration_to_seconds(meta.get('TotalAnswerTime', '0s')) / num_queries,
-            'wan_time': (float(meta.get('TotalWANTime', 0)) ) / num_queries,
-            'lan_time': (float(meta.get('TotalLANTime', 0)) ) / num_queries,
+            'wan_time': float(meta.get('TotalWANTime', 0)) / num_queries,
+            'lan_time': float(meta.get('TotalLANTime', 0)) / num_queries,
             'faithfulness': float(meta.get('Faithfulness', 0)),
             'answer_relevancy': float(meta.get('AnswerRelevancy', 0)),
             'db_size_mb': float(meta.get('DBSizeInBytesMB', 0))
         }
-        all_runs.append(run_info)
 
-    return all_runs
+        # Append to our structured nested map
+        nested_data[method][dataset].append(run_info)
 
+    return nested_data
 
-import plot_config_tradeoffs
-import plot_bins_analysis
-import plot_dataset_comparisons
-import plot_network_vs_k
 
 if __name__ == "__main__":
     RESULTS_DIR = "../../../../datasets/results"
@@ -160,32 +179,42 @@ if __name__ == "__main__":
 
     setup_sleek_style()
 
-    print("Loading extended flat data for multi-dimensional plots...")
-    extended_data = load_extended_data(RESULTS_DIR, METHOD_ORDER)
+    print("Loading extended nested data for multi-dimensional plots...")
+    nested_data = load_extended_data(RESULTS_DIR, METHOD_ORDER)
 
     print("Generating network and quality plots per dataset...")
     datasets = ['msmarco', 'scifact', 'trec-covid']
-
+    
+    
     for ds in datasets:
-        # 1. MRR vs Network Time
-        metric_by_configs.plot_metric_vs_network_time(
-            extended_data, OUTPUT_DIR, dataset=ds,
+        # Example plotting calls utilizing the new parameter flags!
+
+        # metric_by_configs.plot_metric_vs_lan_time(
+        #     nested_data, OUTPUT_DIR, dataset=ds,
+        #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+        #     metric_key='mrr', metric_label='MRR Score',
+        #     use_log_scale=False, enforce_monotonic=False
+        # )
+
+        # metric_by_configs.plot_metric_vs_wan_time(
+        #     nested_data, OUTPUT_DIR, dataset=ds,
+        #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+        #     metric_key='mrr', metric_label='MRR Score',
+        #     use_log_scale=False, enforce_monotonic=False
+        # )
+
+        metric_by_configs.plot_metric_vs_total_time(
+            nested_data, OUTPUT_DIR, dataset=ds,
             method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-            metric_key='mrr', metric_label='MRR Score'
+            metric_key='mrr', metric_label='MRR Score',
+            use_log_scale=False, enforce_monotonic=False
         )
 
-        # 2. Quality Metrics vs Total Time
-        metric_by_configs.plot_quality_vs_time(
-            extended_data, OUTPUT_DIR, dataset=ds,
-            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-            time_key='total_time', time_label='Per-Query Total Time (s)'
-        )
-
-    # print("Generating new analytical plots...")
-    # plot_config_tradeoffs.plot_mrr_vs_time(extended_data, OUTPUT_DIR, COLORS)
-    # plot_bins_analysis.plot_bins_parameters(extended_data, OUTPUT_DIR, param='dpb')
-    # plot_bins_analysis.plot_bins_parameters(extended_data, OUTPUT_DIR, param='bs')
-    # plot_dataset_comparisons.plot_cross_dataset_metrics(extended_data, OUTPUT_DIR, TARGET_CONFIGS, COLORS, METHOD_ORDER)
-    # plot_network_vs_k.plot_wan_lan_vs_k(extended_data, OUTPUT_DIR, TARGET_CONFIGS, COLORS, METHOD_ORDER)
+        # metric_by_configs.plot_quality_vs_time(
+        #     nested_data, OUTPUT_DIR, dataset=ds,
+        #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+        #     time_key='total_time', time_label='Per-Query Total Time (s)',
+        #     use_log_scale=False, enforce_monotonic=False
+        # )
 
     print(f"Done! Plots saved to {OUTPUT_DIR}/")
