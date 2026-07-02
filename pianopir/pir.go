@@ -117,7 +117,7 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 	var finalResponseElements = uint64(len(tempRet))
 	s.RetrievalCount += finalResponseElements
 
-	totalBits := (float64(finalResponseElements) * 64) + float64(len(offsets)*32)
+	totalBits := (float64(finalResponseElements) * 8) + float64(len(offsets)*4)
 
 	// WAN Calculation: 400 Mbps bandwidth + 50ms latency (Applied ONCE per query)
 	bandwidthMbpsWAN := 400.0
