@@ -2,7 +2,7 @@ import os
 import re
 import json
 import matplotlib.pyplot as plt
-import generate_k_plots
+import metric_by_configs
 
 # ==========================================
 # GLOBAL CONSTANTS & AESTHETICS
@@ -118,6 +118,9 @@ def load_extended_data(results_dir, method_order):
         mrr = float(meta.get('MRRPreReRank', 0)) if method == 'pacmann' else float(meta.get('MRR', 0))
         num_queries = float(meta.get('NumQueries', 1))
 
+        if num_queries == 1:
+            print("Zero queries?")
+
         # --- NEW COMM COST MATH ---
         total_uint64 = float(meta.get('TotalUint64Sent', 0))
         # 1 uint64 = 8 bytes. Convert to MB, then divide by num_queries
@@ -160,14 +163,29 @@ if __name__ == "__main__":
     print("Loading extended flat data for multi-dimensional plots...")
     extended_data = load_extended_data(RESULTS_DIR, METHOD_ORDER)
 
-    print("Generating classic k-plots...")
-    generate_k_plots.generate_k_plots(extended_data, OUTPUT_DIR, METHOD_ORDER, COLORS, TARGET_CONFIGS)
+    print("Generating network and quality plots per dataset...")
+    datasets = ['msmarco', 'scifact', 'trec-covid']
 
-    print("Generating new analytical plots...")
-    plot_config_tradeoffs.plot_mrr_vs_time(extended_data, OUTPUT_DIR, COLORS)
-    plot_bins_analysis.plot_bins_parameters(extended_data, OUTPUT_DIR, param='dpb')
-    plot_bins_analysis.plot_bins_parameters(extended_data, OUTPUT_DIR, param='bs')
-    plot_dataset_comparisons.plot_cross_dataset_metrics(extended_data, OUTPUT_DIR, TARGET_CONFIGS, COLORS, METHOD_ORDER)
-    plot_network_vs_k.plot_wan_lan_vs_k(extended_data, OUTPUT_DIR, TARGET_CONFIGS, COLORS, METHOD_ORDER)
+    for ds in datasets:
+        # 1. MRR vs Network Time
+        metric_by_configs.plot_metric_vs_network_time(
+            extended_data, OUTPUT_DIR, dataset=ds,
+            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+            metric_key='mrr', metric_label='MRR Score'
+        )
+
+        # 2. Quality Metrics vs Total Time
+        metric_by_configs.plot_quality_vs_time(
+            extended_data, OUTPUT_DIR, dataset=ds,
+            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+            time_key='total_time', time_label='Per-Query Total Time (s)'
+        )
+
+    # print("Generating new analytical plots...")
+    # plot_config_tradeoffs.plot_mrr_vs_time(extended_data, OUTPUT_DIR, COLORS)
+    # plot_bins_analysis.plot_bins_parameters(extended_data, OUTPUT_DIR, param='dpb')
+    # plot_bins_analysis.plot_bins_parameters(extended_data, OUTPUT_DIR, param='bs')
+    # plot_dataset_comparisons.plot_cross_dataset_metrics(extended_data, OUTPUT_DIR, TARGET_CONFIGS, COLORS, METHOD_ORDER)
+    # plot_network_vs_k.plot_wan_lan_vs_k(extended_data, OUTPUT_DIR, TARGET_CONFIGS, COLORS, METHOD_ORDER)
 
     print(f"Done! Plots saved to {OUTPUT_DIR}/")

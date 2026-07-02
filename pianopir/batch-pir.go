@@ -352,6 +352,8 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 	}
 	// --- DEBUG END ---
 
+	// totalDataSent := uint64(0)
+
 	for i := uint64(0); i < p.config.PartitionNum; i++ {
 		//start := i * p.config.PartitionSize
 		//end := min((i+1)*p.config.PartitionSize, p.config.DBSize)
@@ -365,6 +367,8 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 
 		// now we make queryNumToMake queries to the sub PIR
 		for j := uint64(0); j < uint64(queryNumToMake); j++ {
+			// The size of the individual indexes for this one.
+			// totalDataSent += p.subPIR[i].config.SetSize
 			if partitionQueries[i][j] == DefaultValue {
 				_, _ = p.subPIR[i].Query(0, false) // just make a dummy query for the padded queries
 			} else {
