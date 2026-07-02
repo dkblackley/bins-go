@@ -112,12 +112,14 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 		EntryXor(tempRet, entry)
 
 	}
+	var finalResponseElements = uint64(len(offsets) * 4)
+	for i := 0; i < len(tempRet); i++ {
+		finalResponseElements += uint64(len(tempRet[i]))
+	}
 
-	// The server only sends back the final XORed response array
-	var finalResponseElements = uint64(len(tempRet))
 	s.RetrievalCount += finalResponseElements
 
-	totalBits := (float64(finalResponseElements) * 8) + float64(len(offsets)*4)
+	totalBits := float64(finalResponseElements)
 
 	// WAN Calculation: 400 Mbps bandwidth + 50ms latency (Applied ONCE per query)
 	bandwidthMbpsWAN := 400.0
