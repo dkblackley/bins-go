@@ -51,7 +51,7 @@ def plot_metric_vs_lan_time(nested_data, output_dir, dataset, method_order, colo
     # 2. Place the legend completely BELOW the X-axis label
     ax.legend(
         loc='upper center',
-        bbox_to_anchor=(0.5, -0.15),  # Negative Y-value pushes it down
+        bbox_to_anchor=(0.5, -0.2),  # Negative Y-value pushes it down
         ncol=3,
         fontsize='small',
         frameon=False
@@ -108,7 +108,7 @@ def plot_metric_vs_wan_time(nested_data, output_dir, dataset, method_order, colo
 
     ax.legend(
         loc='upper center',
-        bbox_to_anchor=(0.5, -0.15),
+        bbox_to_anchor=(0.5, -0.2),
         ncol=3,
         fontsize='small',
         frameon=False
@@ -164,7 +164,7 @@ def plot_metric_vs_total_time(nested_data, output_dir, dataset, method_order, co
 
     ax.legend(
         loc='upper center',
-        bbox_to_anchor=(0.5, -0.15),
+        bbox_to_anchor=(0.5, -0.2),
         ncol=3,
         fontsize='small',
         frameon=False
@@ -207,7 +207,7 @@ def plot_quality_vs_time(nested_data, output_dir, dataset, method_order, colors,
             x_faith = [r[time_key] for r in filtered_faith]
             y_faith = [r['faithfulness'] for r in filtered_faith]
             ax.plot(x_faith, y_faith, marker='o', linestyle='-',
-                    label=f"{method.capitalize()} (Faithfulness)", color=colors.get(method), zorder=3)
+                    label=f"{method.capitalize()} (Faith.)", color=colors.get(method), zorder=3)
 
         # --- Answer Relevancy Line (Dashed) ---
         if enforce_monotonic:
@@ -233,8 +233,8 @@ def plot_quality_vs_time(nested_data, output_dir, dataset, method_order, colors,
 
     ax.legend(
         loc='upper center',
-        bbox_to_anchor=(0.5, -0.15),
-        ncol=3,
+        bbox_to_anchor=(0.5, -0.2),
+        ncol=2, # THIS IS CAUSING THE ISSUE
         fontsize='small',
         frameon=False
     )

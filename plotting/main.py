@@ -16,7 +16,7 @@ COLORS = {
 }
 
 METHOD_ORDER = ['tree', 'bins', 'pacmann']
-FONT_SIZE = 26
+FONT_SIZE = 60
 
 # The target internal parameters that should remain constant across k-values
 TARGET_CONFIGS = {
@@ -40,14 +40,17 @@ def setup_sleek_style():
         'axes.linewidth': 1.2,
         'axes.spines.top': False,
         'axes.spines.right': False,
+        'figure.autolayout': True,
+        'figure.constrained_layout.use': False,
         'grid.color': '#E5E5E5',
         'grid.linestyle': '--',
         'grid.alpha': 0.7,
-        'figure.figsize': (10, 6),
-        'lines.linewidth': 2.5,
-        'lines.markersize': 9,
-        'axes.xmargin': 0.015,
-        'axes.ymargin': 0.015,
+        'figure.figsize': (17, 11),
+        'axes.titlepad': 50,
+        'axes.labelpad': 0,
+        'lines.linewidth': 8.0,
+        'lines.markersize': 25,
+        'figure.subplot.right': 0.99,
     })
 
 
@@ -192,21 +195,21 @@ if __name__ == "__main__":
         # metric_by_configs.plot_metric_vs_lan_time(
         #     nested_data, OUTPUT_DIR, dataset=ds,
         #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-        #     metric_key='mrr', metric_label='MRR Score',
+        #     metric_key='mrr', metric_label='MRR',
         #     use_log_scale=False, enforce_monotonic=False
         # )
 
         # metric_by_configs.plot_metric_vs_wan_time(
         #     nested_data, OUTPUT_DIR, dataset=ds,
         #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-        #     metric_key='mrr', metric_label='MRR Score',
+        #     metric_key='mrr', metric_label='MRR',
         #     use_log_scale=False, enforce_monotonic=False
         # )
 
         metric_by_configs.plot_metric_vs_total_time(
             nested_data, OUTPUT_DIR, dataset=ds,
             method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-            metric_key='mrr', metric_label='MRR Score',
+            metric_key='mrr', metric_label='MRR',
             use_log_scale=False, enforce_monotonic=False
         )
 
