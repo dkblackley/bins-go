@@ -1,8 +1,10 @@
+import logging
 import os
 import re
 import json
 import matplotlib.pyplot as plt
 import metric_by_configs
+import bins_ablation
 
 # ==========================================
 # GLOBAL CONSTANTS & AESTHETICS
@@ -95,14 +97,15 @@ def parse_duration_to_seconds(duration_str):
 
 def load_extended_data(results_dir, method_order):
     """
-    Builds a structured nested map of metadata:
+    Builds a structured nested map of metadata using explicit substring matching.
     nested_data[method][dataset] = [ list of config runs ]
-    This allows for extremely fast debugging and logical filtering.
+    Includes robust error logging for fast debugging.
     """
     # Initialize dictionary hierarchy
     nested_data = {method: {} for method in method_order}
 
     if not os.path.exists(results_dir):
+        logging.error(f"[ERROR] Results directory does not exist: {results_dir}")
         return nested_data
 
     for folder in os.listdir(results_dir):
@@ -110,29 +113,63 @@ def load_extended_data(results_dir, method_order):
         if not os.path.isdir(folder_path):
             continue
 
-        parts = folder.split('_')
-        if len(parts) < 4: continue
+        # 1. Determine Method via direct matching
+        if 'bins' in folder:
+            method = 'bins'
+        elif 'pacmann' in folder:
+            method = 'pacmann'
+        elif 'tree' in folder:
+            method = 'tree'
+        else:
+            logging.warning(f"[SKIP] Unknown method in folder name: {folder}")
+            continue
 
-        method, dataset = parts[0], parts[1]
-        if method not in method_order: continue
+        if method not in method_order:
+            continue
+
+        # 2. Determine Dataset via direct matching
+        if 'msmarco' in folder:
+            dataset = 'msmarco'
+        elif 'scifact' in folder:
+            dataset = 'scifact'
+        elif 'trec-covid' in folder:
+            dataset = 'trec-covid'
+        else:
+            logging.warning(f"[SKIP] Unknown dataset in folder name: {folder}")
+            continue
 
         # Ensure dataset key exists for this method
         if dataset not in nested_data[method]:
             nested_data[method][dataset] = []
 
+        # 3. Determine K-value
         k_match = re.search(r'_k(\d+)', folder)
-        k_val = int(k_match.group(1)) if k_match else 0
+        if not k_match:
+            logging.error(f"[ERROR] Missing k-value (e.g., '_k100') in folder: {folder}")
+            continue
+        k_val = int(k_match.group(1))
 
-        # Isolate the configuration string
-        config_str = folder.replace(f"{method}_{dataset}_", "").replace(f"k{k_val}", "").strip('_')
-        if not config_str: config_str = "default"
+        # 4. Isolate Config String (Strip out the parts we already know)
+        # Replacing them exactly once avoids breaking configs that might share names
+        config_str = folder.replace(f"{method}_", "", 1).replace(f"{dataset}_", "", 1).replace(f"k{k_val}", "", 1)
+        config_str = config_str.replace("__", "_").strip('_')
+        if not config_str:
+            config_str = "default"
 
+        # 5. Load and Validate JSON
         meta_path = os.path.join(folder_path, 'metadata.json')
-        if not os.path.exists(meta_path): continue
+        if not os.path.exists(meta_path):
+            logging.error(f"[ERROR] No metadata.json found in: {folder}")
+            continue
 
         with open(meta_path, 'r') as f:
-            meta = json.load(f)
+            try:
+                meta = json.load(f)
+            except json.JSONDecodeError:
+                logging.error(f"[ERROR] Corrupted JSON in: {meta_path}")
+                continue
 
+        # Bins specific config parsing
         dpb, bs = None, None
         if method == 'bins':
             dpb_match = re.search(r'dpb(\d+)', config_str)
@@ -140,18 +177,37 @@ def load_extended_data(results_dir, method_order):
             if dpb_match: dpb = int(dpb_match.group(1))
             if bs_match: bs = float(bs_match.group(1))
 
-        mrr = float(meta.get('MRRPreReRank', 0)) if method == 'pacmann' else float(meta.get('MRR', 0))
-        num_queries = float(meta.get('NumQueries', 1))
+        recall = meta.get('Recall')
+        if recall is None:
+            logging.error(f"[ERROR] Missing Recall field for {method} in {folder}")
+            recall = 0.0
+        else:
+            recall = float(recall)
+        # 6. Extract Metrics with Error Catching
+        mrr_val = meta.get('MRRPreReRank') if method == 'pacmann' else meta.get('MRR')
+        if mrr_val is None:
+            logging.error(f"[ERROR] Missing MRR field for {method} in {folder}")
+            mrr = 0.0
+        else:
+            mrr = float(mrr_val)
 
-        if num_queries == 1:
-            print(f"[DEBUG] Only 1 query detected for {method} on {dataset}?")
+        if mrr == 0.0:
+            logging.warning(f"[WARNING] {method} had 0.0 MRR with config: {config_str} on {dataset}")
+
+        num_queries = float(meta.get('NumQueries', 1))
+        if num_queries <= 1:
+            logging.error(
+                f"[DEBUG] Only {num_queries} query detected for {method} on {dataset} with config {config_str}")
             if dataset == "msmarco":
                 num_queries = 6980  # Hard fallback based on prior runs
 
         total_uint64 = float(meta.get('TotalUint64Sent', 0))
-        # 1 uint64 = 8 bytes. Convert to MB, then divide by num_queries
+        if total_uint64 == 0:
+            logging.error(f"[ERROR] {method} had 0 total uint sent with config: {config_str} on {dataset}")
+
         comm_cost_mb = (total_uint64 * 8) / (1024 * 1024) / num_queries
 
+        # 7. Final Dictionary Assembly (Keys kept strictly identical for downstream plots)
         run_info = {
             'method': method,
             'dataset': dataset,
@@ -160,8 +216,8 @@ def load_extended_data(results_dir, method_order):
             'dpb': dpb,
             'bs': bs,
             'mrr': mrr,
+            'recall': recall,
             'comm_cost': comm_cost_mb,
-            # Normalize total time to strictly Per-Query
             'total_time': parse_duration_to_seconds(meta.get('TotalAnswerTime', '0s')) / num_queries,
             'wan_time': float(meta.get('TotalWANTime', 0)) / num_queries,
             'lan_time': float(meta.get('TotalLANTime', 0)) / num_queries,
@@ -170,11 +226,9 @@ def load_extended_data(results_dir, method_order):
             'db_size_mb': float(meta.get('DBSizeInBytesMB', 0))
         }
 
-        # Append to our structured nested map
         nested_data[method][dataset].append(run_info)
 
     return nested_data
-
 
 if __name__ == "__main__":
     RESULTS_DIR = "../../../../datasets/results"
@@ -189,35 +243,48 @@ if __name__ == "__main__":
     datasets = ['msmarco', 'scifact', 'trec-covid']
     
     
-    for ds in datasets:
-        # Example plotting calls utilizing the new parameter flags!
+    # for ds in datasets:
+    #     # Example plotting calls utilizing the new parameter flags!
+    #
+    #     metric_by_configs.plot_metric_vs_lan_time(
+    #         nested_data, OUTPUT_DIR, dataset=ds,
+    #         method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+    #         metric_key='mrr', metric_label='MRR',
+    #         use_log_scale=False, enforce_monotonic=False
+    #     )
+    #
+    #     metric_by_configs.plot_metric_vs_wan_time(
+    #         nested_data, OUTPUT_DIR, dataset=ds,
+    #         method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+    #         metric_key='mrr', metric_label='MRR',
+    #         use_log_scale=False, enforce_monotonic=False
+    #     )
+    #
+    #     metric_by_configs.plot_metric_vs_total_time(
+    #         nested_data, OUTPUT_DIR, dataset=ds,
+    #         method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+    #         metric_key='mrr', metric_label='MRR',
+    #         use_log_scale=False, enforce_monotonic=False
+    #     )
+    #
+    #     metric_by_configs.plot_quality_vs_time(
+    #         nested_data, OUTPUT_DIR, dataset=ds,
+    #         method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+    #         time_key='total_time', time_label='Per-Query Total Time (s)',
+    #         use_log_scale=False, enforce_monotonic=False
+    #     )
 
-        # metric_by_configs.plot_metric_vs_lan_time(
-        #     nested_data, OUTPUT_DIR, dataset=ds,
-        #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-        #     metric_key='mrr', metric_label='MRR',
-        #     use_log_scale=False, enforce_monotonic=False
-        # )
+    print("Generating Bins ablation plots...")
 
-        # metric_by_configs.plot_metric_vs_wan_time(
-        #     nested_data, OUTPUT_DIR, dataset=ds,
-        #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-        #     metric_key='mrr', metric_label='MRR',
-        #     use_log_scale=False, enforce_monotonic=False
-        # )
+    # Generate the 3 plots varying Bin Size
+    bins_ablation.plot_bins_ablations(
+        nested_data, OUTPUT_DIR, param_to_vary='bs', target_k=100
+    )
 
-        metric_by_configs.plot_metric_vs_total_time(
-            nested_data, OUTPUT_DIR, dataset=ds,
-            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-            metric_key='mrr', metric_label='MRR',
-            use_log_scale=False, enforce_monotonic=False
-        )
+    # Generate the 3 plots varying Docs Per Bin
+    bins_ablation.plot_bins_ablations(
+        nested_data, OUTPUT_DIR, param_to_vary='dpb', target_k=100
+    )
 
-        # metric_by_configs.plot_quality_vs_time(
-        #     nested_data, OUTPUT_DIR, dataset=ds,
-        #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-        #     time_key='total_time', time_label='Per-Query Total Time (s)',
-        #     use_log_scale=False, enforce_monotonic=False
-        # )
 
     print(f"Done! Plots saved to {OUTPUT_DIR}/")

@@ -136,7 +136,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 			AddShould(matchTitle).
 			AddShould(matchBody)
 
-		req := bluge.NewTopNSearch(int(config.K), boolean)
+		req := bluge.NewTopNSearch(int(config.DocsPerBin), boolean)
 		it, err := reader.Search(context.Background(), req)
 
 		var doc_ids []string
@@ -169,7 +169,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 		var storedIDs []string
 		// var counter := 0
 
-		for rank := uint(0); rank <= config.K; rank++ {
+		for rank := uint(0); rank <= config.DocsPerBin; rank++ {
 
 			if int(rank) >= len(doc_ids) || int(rank) >= int(config.DocsPerBin) { // Ran out of hits
 				break
