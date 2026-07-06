@@ -4,8 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=480G
-#SBATCH --time=0-02:30:00
+#SBATCH --mem=1000G
+#SBATCH --time=0-04:00:00
 
 #SBATCH --array=0-95
 #SBATCH --output=logs/Bins_%A_%a.out
