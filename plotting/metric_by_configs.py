@@ -4,7 +4,7 @@ from util import enforce_monotonic_increasing
 
 
 def plot_metric_vs_lan_time(nested_data, output_dir, dataset, method_order, colors, target_configs, metric_key='mrr',
-                            metric_label='MRR Score', use_log_scale=False, enforce_monotonic=False):
+                            metric_label='MRR Score', use_log_scale=False, enforce_monotonic=False, k_val=100):
     """
     Plots a specific metric (e.g., MRR) vs LAN Time for a single dataset.
     """
@@ -16,9 +16,14 @@ def plot_metric_vs_lan_time(nested_data, output_dir, dataset, method_order, colo
         if method not in nested_data or dataset not in nested_data[method]:
             continue
 
+        # method_runs = [
+        #     run for run in nested_data[method][dataset]
+        #     if run['config'] == target_configs.get(method, run['config'])
+        # ]
+
         method_runs = [
             run for run in nested_data[method][dataset]
-            if run['config'] == target_configs.get(method, run['config'])
+            if run['k'] == k_val
         ]
 
         if not method_runs:
@@ -64,7 +69,7 @@ def plot_metric_vs_lan_time(nested_data, output_dir, dataset, method_order, colo
 
 
 def plot_metric_vs_wan_time(nested_data, output_dir, dataset, method_order, colors, target_configs, metric_key='mrr',
-                            metric_label='MRR Score', use_log_scale=False, enforce_monotonic=False):
+                            metric_label='MRR Score', use_log_scale=False, enforce_monotonic=False, k_val=100):
     """
     Plots a specific metric (e.g., MRR) vs WAN Time for a single dataset.
     """
@@ -75,9 +80,15 @@ def plot_metric_vs_wan_time(nested_data, output_dir, dataset, method_order, colo
         if method not in nested_data or dataset not in nested_data[method]:
             continue
 
+
+        # method_runs = [
+        #     run for run in nested_data[method][dataset]
+        #     if run['config'] == target_configs.get(method, run['config'])
+        # ]
+
         method_runs = [
             run for run in nested_data[method][dataset]
-            if run['config'] == target_configs.get(method, run['config'])
+            if run['k'] == k_val
         ]
 
         if not method_runs:
@@ -120,7 +131,7 @@ def plot_metric_vs_wan_time(nested_data, output_dir, dataset, method_order, colo
 
 
 def plot_metric_vs_total_time(nested_data, output_dir, dataset, method_order, colors, target_configs, metric_key='mrr',
-                              metric_label='MRR Score', use_log_scale=False, enforce_monotonic=False):
+                              metric_label='MRR Score', use_log_scale=False, enforce_monotonic=False, k_val= 100):
     """
     Plots a specific metric (e.g., MRR) vs Total Answer Time for a single dataset.
     """
@@ -131,9 +142,15 @@ def plot_metric_vs_total_time(nested_data, output_dir, dataset, method_order, co
         if method not in nested_data or dataset not in nested_data[method]:
             continue
 
+
+        # method_runs = [
+        #     run for run in nested_data[method][dataset]
+        #     if run['config'] == target_configs.get(method, run['config'])
+        # ]
+
         method_runs = [
             run for run in nested_data[method][dataset]
-            if run['config'] == target_configs.get(method, run['config'])
+            if run['k'] == k_val
         ]
 
         if not method_runs:
@@ -155,7 +172,7 @@ def plot_metric_vs_total_time(nested_data, output_dir, dataset, method_order, co
     if use_log_scale:
         ax.set_xscale('log')
 
-    ax.set_xlabel('Per-Query Total Time (seconds)')
+    ax.set_xlabel('Per-Query Comp. Time (seconds)')
     ax.set_ylabel(metric_label)
     ax.set_title(f'{metric_label} vs Total Time ({dataset.capitalize()})')
     ax.grid(True, zorder=0)

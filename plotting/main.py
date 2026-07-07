@@ -226,6 +226,10 @@ def load_extended_data(results_dir, method_order):
             'db_size_mb': float(meta.get('DBSizeInBytesMB', 0))
         }
 
+        if method == 'bins':
+            run_info['bin_size'] = meta.get('RealBinSize')
+
+
         nested_data[method][dataset].append(run_info)
 
     return nested_data
@@ -243,36 +247,36 @@ if __name__ == "__main__":
     datasets = ['msmarco', 'scifact', 'trec-covid']
     
     
-    # for ds in datasets:
-    #     # Example plotting calls utilizing the new parameter flags!
-    #
-    #     metric_by_configs.plot_metric_vs_lan_time(
-    #         nested_data, OUTPUT_DIR, dataset=ds,
-    #         method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-    #         metric_key='mrr', metric_label='MRR',
-    #         use_log_scale=False, enforce_monotonic=False
-    #     )
-    #
-    #     metric_by_configs.plot_metric_vs_wan_time(
-    #         nested_data, OUTPUT_DIR, dataset=ds,
-    #         method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-    #         metric_key='mrr', metric_label='MRR',
-    #         use_log_scale=False, enforce_monotonic=False
-    #     )
-    #
-    #     metric_by_configs.plot_metric_vs_total_time(
-    #         nested_data, OUTPUT_DIR, dataset=ds,
-    #         method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-    #         metric_key='mrr', metric_label='MRR',
-    #         use_log_scale=False, enforce_monotonic=False
-    #     )
-    #
-    #     metric_by_configs.plot_quality_vs_time(
-    #         nested_data, OUTPUT_DIR, dataset=ds,
-    #         method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-    #         time_key='total_time', time_label='Per-Query Total Time (s)',
-    #         use_log_scale=False, enforce_monotonic=False
-    #     )
+    for ds in datasets:
+        # Example plotting calls utilizing the new parameter flags!
+    
+        metric_by_configs.plot_metric_vs_lan_time(
+            nested_data, OUTPUT_DIR, dataset=ds,
+            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+            metric_key='mrr', metric_label='MRR',
+            use_log_scale=False, enforce_monotonic=True
+        )
+    
+        # metric_by_configs.plot_metric_vs_wan_time(
+        #     nested_data, OUTPUT_DIR, dataset=ds,
+        #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+        #     metric_key='mrr', metric_label='MRR',
+        #     use_log_scale=False, enforce_monotonic=True
+        # )
+    
+        metric_by_configs.plot_metric_vs_total_time(
+            nested_data, OUTPUT_DIR, dataset=ds,
+            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+            metric_key='mrr', metric_label='MRR',
+            use_log_scale=False, enforce_monotonic=True
+        )
+    
+        metric_by_configs.plot_quality_vs_time(
+            nested_data, OUTPUT_DIR, dataset=ds,
+            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+            time_key='total_time', time_label='Per-Query Total Time (s)',
+            use_log_scale=False, enforce_monotonic=False
+        )
 
     print("Generating Bins ablation plots...")
 

@@ -47,4 +47,10 @@ def enforce_monotonic_increasing(runs, x_key, y_key):
                 f"[DEBUG - Monotonic Drop] {run['method'].upper()} on {run['dataset']} (k={run['k']}, config={run['config']}) "
                 f"dropped. {y_key} was {run[y_key]:.4f} but current max is {current_max_y:.4f} at {x_key}={run[x_key]:.2f}")
 
+    if filtered_runs[0][y_key] <= 0.01:
+        del filtered_runs[0]
+        print(
+            f"[DEBUG - Monotonic Drop] {run['method'].upper()} on {run['dataset']} (k={run['k']}, config={run['config']}) "
+            f"dropped. {y_key} was {run[y_key]:.4f} but current max is {current_max_y:.4f} at {x_key}={run[x_key]:.2f}")
+
     return filtered_runs

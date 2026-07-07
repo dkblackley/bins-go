@@ -1,4 +1,4 @@
-#!/bin/bash -l
+ #!/bin/bash -l
 #SBATCH --job-name=Bins_HighK_MSMARCO
 #SBATCH --partition=bigmem
 #SBATCH --nodes=1

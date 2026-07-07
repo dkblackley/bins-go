@@ -24,7 +24,7 @@ def plot_bins_ablations(nested_data, output_dir, param_to_vary='bs', target_k=10
     if param_to_vary == 'bs':
         valid_runs = [r for r in runs if r['dpb'] == 1000 and r['bs'] is not None]
         valid_runs.sort(key=lambda x: x['bs'])
-        x_vals = [r['bs'] for r in valid_runs]
+        x_vals = [r['bin_size'] for r in valid_runs]
         xlabel = 'Bin Size Multiplier (bs)'
         file_prefix = f'fig_bins_bs_ablation_k{target_k}'
     elif param_to_vary == 'dpb':
