@@ -32,21 +32,27 @@ DPB_ARR=()
 add_bins_ablations() {
     local d=$1
 
-    # 1. VARY K (BS=1.0, DPB=1000) -> 6 combinations
+    # Set default Docs Per Bin based on dataset
+    local default_dpb=1000
+    if [[ "$d" == "scifact" || "$d" == "trec-covid" ]]; then
+        default_dpb=100
+    fi
+
+    # 1. VARY K (BS=1.0, DPB=$default_dpb) -> 6 combinations
     for k in 10 50 100 500 1000 5000; do
-        DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("1000")
+        DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("$default_dpb")
     done
 
-    # 2. VARY BIN SIZE across K=10 and K=100 (DPB=1000) -> 8 combinations
+    # 2. VARY BIN SIZE across K=10 and K=100 (DPB=$default_dpb) -> 8 combinations
     for k in 10 100; do
         for bs in 2.0 1.0 0.1 0.01; do
-            DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("1000")
+            DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$default_dpb")
         done
     done
 
-    # 3. VARY DOCS PER BIN across K=10 and K=100 (BS=1.0) -> 12 combinations
+    # 3. VARY DOCS PER BIN across K=10 and K=100 (BS=1.0) -> 18 combinations
     for k in 10 100; do
-        for dpb in 10 50 100 500 1000 5000; do
+        for dpb in 10 25 50 75 100 250 500 1000 5000; do
             DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("$dpb")
         done
     done
@@ -101,7 +107,6 @@ srun ./pir_app \
     -dataset "../datasets" \
     -debug 1 \
     -dim 192
-
 
 cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
 cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err" "${OUT_DIR}/error.log" || true
