@@ -48,12 +48,16 @@ func (v VecBins) Preprocess() {
 }
 
 type DBentry struct {
-	entry [][]uint64
+	entry []string
 }
 
 func (d DBentry) Decode(config *globals.Args) []string {
+	return d.entry
+}
 
-	results := d.entry // This might literally always be of size 1. But hey, it works I guess
+func preDecode(config *globals.Args, d [][]uint64) []string {
+
+	results := d // This might literally always be of size 1. But hey, it works I guess
 	empty := 0
 
 	docIDs := make([]string, 0)
@@ -115,7 +119,7 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	results, err := v.PIR.Query(indices)
 
 	return DBentry{
-		results,
+		preDecode(&v.config, results),
 	}, err
 }
 

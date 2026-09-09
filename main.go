@@ -249,6 +249,7 @@ func main() {
 			LoadStage2Hits: *loadStage2Hits,
 			SaveStage2Hits: *saveStage2Hits,
 			SkipStage2:     *skipStage2,
+			SearchType:     *searchType,
 		},
 	}
 
@@ -461,6 +462,10 @@ func doPIRSearch(PIRImplemented PIRImplement, qids []string, k int, config *glob
 		if err != nil {
 			logrus.Errorf("Error querying PIR: %v", err)
 			continue
+		}
+
+		if config.SearchType == "bins" {
+
 		}
 
 		decodables[q] = results

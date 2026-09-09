@@ -78,6 +78,8 @@ type BinsConf struct {
 	LoadStage2Hits string
 	SaveStage2Hits string
 	SkipStage2     bool
+
+	SearchType string
 }
 
 // strconv.Itoa(docID)
