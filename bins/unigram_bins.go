@@ -120,8 +120,12 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 	logrus.Infof("Size of/number of bins: %d with binsize %f", realBinSize, config.BinSize)
 	config.Metadata["RealBinSize"] = strconv.Itoa(int(realBinSize))
 
-	// Very 'hacky' a mapping to a 'set' which is a mapping to globals. Is converted into a regular bin at the end.
-	setsBins := make(map[uint]map[string]struct{})
+	//// Very 'hacky' a mapping to a 'set' which is a mapping to globals. Is converted into a regular bin at the end.
+	//setsBins := make(map[uint]map[string]struct{})
+	// Can't use the set because round robin requires structure and set is unorganised
+	binsOrder := make(map[uint][]string)
+	// bin -> how many unigrams have landed here. Drives the round-robin stride.
+	binHits := make(map[uint]uint)
 
 	bar = progressbar.Default(int64(total_items_in_set), fmt.Sprintf("Putting items into bins %s", dataset.Name))
 
@@ -168,59 +172,107 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 		var storedIDs []string
 		// var counter := 0
-
-		for rank := uint(0); rank <= config.DocsPerBin; rank++ {
-
-			if int(rank) >= len(doc_ids) || int(rank) >= int(config.DocsPerBin) { // Ran out of hits
-				break
-			}
+		for rank := 0; rank < len(doc_ids) && rank < int(config.DocsPerBin); rank++ {
 			storedIDs = append(storedIDs, doc_ids[rank])
-
-			// Now to do the actual 'binning' for each unigram.
-			for d := uint(0); d <= config.DChoice; d++ {
-
-				var bin_index = hashTokenChoice(word, d)
-
-				if !config.Vectors { // If we're just the filenames/raw text
-					for _, docID := range storedIDs {
-						add(setsBins, uint(bin_index)%realBinSize, docID)
-					}
-				} else {
-					for _, storedID := range storedIDs {
-						add(setsBins, uint(bin_index)%realBinSize, storedID)
-					}
-				}
-
-			}
-
 		}
+		for d := uint(0); d <= config.DChoice; d++ {
+			var bin_index = hashTokenChoice(word, d)
+			mergeIntoBin(binsOrder, binHits, uint(bin_index)%realBinSize, storedIDs, config.DocsPerBin)
+		}
+
+		//for rank := uint(0); rank <= config.DocsPerBin; rank++ {
+		//
+		//	if int(rank) >= len(doc_ids) || int(rank) >= int(config.DocsPerBin) { // Ran out of hits
+		//		break
+		//	}
+		//	storedIDs = append(storedIDs, doc_ids[rank])
+		//
+		//	// Now to do the actual 'binning' for each unigram.
+		//	for d := uint(0); d <= config.DChoice; d++ {
+		//
+		//		var bin_index = hashTokenChoice(word, d)
+		//
+		//		if !config.Vectors { // If we're just the filenames/raw text
+		//			for _, docID := range storedIDs {
+		//				add(setsBins, uint(bin_index)%realBinSize, docID)
+		//			}
+		//		} else {
+		//			for _, storedID := range storedIDs {
+		//				add(setsBins, uint(bin_index)%realBinSize, storedID)
+		//			}
+		//		}
+		//
+		//	}
+		//
+		//}
 
 	}
 
 	bar.Finish()
 	binsSlice := make([][]string, realBinSize)
-
-	for bin, set := range setsBins {
-		idx := int(bin)
-
-		// Pre-size capacity to avoid re-allocs while appending
-		binsSlice[idx] = make([]string, 0, len(set))
-		for w := range set {
-			binsSlice[idx] = append(binsSlice[idx], w)
-		}
-
+	for bin, ids := range binsOrder {
+		binsSlice[int(bin)] = ids
 	}
+
+	//for bin, set := range setsBins {
+	//	idx := int(bin)
+	//
+	//	// Pre-size capacity to avoid re-allocs while appending
+	//	binsSlice[idx] = make([]string, 0, len(set))
+	//	for w := range set {
+	//		binsSlice[idx] = append(binsSlice[idx], w)
+	//	}
+	//}
 
 	return binsSlice
 
 }
 
-func add(sets map[uint]map[string]struct{}, bin uint, word string) {
-	if sets[bin] == nil {
-		sets[bin] = make(map[string]struct{})
+// mergeIntoBin interleaves incoming (BM25 rank order) with whatever is already
+// in the bin
+func mergeIntoBin(binsOrder map[uint][]string, binHits map[uint]uint, bin uint, incoming []string, threshold uint) {
+	binHits[bin]++
+	keep := binHits[bin] - 1 // existing docs kept between each incoming doc
+
+	existing := binsOrder[bin]
+
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	merged := make([]string, 0, threshold)
+
+	push := func(id string) {
+		if _, dup := seen[id]; dup {
+			return
+		}
+		seen[id] = struct{}{}
+		merged = append(merged, id)
 	}
-	sets[bin][word] = struct{}{}
+
+	i, j := 0, 0
+	for uint(len(merged)) < threshold && (i < len(existing) || j < len(incoming)) {
+		for k := uint(0); k < keep && i < len(existing) && uint(len(merged)) < threshold; k++ {
+			push(existing[i])
+			i++
+		}
+		if j < len(incoming) {
+			push(incoming[j])
+			j++
+		} else if i < len(existing) { // incoming exhausted, drain the rest
+			push(existing[i])
+			i++
+		} else {
+			break
+		}
+	}
+
+	binsOrder[bin] = merged
 }
+
+//func add(sets map[uint]map[string]struct{}, bin uint, word string) {
+//	if sets[bin] == nil {
+//		sets[bin] = make(map[string]struct{})
+//	}
+//	sets[bin][word] = struct{}{}
+//}
 
 func hashTokenChoice(tokens string, i uint) uint64 {
 	// Join all strings into a single byte sequence
