@@ -117,19 +117,26 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 		return DBentry{nil}, nil
 	}
 
-	vecResults, err := v.vecPIR.Query(docIdx)
-	if err != nil {
-		return DBentry{nil}, err
+	batch := int(v.vecPIR.Config().BatchSize)
+	docIDs := make([]string, 0, len(docIdx))
+	for start := 0; start < len(docIdx); start += batch {
+		end := start + batch
+		if end > len(docIdx) {
+			end = len(docIdx)
+		}
+		vecResults, err := v.vecPIR.Query(docIdx[start:end])
+		if err != nil {
+			return DBentry{docIDs}, err
+		}
+		docIDs = append(docIDs, v.preDecode(docIdx[start:end], vecResults)...)
 	}
 
-	return DBentry{v.preDecode(docIdx, vecResults)}, err
+	return DBentry{docIDs}, nil
 }
 
-// unpacks the stage-1 response into doc indices. Bins are already truncated to
-// DocsPerBin by mergeIntoBin, so the list is at most T long and goes out as-is.
 func (v VecBins) collectDocIdx(results [][]uint64) []uint64 {
-	docIdx := make([]uint64, 0, v.T)
-	seen := make(map[uint32]struct{}, v.T)
+	docIdx := make([]uint64, 0, len(results)*v.T)
+	seen := make(map[uint32]struct{}, len(results)*v.T)
 
 	for i := 0; i < len(results); i++ {
 		for _, w := range results[i] {
@@ -142,9 +149,6 @@ func (v VecBins) collectDocIdx(results [][]uint64) []uint64 {
 				}
 				seen[half] = struct{}{}
 				docIdx = append(docIdx, uint64(half-1))
-				if len(docIdx) >= v.T {
-					return docIdx
-				}
 			}
 		}
 	}
@@ -248,8 +252,9 @@ func MakeVecDb(config *globals.Args) VecBins {
 	idPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(idRaw)), idWords, idWords*8, 24, idRaw, 20, 24)
 
+	stage2Batch := T
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
-		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(T), vecRaw, 20, 1)
+		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, 1)
 
 	meta := config.DatasetMeta
 	queires, err := LoadQueries(meta.Queries)
