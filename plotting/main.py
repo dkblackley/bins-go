@@ -3,8 +3,8 @@ import os
 import re
 import json
 import matplotlib.pyplot as plt
-import metric_by_configs
 import bins_ablation
+import util
 
 # ==========================================
 # GLOBAL CONSTANTS & AESTHETICS
@@ -28,32 +28,6 @@ TARGET_CONFIGS = {
 }
 
 SUBPLOT_SIZE = (20, 5)
-
-
-def setup_sleek_style():
-    """Applies a modern, flat, and highly readable style to all matplotlib plots."""
-    plt.rcParams.update({
-        'font.size': FONT_SIZE,
-        'axes.titlesize': FONT_SIZE + 2,
-        'axes.labelsize': FONT_SIZE,
-        'xtick.labelsize': FONT_SIZE - 8,
-        'ytick.labelsize': FONT_SIZE - 8,
-        'legend.fontsize': FONT_SIZE - 4,
-        'axes.linewidth': 1.2,
-        'axes.spines.top': False,
-        'axes.spines.right': False,
-        'figure.autolayout': True,
-        'figure.constrained_layout.use': False,
-        'grid.color': '#E5E5E5',
-        'grid.linestyle': '--',
-        'grid.alpha': 0.7,
-        'figure.figsize': (17, 11),
-        'axes.titlepad': 50,
-        'axes.labelpad': 0,
-        'lines.linewidth': 8.0,
-        'lines.markersize': 25,
-        'figure.subplot.right': 0.99,
-    })
 
 
 # ==========================================
@@ -111,6 +85,9 @@ def load_extended_data(results_dir, method_order):
     for folder in os.listdir(results_dir):
         folder_path = os.path.join(results_dir, folder)
         if not os.path.isdir(folder_path):
+            continue
+
+        if 'lucene' in folder:
             continue
 
         # 1. Determine Method via direct matching
@@ -234,61 +211,127 @@ def load_extended_data(results_dir, method_order):
 
     return nested_data
 
+# if __name__ == "__main__":
+#     RESULTS_DIR = "../../../../datasets/results"
+#     OUTPUT_DIR = "./plots"
+#
+#     util.setup_sleek_style()
+#
+#     print("Loading extended nested data for multi-dimensional plots...")
+#     nested_data = load_extended_data(RESULTS_DIR, METHOD_ORDER)
+#
+#     print("Generating network and quality plots per dataset...")
+#     datasets = ['msmarco', 'scifact', 'trec-covid']
+#
+#
+#     for ds in datasets:
+#         # Example plotting calls utilizing the new parameter flags!
+#
+#         metric_by_configs.plot_metric_vs_lan_time(
+#             nested_data, OUTPUT_DIR, dataset=ds,
+#             method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+#             metric_key='mrr', metric_label='MRR',
+#             use_log_scale=False, enforce_monotonic=True
+#         )
+#
+#         # metric_by_configs.plot_metric_vs_wan_time(
+#         #     nested_data, OUTPUT_DIR, dataset=ds,
+#         #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+#         #     metric_key='mrr', metric_label='MRR',
+#         #     use_log_scale=False, enforce_monotonic=True
+#         # )
+#
+#         metric_by_configs.plot_metric_vs_total_time(
+#             nested_data, OUTPUT_DIR, dataset=ds,
+#             method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+#             metric_key='mrr', metric_label='MRR',
+#             use_log_scale=False, enforce_monotonic=True
+#         )
+#
+#         metric_by_configs.plot_quality_vs_time(
+#             nested_data, OUTPUT_DIR, dataset=ds,
+#             method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
+#             time_key='total_time', time_label='Per-Query Total Time (s)',
+#             use_log_scale=False, enforce_monotonic=False
+#         )
+#
+#     print("Generating Bins ablation plots...")
+#
+#     # Generate the 3 plots varying Bin Size
+#     bins_ablation.bins_ablations(
+#         nested_data, OUTPUT_DIR, param_to_vary='bs', target_k=100
+#     )
+#
+#     # Generate the 3 plots varying Docs Per Bin
+#     bins_ablation.bins_ablations(
+#         nested_data, OUTPUT_DIR, param_to_vary='dpb', target_k=100
+#     )
+#
+#
+#     print(f"Done! Plots saved to {OUTPUT_DIR}/")
+#
+
+# ---------------------------------------------------------------------------
+# Paste into main.py. util replaces setup_sleek_style() for these
+# figures; the loader (load_extended_data) is unchanged.
+# ---------------------------------------------------------------------------
+
+import util
+import comparison_histograms
+import bins_ablation
+import tree_ablation
+
 if __name__ == "__main__":
     RESULTS_DIR = "../../../../datasets/results"
     OUTPUT_DIR = "./plots"
 
-    setup_sleek_style()
+    util.setup_sleek_style()
 
-    print("Loading extended nested data for multi-dimensional plots...")
     nested_data = load_extended_data(RESULTS_DIR, METHOD_ORDER)
 
-    print("Generating network and quality plots per dataset...")
-    datasets = ['msmarco', 'scifact', 'trec-covid']
-    
-    
-    for ds in datasets:
-        # Example plotting calls utilizing the new parameter flags!
-    
-        metric_by_configs.plot_metric_vs_lan_time(
-            nested_data, OUTPUT_DIR, dataset=ds,
-            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-            metric_key='mrr', metric_label='MRR',
-            use_log_scale=False, enforce_monotonic=True
-        )
-    
-        # metric_by_configs.plot_metric_vs_wan_time(
-        #     nested_data, OUTPUT_DIR, dataset=ds,
-        #     method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-        #     metric_key='mrr', metric_label='MRR',
-        #     use_log_scale=False, enforce_monotonic=True
-        # )
-    
-        metric_by_configs.plot_metric_vs_total_time(
-            nested_data, OUTPUT_DIR, dataset=ds,
-            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-            metric_key='mrr', metric_label='MRR',
-            use_log_scale=False, enforce_monotonic=True
-        )
-    
-        metric_by_configs.plot_quality_vs_time(
-            nested_data, OUTPUT_DIR, dataset=ds,
-            method_order=METHOD_ORDER, colors=COLORS, target_configs=TARGET_CONFIGS,
-            time_key='total_time', time_label='Per-Query Total Time (s)',
-            use_log_scale=False, enforce_monotonic=False
-        )
-
-    print("Generating Bins ablation plots...")
-
-    # Generate the 3 plots varying Bin Size
-    bins_ablation.plot_bins_ablations(
-        nested_data, OUTPUT_DIR, param_to_vary='bs', target_k=100
+    # -----------------------------------------------------------------------
+    # Experiment 2: best-MRR operating point per method
+    # -----------------------------------------------------------------------
+    values = comparison_histograms.values_from_nested(
+        nested_data, criterion='mrr', k_val=100
     )
+    comparison_histograms.plot_exp2_comparison(values, OUTPUT_DIR, layout='row')
 
-    # Generate the 3 plots varying Docs Per Bin
-    bins_ablation.plot_bins_ablations(
-        nested_data, OUTPUT_DIR, param_to_vary='dpb', target_k=100
+    # 2x2 alternative, taller bars, and roomy enough for value labels:
+    # comparison_histograms.comparison_histograms(
+    #     values, OUTPUT_DIR, layout='grid', show_values=True)
+
+    # -----------------------------------------------------------------------
+    # BM25-Bin ablation: docs-per-bin and bin-size sweeps
+    # -----------------------------------------------------------------------
+    bins_data = bins_ablation.data_from_nested(
+        nested_data, target_k=100, fixed_bs=1.0, fixed_dpb=1000
     )
+    bins_ablation.plot_bins_ablation(bins_data, OUTPUT_DIR)
 
+    # -----------------------------------------------------------------------
+    # BM25-Tree ablation: branch factor sweep + round latency breakdown
+    # -----------------------------------------------------------------------
+    tree_sweep = tree_ablation.sweep_from_nested(
+        nested_data, dataset='msmarco', k_values=(32, 64, 128, 256), target_k=100
+    )
+    # The round shares aren't in metadata.json, so they stay explicit. Swap in
+    # your own list once the per-round timings are exported.
+    tree_ablation.plot_tree_ablation(
+        tree_sweep, tree_ablation.HARDCODED_ROUNDS, OUTPUT_DIR
+    )
 
     print(f"Done! Plots saved to {OUTPUT_DIR}/")
+
+
+# ---------------------------------------------------------------------------
+# In the paper. No \resizebox: the PDF is already sized for \textwidth, and
+# resizing again would scale the fonts away from util.FONT_PT.
+#
+#   \begin{figure}[t]
+#   \centering
+#   \includegraphics[width=\textwidth]{figures/fig_exp2_comparison_row.pdf}
+#   \caption{...}
+#   \label{fig:exp2}
+#   \end{figure}
+# ---------------------------------------------------------------------------
