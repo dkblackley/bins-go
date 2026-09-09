@@ -335,10 +335,10 @@ func ProcessVecDB(config *globals.Args, maxRowSize uint, vectorsInBins [][][]flo
 		uint64(len(vectorsInBins)),
 		maxWordsPerEntry,
 		uint64(DBEntrySize),
-		16,
+		32,
 		rawDB,
 		20,
-		16,
+		32,
 	)
 
 	//TODO: Remove this when not debugging
