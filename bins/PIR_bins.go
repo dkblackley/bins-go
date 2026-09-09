@@ -251,18 +251,30 @@ func MakeVecDb(config *globals.Args) VecBins {
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(T), vecRaw, 20, 1)
 
+	meta := config.DatasetMeta
+	queires, err := LoadQueries(meta.Queries)
+	Must(err)
+	queryMap := make(map[string]globals.Query)
+	for q := range len(queires) {
+		qid := queires[q].ID
+		queryMap[qid] = queires[q]
+	}
+
 	binPir := VecBins{
-		N:           len(idRaw),
-		Dimensions:  int(config.Dimensions),
-		EntrySize:   maxRowSize,
-		MaxRowSize:  uint(maxRowSize),
-		T:           T,
-		idPIR:       idPIR,
-		vecPIR:      vecPIR,
-		docMap:      docMap,
-		rawDB:       idRaw,
-		DBEntrySize: idWords * 8,
-		DBTotalSize: uint64(len(idRaw)) * idWords * 8,
+		N:                    len(idRaw),
+		Dimensions:           int(config.Dimensions),
+		EntrySize:            maxRowSize,
+		MaxRowSize:           uint(maxRowSize),
+		T:                    T,
+		idPIR:                idPIR,
+		vecPIR:               vecPIR,
+		docMap:               docMap,
+		rawDB:                idRaw,
+		DBEntrySize:          idWords * 8,
+		DBTotalSize:          uint64(len(idRaw)) * idWords * 8,
+		Queries:              queryMap,
+		EnglishTokenAnalyzer: strictEnglishAnalyzer(),
+		config:               config,
 	}
 
 	if config.DebugLevel >= 1 {
