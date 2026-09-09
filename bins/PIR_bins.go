@@ -1,7 +1,6 @@
 package bins
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 	"github.com/blugelabs/bluge/analysis"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
-	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,28 +21,46 @@ type VecBins struct {
 	DBTotalSize          uint64                   // in bytes
 	Queries              map[string]globals.Query // A mapping from QID to query
 	EnglishTokenAnalyzer *analysis.Analyzer
-	PIR                  *pianopir.SimpleBatchPianoPIR
-	MaxRowSize           uint
+	// PIR                  *pianopir.SimpleBatchPianoPIR
+	MaxRowSize uint
+	T          int
+	idPIR      *pianopir.SimpleBatchPianoPIR
+	vecPIR     *pianopir.SimpleBatchPianoPIR
+	docMap     map[int]string
 
 	rawDB  [][]uint64
 	config *globals.Args
 }
 
 func (v VecBins) PIRPreprocess() time.Duration {
-	return v.PIR.Preprocessing()
-}
-
-func (v VecBins) GetBatchNums() (uint64, uint64, uint64) {
-	pir := v.PIR
-	return pir.FinishedBatchNum, pir.Config().BatchNumNeeded, pir.SupportBatchNum
-}
-
-func (v VecBins) GetMetaData() map[string]string {
-	return v.PIR.PrintInfo()
+	if (v.vecPIR.FinishedBatchNum+v.vecPIR.Config().BatchNumNeeded >= v.vecPIR.SupportBatchNum) && (v.idPIR.FinishedBatchNum+v.idPIR.Config().BatchNumNeeded >= v.idPIR.SupportBatchNum) {
+		return v.idPIR.Preprocessing() + v.vecPIR.Preprocessing()
+	}
+	if v.vecPIR.FinishedBatchNum+v.vecPIR.Config().BatchNumNeeded >= v.vecPIR.SupportBatchNum {
+		return v.vecPIR.Preprocessing()
+	}
+	return v.idPIR.Preprocessing() + v.vecPIR.Preprocessing()
 }
 
 func (v VecBins) Preprocess() {
-	v.PIR.Preprocessing()
+	v.idPIR.Preprocessing()
+	v.vecPIR.Preprocessing()
+}
+
+// report whichever PIR is closer to running out of hints
+func (v VecBins) GetBatchNums() (uint64, uint64, uint64) {
+	if v.vecPIR.FinishedBatchNum+v.vecPIR.Config().BatchNumNeeded >= v.vecPIR.SupportBatchNum {
+		return v.vecPIR.FinishedBatchNum, v.vecPIR.Config().BatchNumNeeded, v.vecPIR.SupportBatchNum
+	}
+	return v.idPIR.FinishedBatchNum, v.idPIR.Config().BatchNumNeeded, v.idPIR.SupportBatchNum
+}
+
+func (v VecBins) GetMetaData() map[string]string {
+	meta := v.idPIR.PrintInfo()
+	for k, val := range v.vecPIR.PrintInfo() {
+		meta["Vec"+k] = val
+	}
+	return meta
 }
 
 type DBentry struct {
@@ -55,57 +71,31 @@ func (d DBentry) Decode(config *globals.Args) []string {
 	return d.entry
 }
 
-func preDecode(config *globals.Args, d [][]uint64) []string {
+func (v VecBins) preDecode(docIdx []uint64, results [][]uint64) []string {
+	docIDs := make([]string, 0, len(docIdx))
 
-	results := d // This might literally always be of size 1. But hey, it works I guess
-	empty := 0
-
-	docIDs := make([]string, 0)
-
-	IDLookup := config.IDLookup
-
-	for i := 0; i < len(results); i++ {
+	for i := 0; i < len(docIdx) && i < len(results); i++ {
 		singleResult := results[i]
-		if len(singleResult) == 1 {
-			logrus.Warnf("Got an empty result: %v - Possibly missed and entry", singleResult)
-			empty++
-			if empty == len(results) {
-				logrus.Errorf("All results were empty!!!!")
-
-			}
+		if len(singleResult) <= 1 {
+			logrus.Warnf("Got an empty result for doc %d - Possibly missed an entry", docIdx[i])
 			continue
 		}
-		//if config.SearchType == "Pacmann" {
-		//	multipleVectors = // TODO: DOES SINGLERESULT ONLY HAVE ONE VECTOR??
-		//} else {
-		multipleVectors, err := DecodeEntryToVectors(singleResult, int(config.Dimensions))
-		Must(err)
 
-		// TODO: Remove this when not debug
-		//if len(multipleVectors) > 0 {
-		//	// Check if the first vector is all zeros
-		//	isZero := true
-		//	for _, val := range multipleVectors[0] {
-		//		if val != 0 {
-		//			isZero = false
-		//			break
-		//		}
-		//	}
-		//	if isZero {
-		//		logrus.Warnf("WARNING: Decoded vector is ALL ZEROS for QID %s", qid)
-		//	}
-		//}
-
-		for j := 0; j < len(multipleVectors); j++ {
-			ID := HashFloat32s(multipleVectors[j])
-			docID, ok := IDLookup[ID]
-			if !ok {
-				logrus.Warnf("Vector hash not found: %s", ID)
-				continue
+		if v.config.DebugLevel >= 1 {
+			// stage 2 stores exactly one vector per entry
+			vecs, err := DecodeEntryToVectors(singleResult, v.Dimensions)
+			Must(err)
+			if len(vecs) != 1 {
+				logrus.Warnf("Expected 1 vector for doc %d, got %d", docIdx[i], len(vecs))
 			}
-			docIDs = append(docIDs, docID)
-
 		}
+
+		docID, ok := v.docMap[int(docIdx[i])]
+		if !ok {
+			logrus.Warnf("Doc index not in corpus map: %d", docIdx[i])
+			continue
+		}
+		docIDs = append(docIDs, docID)
 	}
 	return docIDs
 }
@@ -113,14 +103,56 @@ func preDecode(config *globals.Args, d [][]uint64) []string {
 func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	indices := v.MakeIndices(QID)
 
-	if uint64(len(indices)) >= v.PIR.Config().BatchSize {
+	if uint64(len(indices)) >= v.idPIR.Config().BatchSize {
 		logrus.Warnf("Too many indices in batch: %d for QID: %s - Possible corruption incoming", len(indices), QID)
 	}
-	results, err := v.PIR.Query(indices)
 
-	return DBentry{
-		preDecode(v.config, results),
-	}, err
+	idResults, err := v.idPIR.Query(indices)
+	if err != nil {
+		return DBentry{nil}, err
+	}
+
+	docIdx := v.collectDocIdx(idResults)
+	if len(docIdx) == 0 {
+		return DBentry{nil}, nil
+	}
+
+	vecResults, err := v.vecPIR.Query(docIdx)
+	if err != nil {
+		return DBentry{nil}, err
+	}
+
+	return DBentry{v.preDecode(docIdx, vecResults)}, err
+}
+
+// unpacks the stage-1 response into doc indices. Bins are already truncated to
+// DocsPerBin by mergeIntoBin, so the list is at most T long and goes out as-is.
+func (v VecBins) collectDocIdx(results [][]uint64) []uint64 {
+	docIdx := make([]uint64, 0, v.T)
+	seen := make(map[uint32]struct{}, v.T)
+
+	for i := 0; i < len(results); i++ {
+		for _, w := range results[i] {
+			for _, half := range [...]uint32{uint32(w), uint32(w >> 32)} {
+				if half == 0 {
+					continue // padding, not doc 0
+				}
+				if _, dup := seen[half]; dup {
+					continue
+				}
+				seen[half] = struct{}{}
+				docIdx = append(docIdx, uint64(half-1))
+				if len(docIdx) >= v.T {
+					return docIdx
+				}
+			}
+		}
+	}
+
+	if len(docIdx) == 0 {
+		logrus.Errorf("All results were empty!!!!")
+	}
+	return docIdx
 }
 
 func (v VecBins) MakeIndices(QID string) []uint64 {
@@ -194,7 +226,6 @@ func MakeVecDb(config *globals.Args) VecBins {
 	// Padding is now done dynamically...
 	//pad := make([]float32, config.Dimensions)
 	maxRowSize := 0
-	redundancy := 0
 	for _, e := range DB {
 		if len(e) > maxRowSize {
 			maxRowSize = len(e)
@@ -208,172 +239,78 @@ func MakeVecDb(config *globals.Args) VecBins {
 		flipped[value] = key
 	}
 
-	newDb := make([][][]float32, 0, len(DB))
-	for _, entry := range DB {
-		row := make([][]float32, 0, len(entry))
-		// Add the vectors to the row
-		for j := 0; j < len(entry); j++ { // Just make i the entry, note that you'll need a 'map back' function
-			// id, err := strconv.ParseUint(entry[j], 10, 32)
-			id := flipped[entry[j]]
-			id64 := uint(id)
-			Must(err)
-			// This shouldn't do anything unless you're debugging!
-			//id64 = id64 % config.DBSize
-			if id64 > config.DBSize {
-				logrus.Errorf("ERROR: ID is larger that the database size!!")
-				panic("ERROR: ID is larger that the database size!!")
-			}
-			row = append(row, bm25Vectors[id64]) // shares the row slice; no copy
-		}
-		// Pad the row for all the missing vectors
-		//for len(row) < maxRowSize {
-		//	redundancy++
-		//	row = append(row, pad) // shared, no per-cell alloc
-		//}
-		newDb = append(newDb, row)
+	idRaw, idWords := BuildIndexDB(DB, flipped, maxRowSize)
+	vecRaw, vecWords := BuildVectorDB(bm25Vectors, int(config.Dimensions))
+	bm25Vectors = nil // vecRaw owns the data now
+
+	T := maxRowSize
+
+	idPIR := pianopir.NewSimpleBatchPianoPIR(
+		uint64(len(idRaw)), idWords, idWords*8, 24, idRaw, 20, 24)
+
+	vecPIR := pianopir.NewSimpleBatchPianoPIR(
+		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(T), vecRaw, 20, 1)
+
+	binPir := VecBins{
+		N:           len(idRaw),
+		Dimensions:  int(config.Dimensions),
+		EntrySize:   maxRowSize,
+		MaxRowSize:  uint(maxRowSize),
+		T:           T,
+		idPIR:       idPIR,
+		vecPIR:      vecPIR,
+		docMap:      docMap,
+		rawDB:       idRaw,
+		DBEntrySize: idWords * 8,
+		DBTotalSize: uint64(len(idRaw)) * idWords * 8,
 	}
 
 	if config.DebugLevel >= 1 {
-		wordsPerEntry := (uint64(config.Dimensions) * 4 * uint64(maxRowSize)) / 8
-		logrus.Debugf("Row layout: config.Dimensions=%d, maxRowSize=%d, wordsPerEntry=%d", config.Dimensions, maxRowSize, wordsPerEntry)
-
-		b := uint64(len(newDb)) * uint64(maxRowSize) * uint64(config.Dimensions) * 4
-		logrus.Debugf("New DB size: %.2f MiB (%d bytes)", float64(b)/(1<<20), b)
-
-		logrus.Debugf("Marco vectors: %.2f GiB", float64(config.DBSize*config.Dimensions*4)/(1<<30))
-		logrus.Debugf("Max row size: %d", maxRowSize)
-		logrus.Debugf("Padded files %d", redundancy)
+		logrus.Infof("%d, %d, %d, %d", binPir.N, binPir.DBTotalSize, binPir.DBEntrySize, binPir.EntrySize)
+		logrus.Debugf("Stage 1: %d bins, %d words/entry (%d B). Stage 2: %d vectors, %d words/entry (%d B). T=%d",
+			len(idRaw), idWords, idWords*8, len(vecRaw), vecWords, vecWords*8, T)
 	}
-
-	// PIR setup
-	// start := time.Now()
-
-	binPir := ProcessVecDB(config, uint(maxRowSize), newDb)
-	//end := time.Now()
-	//
-	//logrus.Infof("Preprocessing took %s", end.Sub(start))
-
-	meta := config.DatasetMeta
-	queires, err := LoadQueries(meta.Queries)
-	Must(err)
-	queryMap := make(map[string]globals.Query)
-	for q := range len(queires) {
-		qid := queires[q].ID
-		queryMap[qid] = queires[q]
-
-	}
-	binPir.Queries = queryMap
-	binPir.EnglishTokenAnalyzer = strictEnglishAnalyzer()
-	binPir.config = config
 
 	return binPir
 
 }
 
-func ProcessVecDB(config *globals.Args, maxRowSize uint, vectorsInBins [][][]float32) VecBins {
-	//DBEntrySize := config.Dimensions * 4 * maxRowSize // bytes per DB entry (maxRowSize vectors × config.Dimensions float32s)
-	DBSize := len(vectorsInBins)
-
-	// A single 'word' should be how many uint64s are required to re-make the entry (divide by 8 because uint64 is 8 bytes)
-	//wordsPerEntry := DBEntrySize / 8
-
-	// I think just DBsize is big enough but I might need to multiply by wordsPerEntry
-	rawDB := make([][]uint64, DBSize)
-
-	//TODO: remove bar for efficiency
-	bar := progressbar.Default(int64(len(vectorsInBins)), fmt.Sprintf("Preprocessing"))
-
-	for i := 0; i < len(vectorsInBins); i++ {
-
-		vectorBytesArray := make([][]byte, 0, len(vectorsInBins[i]))
-
-		for j := 0; j < len(vectorsInBins[i]); j++ {
-			vector := vectorsInBins[i][j]
-			vectorBytes := make([]byte, config.Dimensions*4)
-			for k := 0; k < int(config.Dimensions) && k < len(vector); k++ {
-				binary.LittleEndian.PutUint32(vectorBytes[k*4:], math.Float32bits(vector[k]))
+// two uint32 per uint64; ids stored as idx+1, 0 means empty
+func BuildIndexDB(DB [][]string, flipped map[string]int, maxRowSize int) ([][]uint64, uint64) {
+	rawDB := make([][]uint64, len(DB))
+	for i, bin := range DB {
+		if len(bin) == 0 {
+			continue // leave nil; EntryXor already skips n==0
+		}
+		entry := make([]uint64, (len(bin)+1)/2)
+		for j, id := range bin {
+			idx, ok := flipped[id]
+			if !ok {
+				logrus.Warnf("doc %s not in corpus map", id)
+				continue
 			}
-			vectorBytesArray = append(vectorBytesArray, vectorBytes)
-		}
-
-		// Flatten the array of byte arrays into a single byte array
-		//TODO: this might be wrong....
-		entryBytes := make([]byte, 0, len(vectorBytesArray)*int(config.Dimensions)*4)
-		for _, vb := range vectorBytesArray {
-			// A byte array that is exactly the size of 1 entry.
-			entryBytes = append(entryBytes, vb...)
-		}
-
-		wordsPerEntry := (len(entryBytes) + 7) / 8 // ceil(bytes/8)
-
-		entry := make([]uint64, wordsPerEntry)
-		for k := 0; k < wordsPerEntry; k++ {
-			off := k * 8
-			if off+8 <= len(entryBytes) {
-				entry[k] = binary.LittleEndian.Uint64(entryBytes[off : off+8])
+			v := uint64(uint32(idx) + 1)
+			if j%2 == 0 {
+				entry[j/2] |= v
 			} else {
-				// last partial word (only happens if total bytes not divisible by 8)
-				var tmp [8]byte
-				copy(tmp[:], entryBytes[off:])
-				entry[k] = binary.LittleEndian.Uint64(tmp[:])
+				entry[j/2] |= v << 32
 			}
 		}
-
-		// Copy into rawDB at the right offset
-		//copy(rawDB[i*int(wordsPerEntry):], entry)
-
-		// We just directly set the entry in rawdb:
 		rawDB[i] = entry
-
-		bar.Add(1)
+		DB[i] = nil // free the strings as you go
 	}
+	return rawDB, uint64((maxRowSize + 1) / 2)
+}
 
-	bar.Finish()
-
-	// TODO: Get average size instead of worst-case(?)
-	DBEntrySize := config.Dimensions * 4 * maxRowSize // bytes per DB entry (maxRowSize vectors × config.Dimensions float32s)
-	maxWordsPerEntry := (uint64(DBEntrySize) + 7) / 8
-
-	// Now that we have the rawDB, set up the PIR
-	// pir := pianopir.NewSimpleBatchPianoPIR(uint64(len(vectorsInBins)), uint64(DBEntrySize), uint64(DBEntrySize), 16, rawDB, 8)
-	pir := pianopir.NewSimpleBatchPianoPIR(
-		uint64(len(vectorsInBins)),
-		maxWordsPerEntry,
-		uint64(DBEntrySize),
-		24,
-		rawDB,
-		20,
-		24,
-	)
-
-	//TODO: Remove this when not debugging
-	if len(rawDB) > 0 {
-		logrus.Debugf("DEBUG: rawDB[0] length (uint64s): %d", len(rawDB[0]))
-		// Print first few uint64s to see if they are 0
-		if len(rawDB[0]) > 5 {
-			logrus.Debugf("DEBUG: rawDB[0] head: %v", rawDB[0][:5])
+func BuildVectorDB(vectors [][]float32, dim int) ([][]uint64, uint64) {
+	wordsPerVec := (dim + 1) / 2
+	rawDB := make([][]uint64, len(vectors))
+	for i, v := range vectors {
+		e := make([]uint64, wordsPerVec)
+		for k := 0; k+1 < dim; k += 2 {
+			e[k/2] = uint64(math.Float32bits(v[k])) | uint64(math.Float32bits(v[k+1]))<<32
 		}
+		rawDB[i] = e
 	}
-
-	logrus.Info("PIR Ready for preprocessing")
-
-	// pir.Preprocessing()
-
-	ret := VecBins{
-		N:          len(vectorsInBins),
-		Dimensions: int(config.Dimensions),
-		EntrySize:  int(maxRowSize),
-		rawDB:      rawDB,
-
-		PIR:         pir,
-		DBTotalSize: uint64(len(vectorsInBins) * int(DBEntrySize)),
-		DBEntrySize: uint64(DBEntrySize),
-	}
-
-	if config.DebugLevel >= 1 {
-		logrus.Infof("%d, %d, %d, %d", ret.N, ret.DBTotalSize, ret.DBEntrySize, ret.EntrySize)
-	}
-
-	return ret
-
+	return rawDB, uint64(wordsPerVec)
 }
