@@ -139,7 +139,8 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 		}
 
 		// subPIR[i] = NewPianoPIR(&subConfig, rawDB[start:end])
-		subPIR[i] = NewPianoPIR(&subConfig, shuffledDB[start:end])
+		// subPIR[i] = NewPianoPIR(&subConfig, shuffledDB[start:end])
+		subPIR[i] = NewPianoPIR(&subConfig, shuffledDB[start:end:end])
 	}
 
 	return &SimpleBatchPianoPIR{

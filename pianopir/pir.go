@@ -411,13 +411,14 @@ func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) [][]uint64 {
 	if len(rawDB) < int(c.config.ChunkSize*c.config.SetSize) {
 		// append with zeros
 		prev_len := len(rawDB)
-		rawDB = append(rawDB, make([][]uint64, int(c.config.ChunkSize*c.config.SetSize)-len(rawDB))...)
-		for j := 1; j < int(c.config.ChunkSize*c.config.SetSize)-prev_len; j++ {
-			rawDB[j+prev_len] = make([]uint64, c.config.MaxDBEntrySize)
-			for k := 0; k < len(rawDB[j+prev_len]); k++ {
-				rawDB[j+prev_len][k] = 0
-			}
-		}
+		rawDB = append(rawDB, make([][]uint64, int(c.config.ChunkSize*c.config.SetSize)-prev_len)...)
+
+		//for j := 1; j < int(c.config.ChunkSize*c.config.SetSize)-prev_len; j++ {
+		//	rawDB[j+prev_len] = make([]uint64, c.config.MaxDBEntrySize)
+		//	for k := 0; k < len(rawDB[j+prev_len]); k++ {
+		//		rawDB[j+prev_len][k] = 0
+		//	}
+		//}
 	}
 
 	if c.skipPrep {
