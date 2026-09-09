@@ -27,7 +27,7 @@ type VecBins struct {
 	MaxRowSize           uint
 
 	rawDB  [][]uint64
-	config globals.Args
+	config *globals.Args
 }
 
 func (v VecBins) PIRPreprocess() time.Duration {
@@ -119,7 +119,7 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	results, err := v.PIR.Query(indices)
 
 	return DBentry{
-		preDecode(&v.config, results),
+		preDecode(v.config, results),
 	}, err
 }
 
@@ -264,6 +264,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 	}
 	binPir.Queries = queryMap
 	binPir.EnglishTokenAnalyzer = strictEnglishAnalyzer()
+	binPir.config = config
 
 	return binPir
 
