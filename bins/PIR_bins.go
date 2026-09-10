@@ -253,7 +253,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 	// make batches of a size big enough) so we have it do a fixed/globally known number of rounds.
 	stage2Batch := T * 10
 	maxQuery := 1
-	if len(idRaw) < 10000 && T >= 50 {
+	if len(idRaw) < 10000 && stage2Batch >= 200 {
 		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
 		// rounds of PIR for stage2.
 		maxQuery = 4
