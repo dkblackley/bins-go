@@ -249,13 +249,17 @@ func MakeVecDb(config *globals.Args) VecBins {
 	idPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(idRaw)), idWords, idWords*8, 24, idRaw, 20, 24)
 
-	stage2Batch := T
-	maxQuery := 3
-	if len(idRaw) < 10000 && T >= 100 {
+	//SCifact is such a small DB that if we make the batch size big enough, then PIR crashes (it cant
+	// make batches of a size big enough) so we have it do a fixed/globally known number of rounds.
+	stage2Batch := T * 10
+	maxQuery := 1
+	if len(idRaw) < 10000 && T >= 50 {
 		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
 		// rounds of PIR for stage2.
-		maxQuery = 3
+		maxQuery = 4
+		stage2Batch = T
 	}
+	logrus.Infof("Stage2 Max query size: %d and Stage2 T is %d", maxQuery, stage2Batch)
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, uint64(maxQuery))
 
