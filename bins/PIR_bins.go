@@ -259,7 +259,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 		maxQuery = 4
 		stage2Batch = T
 	}
-	logrus.Infof("Stage2 Max query size: %d and Stage2 T is %d", maxQuery, stage2Batch)
+	logrus.Infof("Stage2 Max query size: %d and Stage2 Batch size is %d", maxQuery, stage2Batch)
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, uint64(maxQuery))
 
