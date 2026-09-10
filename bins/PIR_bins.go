@@ -256,7 +256,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 	if len(docMap) < 10000 {
 		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
 		// rounds of PIR for stage2.
-		maxQuery = 5
+		maxQuery = 8
 		stage2Batch = T
 	}
 	logrus.Infof("Stage2 Max query size: %d and Stage2 Batch size is %d", maxQuery, stage2Batch)
