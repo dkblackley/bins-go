@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"strconv"
 	"time"
 
@@ -99,8 +98,10 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	docIdx := v.collectDocIdx(idResults)
 	if len(docIdx) == 0 {
 		logrus.Errorf("Empty response ")
-		os.Exit(1)
+		// os.Exit(1)
 		// return DBentry{nil}, nil
+		// Add a random doc ID for security (so server doesn't realise we got nothing)
+		docIdx = append(docIdx, 10)
 	}
 
 	batch := int(v.vecPIR.Config().BatchSize)
