@@ -257,7 +257,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 		maxQuery = 5
 	}
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
-		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, uint64(maxQuery))
+		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch/4), vecRaw, 20, uint64(maxQuery))
 
 	meta := config.DatasetMeta
 	queires, err := LoadQueries(meta.Queries)
