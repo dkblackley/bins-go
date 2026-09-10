@@ -250,11 +250,11 @@ func MakeVecDb(config *globals.Args) VecBins {
 		uint64(len(idRaw)), idWords, idWords*8, 24, idRaw, 20, 24)
 
 	stage2Batch := T
-	maxQuery := 2
+	maxQuery := 3
 	if len(idRaw) < 10000 && T >= 100 {
 		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
 		// rounds of PIR for stage2.
-		maxQuery = 2
+		maxQuery = 3
 	}
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, uint64(maxQuery))
