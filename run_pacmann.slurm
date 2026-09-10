@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=480G
+#SBATCH --mem=250G
 #SBATCH --time=0-03:30:00
 
 #SBATCH --array=0-47
@@ -39,12 +39,12 @@ add_pacmann_ablations() {
 
     # 2. VARY STEPS (K=100, Neighb=32) -> 6 combinations
     for steps in 5 10 15 20 25 30; do
-        DATA_ARR+=("$d"); K_ARR+=("100"); STEPS_ARR+=("$steps"); NEIGHB_ARR+=("32")
+        DATA_ARR+=("$d"); K_ARR+=("10"); STEPS_ARR+=("$steps"); NEIGHB_ARR+=("32")
     done
 
     # 3. VARY NEIGHBOUR (K=100, Steps=15) -> 6 combinations
     for neighb in 8 16 24 32 40 48; do
-        DATA_ARR+=("$d"); K_ARR+=("100"); STEPS_ARR+=("15"); NEIGHB_ARR+=("$neighb")
+        DATA_ARR+=("$d"); K_ARR+=("10"); STEPS_ARR+=("15"); NEIGHB_ARR+=("$neighb")
     done
 }
 
