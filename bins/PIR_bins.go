@@ -3,7 +3,6 @@ package bins
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"os"
 	"strconv"
 	"time"
@@ -85,7 +84,6 @@ func (d DBentry) Decode(config *globals.Args) []string {
 
 func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	indices := v.MakeIndices(QID)
-	MaxQueryTerms := 20
 
 	if uint64(len(indices)) >= v.idPIR.Config().BatchSize {
 		logrus.Warnf("Too many indices in batch: %d for QID: %s - Possible corruption incoming", len(indices), QID)
@@ -104,30 +102,28 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	}
 
 	batch := int(v.vecPIR.Config().BatchSize)
-	dbSize := int(v.vecPIR.Config().DBSize)
-	retrieved := make([]uint64, 0, len(docIdx))
-	// Always MaxQueryTerms batches of exactly T, to hid size of Q
-	for it := 0; it < MaxQueryTerms; it++ {
-		start := min(it*batch, len(docIdx))
-		end := min(start+batch, len(docIdx))
+	// docIDs := make([]string, 0, len(docIdx))
+	// Because Batch size is T, there should be exactly one batched query per term
+	// TODO: FIX!!
 
-		batchIdx := append(make([]uint64, 0, batch), docIdx[start:end]...)
-		for len(batchIdx) < batch {
-			batchIdx = append(batchIdx, uint64(rand.Intn(dbSize))) // dummy doc
-		}
-
-		vecResults, err := v.vecPIR.Query(batchIdx)
-		if err != nil {
-			return DBentry{retrieved}, err
-		}
-		for k := 0; k < end-start; k++ {
-			if len(vecResults[k]) > 1 {
-				retrieved = append(retrieved, docIdx[start+k])
-			}
-		}
+	//for start := 0; start < len(docIdx); start += batch {
+	start := 0
+	end := start + batch
+	if end > len(docIdx) {
+		end = len(docIdx)
 	}
+	// vecResults, err := v.vecPIR.Query(docIdx[start:end])
+	// Do this for completeness, in a real 'run' we would just return this, but the main decoding loop requires strings
+	_, err = v.vecPIR.Query(docIdx[start:end])
+	if err != nil {
+		// return DBentry{docIDs}, err
+		return DBentry{docIdx[:start]}, err
+	}
+	// docIDs = append(docIDs, v.preDecode(docIdx[start:end], vecResults)...)
+	//}
 
-	return DBentry{retrieved}, nil
+	// return DBentry{docIDs}, nil
+	return DBentry{docIdx}, nil
 }
 
 func (v VecBins) collectDocIdx(results [][]uint64) []uint64 {
@@ -246,9 +242,9 @@ func MakeVecDb(config *globals.Args) VecBins {
 	T := maxRowSize
 
 	idPIR := pianopir.NewSimpleBatchPianoPIR(
-		uint64(len(idRaw)), idWords, idWords*8, 24, idRaw, 20, 24)
+		uint64(len(idRaw)), idWords, idWords*8, 20, idRaw, 20, 20)
 
-	stage2Batch := T
+	stage2Batch := T * 20
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, 1)
 
