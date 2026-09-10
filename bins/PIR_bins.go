@@ -24,11 +24,12 @@ type VecBins struct {
 	Queries              map[string]globals.Query // A mapping from QID to query
 	EnglishTokenAnalyzer *analysis.Analyzer
 	// PIR                  *pianopir.SimpleBatchPianoPIR
-	MaxRowSize uint
-	T          int
-	idPIR      *pianopir.SimpleBatchPianoPIR
-	vecPIR     *pianopir.SimpleBatchPianoPIR
-	docMap     map[int]string
+	MaxRowSize    uint
+	T             int
+	idPIR         *pianopir.SimpleBatchPianoPIR
+	vecPIR        *pianopir.SimpleBatchPianoPIR
+	docMap        map[int]string
+	maxQueryTerms int
 
 	rawDB  [][]uint64
 	config *globals.Args
@@ -85,7 +86,6 @@ func (d DBentry) Decode(config *globals.Args) []string {
 
 func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	indices := v.MakeIndices(QID)
-	MaxQueryTerms := 10
 
 	if uint64(len(indices)) >= v.idPIR.Config().BatchSize {
 		logrus.Warnf("Too many indices in batch: %d for QID: %s - Possible corruption incoming", len(indices), QID)
@@ -107,7 +107,7 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	dbSize := int(v.vecPIR.Config().DBSize)
 	retrieved := make([]uint64, 0, len(docIdx))
 	// Always MaxQueryTerms batches of exactly T, whatever the real term count
-	for it := 0; it < MaxQueryTerms; it++ {
+	for it := 0; it < v.maxQueryTerms; it++ {
 		start := min(it*batch, len(docIdx))
 		end := min(start+batch, len(docIdx))
 
@@ -261,6 +261,12 @@ func MakeVecDb(config *globals.Args) VecBins {
 		queryMap[qid] = queires[q]
 	}
 
+	maxQuery := 10
+	if len(idRaw) > 10000 && T >= 100 {
+		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
+		// rounds of PIR for stage2.
+		maxQuery = 5
+	}
 	binPir := VecBins{
 		N:                    len(idRaw),
 		Dimensions:           int(config.Dimensions),
@@ -276,6 +282,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 		Queries:              queryMap,
 		EnglishTokenAnalyzer: strictEnglishAnalyzer(),
 		config:               config,
+		maxQueryTerms:        maxQuery,
 	}
 
 	if config.DebugLevel >= 1 {
