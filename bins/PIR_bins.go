@@ -250,8 +250,14 @@ func MakeVecDb(config *globals.Args) VecBins {
 		uint64(len(idRaw)), idWords, idWords*8, 24, idRaw, 20, 24)
 
 	stage2Batch := T
+	maxQuery := 5
+	if len(idRaw) > 10000 && T >= 100 {
+		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
+		// rounds of PIR for stage2.
+		maxQuery = 5
+	}
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
-		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, 10)
+		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, uint64(maxQuery))
 
 	meta := config.DatasetMeta
 	queires, err := LoadQueries(meta.Queries)
@@ -262,12 +268,6 @@ func MakeVecDb(config *globals.Args) VecBins {
 		queryMap[qid] = queires[q]
 	}
 
-	maxQuery := 5
-	if len(idRaw) > 10000 && T >= 100 {
-		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
-		// rounds of PIR for stage2.
-		maxQuery = 5
-	}
 	binPir := VecBins{
 		N:                    len(idRaw),
 		Dimensions:           int(config.Dimensions),
