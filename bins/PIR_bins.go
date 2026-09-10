@@ -244,7 +244,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 	idPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(idRaw)), idWords, idWords*8, 20, idRaw, 20, 20)
 
-	stage2Batch := T * 20
+	stage2Batch := T * 10
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, 1)
 
