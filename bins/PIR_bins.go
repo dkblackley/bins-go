@@ -262,7 +262,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 		queryMap[qid] = queires[q]
 	}
 
-	maxQuery := 10
+	maxQuery := 5
 	if len(idRaw) > 10000 && T >= 100 {
 		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
 		// rounds of PIR for stage2.
