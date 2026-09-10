@@ -64,35 +64,16 @@ func (v VecBins) GetMetaData() map[string]string {
 }
 
 type DBentry struct {
-	entry []string
+	// entry []string
+	entry []uint64
 }
 
 func (d DBentry) Decode(config *globals.Args) []string {
-	return d.entry
-}
-
-func (v VecBins) preDecode(docIdx []uint64, results [][]uint64) []string {
-	docIDs := make([]string, 0, len(docIdx))
-
-	for i := 0; i < len(docIdx) && i < len(results); i++ {
-		singleResult := results[i]
-		if len(singleResult) <= 1 {
-			logrus.Warnf("Got an empty result for doc %d - Possibly missed an entry", docIdx[i])
-			continue
-		}
-
-		if v.config.DebugLevel >= 1 {
-			// stage 2 stores exactly one vector per entry
-			vecs, err := DecodeEntryToVectors(singleResult, v.Dimensions)
-			Must(err)
-			if len(vecs) != 1 {
-				logrus.Warnf("Expected 1 vector for doc %d, got %d", docIdx[i], len(vecs))
-			}
-		}
-
-		docID, ok := v.docMap[int(docIdx[i])]
+	docIDs := make([]string, 0, len(d.entry))
+	for _, idx := range d.entry {
+		docID, ok := config.DocIDMapPacmann[int(idx)]
 		if !ok {
-			logrus.Warnf("Doc index not in corpus map: %d", docIdx[i])
+			logrus.Warnf("Doc index not in corpus map: %d", idx)
 			continue
 		}
 		docIDs = append(docIDs, docID)
@@ -118,20 +99,24 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 	}
 
 	batch := int(v.vecPIR.Config().BatchSize)
-	docIDs := make([]string, 0, len(docIdx))
+	// docIDs := make([]string, 0, len(docIdx))
 	for start := 0; start < len(docIdx); start += batch {
 		end := start + batch
 		if end > len(docIdx) {
 			end = len(docIdx)
 		}
-		vecResults, err := v.vecPIR.Query(docIdx[start:end])
+		// vecResults, err := v.vecPIR.Query(docIdx[start:end])
+		// Do this for completeness, in a real 'run' we would just return this, but the main decoding loop requires strings
+		_, err := v.vecPIR.Query(docIdx[start:end])
 		if err != nil {
-			return DBentry{docIDs}, err
+			// return DBentry{docIDs}, err
+			return DBentry{docIdx[:start]}, err
 		}
-		docIDs = append(docIDs, v.preDecode(docIdx[start:end], vecResults)...)
+		// docIDs = append(docIDs, v.preDecode(docIdx[start:end], vecResults)...)
 	}
 
-	return DBentry{docIDs}, nil
+	// return DBentry{docIDs}, nil
+	return DBentry{docIdx}, nil
 }
 
 func (v VecBins) collectDocIdx(results [][]uint64) []uint64 {
