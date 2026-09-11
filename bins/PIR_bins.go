@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
 	"github.com/dkblackley/bins-go/globals"
@@ -108,47 +106,28 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 
 	batch := int(v.vecPIR.Config().BatchSize)
 	dbSize := int(v.vecPIR.Config().DBSize)
-
-	parts := make([][]uint64, v.maxQueryTerms) // one slot per iteration
-
-	var g errgroup.Group
-	g.SetLimit(pianopir.ThreadNum) // max concurrent goroutines; -1 means unlimited
-
-	for it := 0; it < v.maxQueryTerms; it++ {
-		g.Go(func() error {
-			start := min(it*batch, len(docIdx))
-			end := min(start+batch, len(docIdx))
-
-			batchIdx := append(make([]uint64, 0, batch), docIdx[start:end]...)
-			for len(batchIdx) < batch {
-				batchIdx = append(batchIdx, uint64(rand.Intn(dbSize)))
-			}
-
-			vecResults, err := v.vecPIR.Query(batchIdx)
-			if err != nil {
-				return err
-			}
-
-			local := make([]uint64, 0, end-start)
-			for k := 0; k < end-start; k++ {
-				if len(vecResults[k]) > 1 {
-					local = append(local, docIdx[start+k])
-				}
-			}
-			parts[it] = local // exclusive slot, no lock needed
-			return nil
-		})
-	}
-
-	qerr := g.Wait()
-
 	retrieved := make([]uint64, 0, len(docIdx))
-	for _, p := range parts {
-		retrieved = append(retrieved, p...)
+	// Always MaxQueryTerms batches of exactly T, whatever the real term count
+	for it := 0; it < v.maxQueryTerms; it++ {
+		start := min(it*batch, len(docIdx))
+		end := min(start+batch, len(docIdx))
+
+		batchIdx := append(make([]uint64, 0, batch), docIdx[start:end]...)
+		for len(batchIdx) < batch {
+			batchIdx = append(batchIdx, uint64(rand.Intn(dbSize))) // dummy doc
+		}
+
+		vecResults, err := v.vecPIR.Query(batchIdx)
+		if err != nil {
+			return DBentry{retrieved}, err
+		}
+		for k := 0; k < end-start; k++ {
+			if len(vecResults[k]) > 1 { // 1-word response means the lookup was dropped
+				retrieved = append(retrieved, docIdx[start+k])
+			}
+		}
 	}
-	if qerr != nil {
-		return DBentry{retrieved}, qerr
-	}
+
 	return DBentry{retrieved}, nil
 }
 
@@ -272,8 +251,8 @@ func MakeVecDb(config *globals.Args) VecBins {
 
 	//SCifact is such a small DB that if we make the batch size big enough, then PIR crashes (it cant
 	// make batches of a size big enough) so we have it do a fixed/globally known number of rounds.
-	stage2Batch := T / 10
-	maxQuery := 10
+	stage2Batch := T * 3
+	maxQuery := 1
 	if len(docMap) < 10000 {
 		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
 		// rounds of PIR for stage2.

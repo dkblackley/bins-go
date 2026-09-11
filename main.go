@@ -133,7 +133,7 @@ func main() {
 	thresh := flag.Uint("thresh", 0, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
 	binSize := flag.Float64("binSize", 1.0, "How many total bins to use, it's vocab size times this number")
-	docsPerBin := flag.Uint("docsPerBin", 1000, "How many documents to put into each bin.")
+	docsPerBin := flag.Uint("docsPerBin", 100, "How many documents to put into each bin.")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
 	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")

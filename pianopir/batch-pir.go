@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -17,7 +18,7 @@ const (
 	RealQueryPerPartition = 2
 	QueryPerPartition     = 2
 	DefaultValue          = 0xdeadbeef
-	ThreadNum             = 16
+	ThreadNum             = 100
 )
 
 type SimpleBatchPianoPIRConfig struct {
@@ -310,9 +311,6 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 
 	//fmt.Println("partitionQueries: ", partitionQueries)
 
-	// we make a map from index to their responses
-	responses := make(map[uint64][]uint64)
-
 	// --- DEBUG START: Analyze Batch Distribution ---
 	for i := uint64(0); i < p.config.PartitionNum; i++ {
 		if len(partitionQueries[i]) == 0 {
@@ -355,42 +353,102 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 
 	// totalDataSent := uint64(0)
 
-	for i := uint64(0); i < p.config.PartitionNum; i++ {
-		//start := i * p.config.PartitionSize
-		//end := min((i+1)*p.config.PartitionSize, p.config.DBSize)
+	// totalDataSent := uint64(0)
 
-		// case 1: if there are not enough queries, just pad with random indices in the partition
-		if len(partitionQueries[i]) < queryNumToMake {
-			for j := len(partitionQueries[i]); j < queryNumToMake; j++ {
-				partitionQueries[i] = append(partitionQueries[i], DefaultValue)
-			}
-		}
+	// One slot per partition. A partition is claimed by exactly one thread, so
+	// subPIR[i]'s client (hint table, QueryHistogram, localCache) and server
+	// (rawDB, RetrievalCount) stay effectively single-threaded. Nothing here may
+	// touch index != i.
+	partResponses := make([][][]uint64, p.config.PartitionNum)
+	failed := make([][]uint64, p.config.PartitionNum)
 
-		// now we make queryNumToMake queries to the sub PIR
-		for j := uint64(0); j < uint64(queryNumToMake); j++ {
-			// The size of the individual indexes for this one.
-			// totalDataSent += p.subPIR[i].config.SetSize
-			if partitionQueries[i][j] == DefaultValue {
-				_, _ = p.subPIR[i].Query(0, false) // just make a dummy query for the padded queries
-			} else {
-				query, err := p.subPIR[i].Query(partitionQueries[i][j]-i*p.config.PartitionSize, true)
-				if err != nil {
-					logrus.Errorf("Not enough hints? SupportBatchnum %d, finBatchNum, %d, ", p.SupportBatchNum, p.FinishedBatchNum)
+	var queryWg sync.WaitGroup
+	queryWg.Add(int(p.config.ThreadNum))
 
-					logrus.Errorf("the queries to this sub pir is: %v, the offset is %v\n", partitionQueries[i], partitionQueries[i][j]-i*p.config.PartitionSize)
-					logrus.Tracef("All the queries are %v\n", partitionQueries)
-					logrus.Errorf("SimpleBatchPianoPIR.Query: subPIR[%v].Query(%v) failed: %v\n", i, partitionQueries[i][j], err)
+	var nextQueryPartition atomic.Uint64
 
-					fmt.Printf("Redo preprocessing. Made %v batches (%v queries in a partition), redo the preprocessing\n", p.FinishedBatchNum, p.QueriesMadeInPartition)
-					p.Preprocessing()
+	for tid := uint64(0); tid < p.config.ThreadNum; tid++ {
+		go func() {
+			defer queryWg.Done()
+			for {
+				i := nextQueryPartition.Add(1) - 1
+				if i >= p.config.PartitionNum {
+					return
+				}
 
-					query, err = p.subPIR[i].Query(partitionQueries[i][j]-i*p.config.PartitionSize, true)
-					if err != nil {
-						logrus.Errorf("Still did not work.... %v", err)
-						return nil, err
+				//start := i * p.config.PartitionSize
+				//end := min((i+1)*p.config.PartitionSize, p.config.DBSize)
+
+				// case 1: if there are not enough queries, just pad with random indices in the partition
+				if len(partitionQueries[i]) < queryNumToMake {
+					for j := len(partitionQueries[i]); j < queryNumToMake; j++ {
+						partitionQueries[i] = append(partitionQueries[i], DefaultValue)
 					}
 				}
-				responses[partitionQueries[i][j]] = query
+
+				partResponses[i] = make([][]uint64, queryNumToMake)
+
+				// now we make queryNumToMake queries to the sub PIR
+				for j := uint64(0); j < uint64(queryNumToMake); j++ {
+					// The size of the individual indexes for this one.
+					// totalDataSent += p.subPIR[i].config.SetSize
+					if partitionQueries[i][j] == DefaultValue {
+						_, _ = p.subPIR[i].Query(0, false) // just make a dummy query for the padded queries
+					} else {
+						query, err := p.subPIR[i].Query(partitionQueries[i][j]-i*p.config.PartitionSize, true)
+						if err != nil {
+							logrus.Errorf("Not enough hints? SupportBatchnum %d, finBatchNum, %d, ", p.SupportBatchNum, p.FinishedBatchNum)
+
+							logrus.Errorf("the queries to this sub pir is: %v, the offset is %v\n", partitionQueries[i], partitionQueries[i][j]-i*p.config.PartitionSize)
+							logrus.Tracef("All the queries are %v\n", partitionQueries)
+							logrus.Errorf("SimpleBatchPianoPIR.Query: subPIR[%v].Query(%v) failed: %v\n", i, partitionQueries[i][j], err)
+
+							// Can NOT call p.Preprocessing() here: it resets every
+							// partition's hints while other threads are mid-query.
+							// Defer to the serial retry pass below.
+							failed[i] = append(failed[i], j)
+							continue
+						}
+						partResponses[i][j] = query
+					}
+				}
+			}
+		}()
+	}
+
+	queryWg.Wait()
+
+	// If any partition ran short of hints, redo the preprocessing once with
+	// nothing else running, then retry only the queries that failed.
+	needPreprocessing := false
+	for i := range failed {
+		if len(failed[i]) > 0 {
+			needPreprocessing = true
+			break
+		}
+	}
+	if needPreprocessing {
+		fmt.Printf("Redo preprocessing. Made %v batches (%v queries in a partition), redo the preprocessing\n", p.FinishedBatchNum, p.QueriesMadeInPartition)
+		p.Preprocessing()
+
+		for i := uint64(0); i < p.config.PartitionNum; i++ {
+			for _, j := range failed[i] {
+				query, err := p.subPIR[i].Query(partitionQueries[i][j]-i*p.config.PartitionSize, true)
+				if err != nil {
+					logrus.Errorf("Still did not work.... %v", err)
+					return nil, err
+				}
+				partResponses[i][j] = query
+			}
+		}
+	}
+
+	// we make a map from index to their responses
+	responses := make(map[uint64][]uint64)
+	for i := uint64(0); i < p.config.PartitionNum; i++ {
+		for j := uint64(0); j < uint64(queryNumToMake); j++ {
+			if partitionQueries[i][j] != DefaultValue {
+				responses[partitionQueries[i][j]] = partResponses[i][j]
 			}
 		}
 	}
