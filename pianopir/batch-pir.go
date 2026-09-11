@@ -17,7 +17,7 @@ const (
 	RealQueryPerPartition = 2
 	QueryPerPartition     = 2
 	DefaultValue          = 0xdeadbeef
-	ThreadNum             = 1
+	ThreadNum             = 16
 )
 
 type SimpleBatchPianoPIRConfig struct {

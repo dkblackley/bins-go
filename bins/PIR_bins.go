@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
 	"github.com/dkblackley/bins-go/globals"
@@ -106,28 +108,47 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 
 	batch := int(v.vecPIR.Config().BatchSize)
 	dbSize := int(v.vecPIR.Config().DBSize)
-	retrieved := make([]uint64, 0, len(docIdx))
-	// Always MaxQueryTerms batches of exactly T, whatever the real term count
+
+	parts := make([][]uint64, v.maxQueryTerms) // one slot per iteration
+
+	var g errgroup.Group
+	g.SetLimit(pianopir.ThreadNum) // max concurrent goroutines; -1 means unlimited
+
 	for it := 0; it < v.maxQueryTerms; it++ {
-		start := min(it*batch, len(docIdx))
-		end := min(start+batch, len(docIdx))
+		g.Go(func() error {
+			start := min(it*batch, len(docIdx))
+			end := min(start+batch, len(docIdx))
 
-		batchIdx := append(make([]uint64, 0, batch), docIdx[start:end]...)
-		for len(batchIdx) < batch {
-			batchIdx = append(batchIdx, uint64(rand.Intn(dbSize))) // dummy doc
-		}
-
-		vecResults, err := v.vecPIR.Query(batchIdx)
-		if err != nil {
-			return DBentry{retrieved}, err
-		}
-		for k := 0; k < end-start; k++ {
-			if len(vecResults[k]) > 1 { // 1-word response means the lookup was dropped
-				retrieved = append(retrieved, docIdx[start+k])
+			batchIdx := append(make([]uint64, 0, batch), docIdx[start:end]...)
+			for len(batchIdx) < batch {
+				batchIdx = append(batchIdx, uint64(rand.Intn(dbSize)))
 			}
-		}
+
+			vecResults, err := v.vecPIR.Query(batchIdx)
+			if err != nil {
+				return err
+			}
+
+			local := make([]uint64, 0, end-start)
+			for k := 0; k < end-start; k++ {
+				if len(vecResults[k]) > 1 {
+					local = append(local, docIdx[start+k])
+				}
+			}
+			parts[it] = local // exclusive slot, no lock needed
+			return nil
+		})
 	}
 
+	qerr := g.Wait()
+
+	retrieved := make([]uint64, 0, len(docIdx))
+	for _, p := range parts {
+		retrieved = append(retrieved, p...)
+	}
+	if qerr != nil {
+		return DBentry{retrieved}, qerr
+	}
 	return DBentry{retrieved}, nil
 }
 

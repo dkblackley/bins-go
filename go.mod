@@ -1,6 +1,6 @@
 module github.com/dkblackley/bins-go
 
-go 1.24.0
+go 1.26.0
 
 require (
 	github.com/blugelabs/bluge v0.2.2
@@ -10,7 +10,7 @@ require (
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/yahoojapan/gongt v0.0.0-20190517050727-966dcc7aa5e8
-
+	golang.org/x/sync v0.23.0
 )
 
 require (
