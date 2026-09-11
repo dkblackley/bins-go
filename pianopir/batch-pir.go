@@ -231,23 +231,26 @@ func (p *SimpleBatchPianoPIR) Preprocessing() time.Duration {
 	var wg sync.WaitGroup
 	wg.Add(int(p.config.ThreadNum))
 
-	perThreadPartitionNum := (p.config.PartitionNum + p.config.ThreadNum - 1) / p.config.ThreadNum
+	// Threads claim partitions off a shared counter rather than taking a fixed
+	// block each. Stops the last thread carrying a short block on its own, and
+	// stops PartitionNum < ThreadNum (idPIR: 12 vs 16) leaving workers idle.
+	var nextPartition atomic.Uint64
 
 	for tid := uint64(0); tid < p.config.ThreadNum; tid++ {
 		go func(tid uint64) {
-			start := tid * perThreadPartitionNum
-			end := min((tid+1)*perThreadPartitionNum, p.config.PartitionNum)
-			//log.Printf("Thread %v preprocessing partitions [%v, %v)\n", tid, start, end)
-			//bar := progressbar.Default(int64(end), fmt.Sprintf("Pre-proc subPIR"))
-			for i := start; i < end; i++ {
+			defer wg.Done()
+			for {
+				i := nextPartition.Add(1) - 1
+				if i >= p.config.PartitionNum {
+					return
+				}
+				//log.Printf("Thread %v preprocessing partition %v\n", tid, i)
 				p.subPIR[i].Preprocessing()
-				//bar.Add(1)
 			}
-			//log.Print("Thread ", tid, " finished preprocessing")
-			wg.Done()
-			//bar.Finish()
 		}(tid)
 	}
+
+	wg.Wait()
 
 	wg.Wait()
 
