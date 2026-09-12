@@ -7,7 +7,7 @@
 #SBATCH --mem=230G
 #SBATCH --time=0-04:00:00
 
-#SBATCH --array=0-113
+#SBATCH --array=0-96
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 
