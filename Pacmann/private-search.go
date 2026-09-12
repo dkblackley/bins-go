@@ -36,6 +36,10 @@ var k int
 
 var PIR *pianopir.SimpleBatchPianoPIR
 
+const (
+	SearchWidth = 3
+)
+
 //var skipPrep bool
 
 // embeddings file name
@@ -422,7 +426,7 @@ func (g *PIRGraphInfo) DoSearch(QID string, k int) (globals.Decodable, error) {
 		return nil, errors.New("query not found")
 	}
 
-	vertexIds, _ := frontend.SearchKNN(query, k, g.stepN, pianopir.ThreadNum, false)
+	vertexIds, _ := frontend.SearchKNN(query, k, g.stepN, SearchWidth, false)
 
 	return vertexIDs{vertexIds}, nil
 

@@ -38,7 +38,7 @@ add_bins_ablations() {
         default_dpb=100
     fi
 
-    for k in 10 50 100 500 1000 5000; do
+    for k in 10 100; do
         DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("$default_dpb")
     done
 
