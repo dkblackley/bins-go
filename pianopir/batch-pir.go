@@ -72,6 +72,11 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 	PartitionNum := BatchSize / RealQueryPerPartition
 	//PartitionSize := DBSize / PartitionNum and round up
 	PartitionSize := (DBSize + PartitionNum - 1) / PartitionNum
+	PartitionNum = (DBSize + PartitionSize - 1) / PartitionSize // drop partitions that would start past DBSize
+	if maxQ := uint64(math.Sqrt(float64(PartitionSize)) * math.Log(float64(PartitionSize))); maxQ < 4*QueryPerPartition {
+		log.Fatalf("BatchSize %d too large for DBSize %d: %d-row partitions allow only %d lookups between preprocessings",
+			BatchSize, DBSize, PartitionSize, maxQ)
+	}
 
 	config := &SimpleBatchPianoPIRConfig{
 		DBEntryByteNum:  DBEntryByteNum,
