@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=Pacmann_Ablation
-#SBATCH --partition=bigmem
+#SBATCH --partition=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
