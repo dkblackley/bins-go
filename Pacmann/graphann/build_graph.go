@@ -359,7 +359,7 @@ func CreateGraphBasedOnNGT(vectors [][]float32, ngtFile string, m int) [][]int {
 	graph := make([][]int, n)
 
 	//maxThread := runtime.NumCPU() - 1
-	maxThread := 16
+	maxThread := 128
 	fmt.Print("Number of threads: ", maxThread, "\n")
 
 	// we now use multithread to build the graph
