@@ -36,8 +36,6 @@ type PianoPIRServer struct {
 	rawDB [][]uint64
 
 	RetrievalCount uint64
-	NetworkTimeWAN float64
-	NetworkTimeLAN float64
 }
 
 // an initialization function for the server
@@ -112,26 +110,13 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 		EntryXor(tempRet, entry)
 
 	}
-	var finalResponseElements = uint64(len(offsets) * 4)
+
+	var totalBytes = uint64(len(offsets) * 4)
 	for i := 0; i < len(tempRet); i++ {
-		finalResponseElements += uint64(len(tempRet[i]))
+		totalBytes += uint64(len(tempRet[i])) * 8
 	}
 
-	s.RetrievalCount += finalResponseElements
-
-	totalBits := float64(finalResponseElements)
-
-	// WAN Calculation: 400 Mbps bandwidth + 50ms latency (Applied ONCE per query)
-	bandwidthMbpsWAN := 400.0
-	bandwidthBpsWAN := bandwidthMbpsWAN * 1000000.0
-	transmissionTimeSecondsWAN := totalBits / bandwidthBpsWAN
-	s.NetworkTimeWAN += transmissionTimeSecondsWAN + 0.05
-
-	// LAN Calculation: 10 Gbps (10,000 Mbps) bandwidth + 5ms latency (Applied ONCE per query)
-	bandwidthMbpsLAN := 10000.0
-	bandwidthBpsLAN := bandwidthMbpsLAN * 1000000.0
-	transmissionTimeSecondsLAN := totalBits / bandwidthBpsLAN
-	s.NetworkTimeLAN += transmissionTimeSecondsLAN + 0.005
+	s.RetrievalCount += totalBytes
 
 	return tempRet, nil
 }

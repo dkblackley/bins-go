@@ -285,6 +285,7 @@ func main() {
 
 	if *searchType == "bins" {
 		PIRImplemented = bins.MakeVecDb(&config)
+		// PIRImplemented = bins.MakeVecDbOld(&config)
 	} else if *searchType == "pacmann" {
 		PIRImplemented = Pacmann.PacmannMain(&config)
 	} else if *searchType == "tree" {

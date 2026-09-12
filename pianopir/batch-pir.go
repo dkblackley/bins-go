@@ -58,6 +58,7 @@ type SimpleBatchPianoPIR struct {
 	commCostPerBatchOffline uint64  // bytes
 
 	permutation []uint64
+	roundsMade  uint64
 }
 
 func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum uint64, BatchSize uint64,
@@ -150,7 +151,12 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 		FinishedBatchNum:       0,
 		QueriesMadeInPartition: 0,
 		permutation:            permutation,
+		roundsMade:             0,
 	}
+}
+
+func netTime(bytes, rounds uint64, mbps, rttSec float64) float64 {
+	return float64(bytes)*8/(mbps*1e6) + float64(rounds)*rttSec
 }
 
 func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
@@ -160,7 +166,7 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	fmt.Printf("-----------BatchPIR config --------\n")
 
 	DBSizeInBytes := 0
-	totalUint64s := uint64(0)
+	totalByte := uint64(0)
 	totalLANTime := float64(0)
 	totalWANTime := float64(0)
 
@@ -170,10 +176,12 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 		for _, v := range rawDB {
 			DBSizeInBytes += len(v) * 8
 		}
-		totalUint64s += p.subPIR[i].server.RetrievalCount
+		totalByte += p.subPIR[i].server.RetrievalCount
 
-		totalWANTime += p.subPIR[i].server.NetworkTimeWAN
-		totalLANTime += p.subPIR[i].server.NetworkTimeLAN
+		totalWANTime += netTime(p.subPIR[i].server.RetrievalCount, p.roundsMade, 400, 0.05)
+		//p.subPIR[i].server.NetworkTimeWAN
+		totalLANTime += netTime(p.subPIR[i].server.RetrievalCount, p.roundsMade, 1000, 0.005)
+		//p.subPIR[i].server.NetworkTimeLAN
 
 	}
 
@@ -188,7 +196,7 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	fmt.Printf("comm cost per batch = %v KB\n", p.CommCostPerBatchOnline()/1024)
 	fmt.Printf("amortized preprocessing comm cost = %v KB\n", float64(DBSizeInBytes)/float64(maxQuery)/1024)
 	fmt.Printf("total amortized comm cost = %v KB\n", float64(DBSizeInBytes)/float64(maxQuery)/1024+float64(p.CommCostPerBatchOnline())/1024)
-	fmt.Printf("total uint64s sent = %v\n", totalUint64s)
+	fmt.Printf("total bytes sent = %v\n", totalByte)
 	fmt.Printf("total LAN and WAN time = %v   %v\n", totalLANTime, totalWANTime)
 	fmt.Printf("-----------------------------\n")
 
@@ -197,7 +205,7 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	fmt.Printf("DBSize: %v, DBEntryByteNum: %v, DBEntrySize: %v, ChunkSize: %v, SetSize: %v, ThreadNum: %v, FailureProbLog2: %v\n", PIR.config.DBSize, PIR.config.DBEntryByteNum, PIR.config.MaxDBEntrySize, PIR.config.ChunkSize, PIR.config.SetSize, PIR.config.ThreadNum, PIR.config.FailureProbLog2)
 	fmt.Printf("-----------------------------\n")
 
-	metadata["TotalUint64Sent"] = fmt.Sprintf("%d", totalUint64s)
+	metadata["TotalByteSent"] = fmt.Sprintf("%d", totalByte)
 	metadata["TotalLANTime"] = fmt.Sprintf("%v", totalLANTime)
 	metadata["TotalWANTime"] = fmt.Sprintf("%v", totalWANTime)
 	metadata["DBSizeInBytesMB"] = fmt.Sprintf("%v", DBSizeInBytes/1024/1024)
@@ -277,6 +285,9 @@ func (p *SimpleBatchPianoPIR) DummyPreprocessing() {
 /// TODO: optimize for multiple batch
 
 func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
+
+	// For tracking WAN/LAN times
+	p.roundsMade++
 
 	// --- START INSERTION: Translate Logical -> Physical IDs ---
 	shuffledIdx := make([]uint64, len(idx))
