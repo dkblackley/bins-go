@@ -38,19 +38,16 @@ add_bins_ablations() {
         default_dpb=100
     fi
 
-    # 1. VARY K (BS=1.0, DPB=$default_dpb) -> 6 combinations
     for k in 10 50 100 500 1000 5000; do
         DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("$default_dpb")
     done
 
-    # 2. VARY BIN SIZE across K=10 and K=100 (DPB=$default_dpb) -> 8 combinations
     for k in 10 100; do
         for bs in 2.0 1.0 0.1 0.01; do
             DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$default_dpb")
         done
     done
 
-    # 3. VARY DOCS PER BIN across K=10 and K=100 (BS=1.0) -> 18 combinations
     for k in 10 100; do
         for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
             DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("$dpb")
