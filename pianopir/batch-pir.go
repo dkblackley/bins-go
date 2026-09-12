@@ -178,12 +178,9 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 		}
 		totalByte += p.subPIR[i].server.RetrievalCount
 
-		totalWANTime += netTime(p.subPIR[i].server.RetrievalCount, p.roundsMade, 400, 0.05)
-		//p.subPIR[i].server.NetworkTimeWAN
-		totalLANTime += netTime(p.subPIR[i].server.RetrievalCount, p.roundsMade, 1000, 0.005)
-		//p.subPIR[i].server.NetworkTimeLAN
-
 	}
+	totalWANTime += netTime(totalByte, p.roundsMade, 400, 0.05)
+	totalLANTime += netTime(totalByte, p.roundsMade, 1000, 0.005)
 
 	fmt.Printf("DB size in MB = %v\n", DBSizeInBytes/1024/1024)
 	fmt.Printf("DBSize: %v, DBEntryByteNum: %v, BatchSize: %v, PartitionNum: %v, PartitionSize: %v, ThreadNum: %v,"+
