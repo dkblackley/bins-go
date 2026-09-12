@@ -252,7 +252,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 	//SCifact is such a small DB that if we make the batch size big enough, then PIR crashes (it cant
 	// make batches of a size big enough) so we have it do a fixed/globally known number of rounds.
 	stage2Batch := T / 10
-	maxQuery := 10
+	maxQuery := 30
 	if len(docMap) < 10000 {
 		// The second DB crashes because scifact is so small, as a result we reduce the 'maxquery' so there are less
 		// rounds of PIR for stage2.
