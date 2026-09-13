@@ -7,7 +7,7 @@
 #SBATCH --mem=230G
 #SBATCH --time=0-03:30:00
 
-#SBATCH --array=0-47
+#SBATCH --array=0-77
 #SBATCH --output=logs/Pacmann_%A_%a.out
 #SBATCH --error=logs/Pacmann_%A_%a.err
 
@@ -32,19 +32,23 @@ NEIGHB_ARR=()
 add_pacmann_ablations() {
     local d=$1
 
-    # 1. VARY K (Steps=15, Neighb=32) -> 4 combinations
-    for k in 50 100 500 1000; do
+    # 1. VARY K (Steps=15, Neighb=32) -> 2 combinations
+    for k in 10 100; do
         DATA_ARR+=("$d"); K_ARR+=("$k"); STEPS_ARR+=("15"); NEIGHB_ARR+=("32")
     done
 
-    # 2. VARY STEPS (K=100, Neighb=32) -> 6 combinations
-    for steps in 5 10 15 20 25 30; do
-        DATA_ARR+=("$d"); K_ARR+=("10"); STEPS_ARR+=("$steps"); NEIGHB_ARR+=("32")
+    # 2. VARY STEPS (Neighb=32) -> 12 combinations
+    for k in 10 100; do
+        for steps in 5 10 15 20 25 30; do
+            DATA_ARR+=("$d"); K_ARR+=("$k"); STEPS_ARR+=("$steps"); NEIGHB_ARR+=("32")
+        done
     done
 
-    # 3. VARY NEIGHBOUR (K=100, Steps=15) -> 6 combinations
-    for neighb in 8 16 24 32 40 48; do
-        DATA_ARR+=("$d"); K_ARR+=("10"); STEPS_ARR+=("15"); NEIGHB_ARR+=("$neighb")
+    # 3. VARY NEIGHBOUR (Steps=15) -> 12 combinations
+    for k in 10 100; do
+        for neighb in 8 16 24 32 40 48; do
+            DATA_ARR+=("$d"); K_ARR+=("$k"); STEPS_ARR+=("15"); NEIGHB_ARR+=("$neighb")
+        done
     done
 }
 
