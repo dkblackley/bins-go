@@ -44,7 +44,8 @@ add_bins_ablations() {
 
     for k in 10 100; do
         for bs in 2.0 1.0 0.1 0.01; do
-            DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$default_dpb")
+            # The docs per bin dominates the download size, so for here we reduce it to only 50 docs.
+            DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("50")
         done
     done
 
