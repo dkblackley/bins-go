@@ -12,7 +12,8 @@
 #SBATCH --error=logs/Bins_%A_%a.err
 
 set -euo pipefail
-cd "$SLURM_SUBMIT_DIR"
+# cd "$SLURM_SUBMIT_DIR"
+cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
 module --quiet purge
 module load hosts/hopper
