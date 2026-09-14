@@ -45,7 +45,7 @@ add_pacmann_ablations() {
 # Build the setups for all datasets
 add_pacmann_ablations "msmarco"
 add_pacmann_ablations "scifact"
-add_pacmann_ablations "trec-covid"
+# add_pacmann_ablations "trec-covid"
 
 task_id=$SLURM_ARRAY_TASK_ID
 

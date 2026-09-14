@@ -77,7 +77,7 @@ add_bins_ablations() {
 # Build the setups for all datasets
 add_bins_ablations "msmarco"
 add_bins_ablations "scifact"
-add_bins_ablations "trec-covid"
+# add_bins_ablations "trec-covid"
 
 if [[ "${1:-}" == "--count" ]]; then
     echo "${#DATA_ARR[@]} configs in tier ${TIER} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
