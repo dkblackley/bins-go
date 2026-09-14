@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=Bins_Ablation
+#SBATCH --job-name=Bins_Ablation_Low
 #SBATCH --partition=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=3
