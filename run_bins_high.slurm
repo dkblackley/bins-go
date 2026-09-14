@@ -36,11 +36,12 @@ TIER="high"
 
 TIER="${TIER:?set TIER to low or high}"
 
-# Classify a config. Every combination must land in exactly one tier,
-# so the two scripts together cover the whole grid with no overlap.
+
 tier_of() {
         local d=$1 k=$2 bs=$3 dpb=$4 vec=$5
     if [[ "$d" == "msmarco" && "$dpb" -ge 1000 ]]; then
+        echo "high"
+    elif [[ "$vec" == "true" && "$dpb" -ge 250 ]]; then
         echo "high"
     else
         echo "low"
