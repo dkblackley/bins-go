@@ -115,9 +115,10 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 	logrus.Infof("Total items in vocab: %d", total_items_in_set)
 	config.Metadata["VocabSize"] = strconv.Itoa(total_items_in_set)
 
-	realBinSize := uint(float64(total_items_in_set) * config.BinSize)
+	// realBinSize := uint(float64(total_items_in_set) * config.BinSize)
+	realBinSize := config.BinSize
 
-	logrus.Infof("Size of/number of bins: %d with binsize %f", realBinSize, config.BinSize)
+	logrus.Infof("Size of/number of bins: %d ", realBinSize)
 	config.Metadata["RealBinSize"] = strconv.Itoa(int(realBinSize))
 
 	//// Very 'hacky' a mapping to a 'set' which is a mapping to globals. Is converted into a regular bin at the end.

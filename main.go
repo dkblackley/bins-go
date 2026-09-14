@@ -132,7 +132,7 @@ func main() {
 	dimensions := flag.Uint("dim", 4, "Dimension of vectors (if being used)")
 	thresh := flag.Uint("thresh", 0, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
-	binSize := flag.Float64("binSize", 1.0, "How many total bins to use, it's vocab size times this number")
+	binSize := flag.Float64("binSize", 1000000, "How many total bins to use, it's vocab size times this number")
 	docsPerBin := flag.Uint("docsPerBin", 100, "How many documents to put into each bin.")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
@@ -284,8 +284,12 @@ func main() {
 	// TODO: is it sensible to start the 'pre-processing' timer here? If so replace if with switch case!
 
 	if *searchType == "bins" {
-		PIRImplemented = bins.MakeVecDb(&config)
-		// PIRImplemented = bins.MakeVecDbOld(&config)
+		if config.Vectors {
+			// Directly store the embeddings
+			PIRImplemented = bins.MakeVecDbOld(&config)
+		} else {
+			PIRImplemented = bins.MakeVecDb(&config)
+		}
 	} else if *searchType == "pacmann" {
 		PIRImplemented = Pacmann.PacmannMain(&config)
 	} else if *searchType == "tree" {

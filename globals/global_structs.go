@@ -14,7 +14,7 @@ type Args struct {
 	Vectors           bool
 	Dimensions        uint
 	DBSize            uint
-	BinSize           float64
+	BinSize           uint
 	DocsPerBin        uint
 	Threshold         uint
 	DChoice           uint

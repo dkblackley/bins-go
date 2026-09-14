@@ -4,8 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
-#SBATCH --mem=230G
-#SBATCH --time=0-04:00:00
+#SBATCH --mem=120G
+#SBATCH --time=0-02:00:00
 
 #SBATCH --array=0-263
 #SBATCH --output=logs/Bins_%A_%a.out
@@ -23,6 +23,8 @@ export HNSW_PREFIX="$HOME/opt/hnsw"
 export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
+BS_LIST=(100 500 1000 5000 10000 50000 100000 500000 1000000 5000000 10000000)
+
 DATA_ARR=()
 K_ARR=()
 BS_ARR=()
@@ -38,13 +40,20 @@ add_bins_ablations() {
         default_dpb=100
     fi
 
-    for k in 10 100; do
-        for bs in 10.0 1.0 0.1 0.01; do
-            for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
-                DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$dpb")
+
+
+    for vec in true false; do
+        for k in 10 100; do
+            for bs in "${BS_LIST[@]}"; do
+                for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
+                    [[ "$(tier_of "$d" "$k" "$bs" "$dpb" "$vec")" == "$TIER" ]] || continue
+                    DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$dpb"); VEC_ARR+=("$vec")
+                done
             done
         done
     done
+
+
 }
 
 # Build the setups for all datasets
