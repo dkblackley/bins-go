@@ -3,7 +3,7 @@
 #SBATCH --partition=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=20
 #SBATCH --mem=230G
 #SBATCH --time=0-06:00:00
 
@@ -138,5 +138,6 @@ srun ./pir_app \
 
 cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
 cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err" "${OUT_DIR}/error.log" || true
+mv "${OUT_DIR}/execution.log"
 
 echo "All done for this node."

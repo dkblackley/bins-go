@@ -2,14 +2,15 @@
 #SBATCH --job-name=Bins_Ablation
 #SBATCH --partition=normal
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=64
-#SBATCH --mem=120G
+#SBATCH --ntasks-per-node=3
+#SBATCH --cpus-per-task=20
+#SBATCH --mem=230G
 #SBATCH --time=0-03:00:00
-
 #SBATCH --array=0-1275
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
+
+unset SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU
 
 set -euo pipefail
 # cd "$SLURM_SUBMIT_DIR"
