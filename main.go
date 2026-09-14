@@ -132,7 +132,7 @@ func main() {
 	dimensions := flag.Uint("dim", 4, "Dimension of vectors (if being used)")
 	thresh := flag.Uint("thresh", 0, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
-	binSize := flag.Float64("binSize", 1000000, "How many total bins to use, it's vocab size times this number")
+	binSize := flag.Uint("binSize", 1000000, "How many total bins to use, it's vocab size times this number")
 	docsPerBin := flag.Uint("docsPerBin", 100, "How many documents to put into each bin.")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
