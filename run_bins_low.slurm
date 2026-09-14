@@ -110,8 +110,8 @@ if [[ "$vec_val" == "true" ]]; then
 else
     VEC_TAG="_vec0"
 fi
-OUT_DIR="../results/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
-# OUT_DIR="../results/${method}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
+OUT_DIR="/scratch/dblackle/results/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
+# OUT_DIR="../results/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
@@ -133,7 +133,7 @@ srun ./pir_app \
     -docsPerBin "$docs_val" \
     -outDir "$OUT_DIR" \
     -outFile "results" \
-    -dataset "../datasets" \
+    -dataset "../../datasets" \
     -debug 1 \
     -vectors="$vec_val" \
     -dim 192

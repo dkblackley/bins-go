@@ -67,7 +67,8 @@ else
     exit 1
 fi
 
-OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
+OUT_DIR="/scratch/dblackle/results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
+# OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
@@ -90,7 +91,7 @@ srun ./pir_app \
     -neighb "$neighb_val" \
     -outDir "$OUT_DIR" \
     -outFile "results" \
-    -dataset "../datasets" \
+    -dataset "../../datasets" \
     -debug 1 \
     -dim 192
 
