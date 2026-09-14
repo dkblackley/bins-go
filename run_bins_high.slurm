@@ -38,7 +38,7 @@ TIER="${TIER:?set TIER to low or high}"
 # Classify a config. Every combination must land in exactly one tier,
 # so the two scripts together cover the whole grid with no overlap.
 tier_of() {
-    local d=$1 k=$2 bs=$3 dpb=$4
+        local d=$1 k=$2 bs=$3 dpb=$4 vec=$5
     if [[ "$d" == "msmarco" && "$dpb" -ge 1000 ]]; then
         echo "high"
     else
@@ -88,6 +88,7 @@ dataset=${DATA_ARR[$task_id]}
 k_val=${K_ARR[$task_id]}
 bin_size=${BS_ARR[$task_id]}
 docs_val=${DPB_ARR[$task_id]}
+vec_val=${VEC_ARR[$task_id]}
 method="bins"
 
 if [ "$dataset" == "msmarco" ]; then
@@ -132,6 +133,7 @@ srun ./pir_app \
     -outFile "results" \
     -dataset "../datasets" \
     -debug 1 \
+    -vectors="$vec_val" \
     -dim 192
 
 cp "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
