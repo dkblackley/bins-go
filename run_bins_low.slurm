@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=70G
 #SBATCH --time=0-03:00:00
-#SBATCH --array=0-1275
+#SBATCH --array=0-967
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
 #SBATCH --output=logs/Bins_%A_%a.out

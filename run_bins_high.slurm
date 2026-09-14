@@ -8,7 +8,7 @@
 #SBATCH --time=0-06:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-175
+#SBATCH --array=0-483
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 
