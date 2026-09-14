@@ -31,6 +31,19 @@ K_ARR=()
 BS_ARR=()
 DPB_ARR=()
 
+TIER="${TIER:?set TIER to low or high}"
+
+# Classify a config. Every combination must land in exactly one tier,
+# so the two scripts together cover the whole grid with no overlap.
+tier_of() {
+    local d=$1 k=$2 bs=$3 dpb=$4
+    if [[ "$d" == "msmarco" && "$dpb" -ge 1000 ]]; then
+        echo "high"
+    else
+        echo "low"
+    fi
+}
+
 # Helper function to generate the 32 ablations per dataset
 add_bins_ablations() {
     local d=$1
