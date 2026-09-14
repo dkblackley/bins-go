@@ -7,7 +7,7 @@
 #SBATCH --mem=230G
 #SBATCH --time=0-04:00:00
 
-#SBATCH --array=0-96
+#SBATCH --array=0-263
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 
@@ -38,20 +38,11 @@ add_bins_ablations() {
         default_dpb=100
     fi
 
-#    for k in 10 100; do
-#        DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("$default_dpb")
-#    done
-
     for k in 10 100; do
         for bs in 10.0 1.0 0.1 0.01; do
-            # The docs per bin dominates the download size, so for here we reduce it to only 50 docs.
-            DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("50")
-        done
-    done
-
-    for k in 10 100; do
-        for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
-            DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("1.0"); DPB_ARR+=("$dpb")
+            for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
+                DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$dpb")
+            done
         done
     done
 }
