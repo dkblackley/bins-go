@@ -80,7 +80,14 @@ else
     exit 1
 fi
 
-OUT_DIR="../results/${method}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
+if [[ "$vec_val" == "true" ]]; then
+    VEC_TAG="_vec1"
+else
+    VEC_TAG="_vec0"
+fi
+OUT_DIR="../results/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
+
+# OUT_DIR="../results/${method}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
