@@ -31,6 +31,8 @@ K_ARR=()
 BS_ARR=()
 DPB_ARR=()
 
+TIER="high"
+
 TIER="${TIER:?set TIER to low or high}"
 
 # Classify a config. Every combination must land in exactly one tier,
