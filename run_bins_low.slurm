@@ -7,6 +7,8 @@
 #SBATCH --mem=70G
 #SBATCH --time=0-03:00:00
 #SBATCH --array=0-1275
+#SBATCH --account=evgenios
+#SBATCH --qos=normal
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 

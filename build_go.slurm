@@ -5,6 +5,8 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
+#SBATCH --account=evgenios
+#SBATCH --qos=normal
 #SBATCH --time=0-00:30:00
 #SBATCH --output=build.log
 

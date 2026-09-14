@@ -6,7 +6,8 @@
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=100G
 #SBATCH --time=0-03:30:00
-
+#SBATCH --account=evgenios
+#SBATCH --qos=normal
 #SBATCH --array=0-215
 #SBATCH --output=logs/Pacmann_%A_%a.out
 #SBATCH --error=logs/Pacmann_%A_%a.err
