@@ -77,6 +77,11 @@ add_bins_ablations "msmarco"
 add_bins_ablations "scifact"
 add_bins_ablations "trec-covid"
 
+if [[ "${1:-}" == "--count" ]]; then
+    echo "${#DATA_ARR[@]} configs in tier ${TIER} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
+    exit 0
+fi
+
 task_id=$SLURM_ARRAY_TASK_ID
 
 dataset=${DATA_ARR[$task_id]}
