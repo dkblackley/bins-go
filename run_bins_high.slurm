@@ -6,7 +6,8 @@
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=230G
 #SBATCH --time=0-06:00:00
-
+#SBATCH --account=evgenios
+#SBATCH --qos=normal
 #SBATCH --array=0-175
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
