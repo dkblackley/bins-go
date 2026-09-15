@@ -52,14 +52,6 @@ tier_of() {
 add_bins_ablations() {
     local d=$1
 
-    # Set default Docs Per Bin based on dataset
-    local default_dpb=1000
-    if [[ "$d" == "scifact" || "$d" == "trec-covid" ]]; then
-        default_dpb=100
-    fi
-
-
-
     for vec in true false; do
         for k in 10 100; do
             for bs in "${BS_LIST[@]}"; do
@@ -70,7 +62,6 @@ add_bins_ablations() {
             done
         done
     done
-
 
 }
 
