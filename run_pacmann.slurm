@@ -71,6 +71,18 @@ OUT_DIR="/scratch/dblackle/results/${method}_${dataset}_k${k_val}_steps${steps_v
 # OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 mkdir -p "$OUT_DIR"
 
+cat <<EOF > "${OUT_DIR}/slurm_name.txt"
+========================================
+Array Task ID: $SLURM_ARRAY_TASK_ID
+Method:        $method
+Dataset:       $dataset
+K Value:       $k_val
+Bin Size:      $bin_size
+Docs/Bin:      $docs_val
+Output Dir:    $OUT_DIR
+========================================
+EOF
+
 echo "========================================"
 echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Method:        $method"
@@ -80,6 +92,15 @@ echo "Steps:         $steps_val"
 echo "Neighbours:    $neighb_val"
 echo "Output Dir:    $OUT_DIR"
 echo "========================================"
+
+DATASET_DIR="../../datasets"
+
+cleanup() {
+    local prefix="${DATASET_DIR}/${dataset}/${dataset}_corpus_embed_f32_${DB_SIZE}_192_${neighb_val}_neigh${neighb_val}_step${steps_val}_k${k_val}"
+    rm -rf -- "${prefix}.ngt" "${prefix}_graph.npy"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM INT
 
 # Execute binary
 srun ./pir_app \
@@ -91,7 +112,7 @@ srun ./pir_app \
     -neighb "$neighb_val" \
     -outDir "$OUT_DIR" \
     -outFile "results" \
-    -dataset "../../datasets" \
+    -dataset "$DATASET_DIR" \
     -debug 1 \
     -dim 192
 
