@@ -245,9 +245,19 @@ func MakeVecDb(config *globals.Args) VecBins {
 	bm25Vectors = nil // vecRaw owns the data now
 
 	T := maxRowSize
+	BatchSize := 24
+
+	PartitionNum := BatchSize / 2
+	PartitionSize := (len(idRaw) + PartitionNum - 1) / PartitionNum
+	PartitionNum = (len(idRaw) + PartitionSize - 1) / PartitionSize // drop partitions that would start past DBSize
+	if maxQ := uint64(math.Sqrt(float64(PartitionSize)) * math.Log(float64(PartitionSize))); maxQ < 4*2 {
+		logrus.Errorf("BatchSize %d too large for DBSize %d: %d-row partitions allow only %d lookups between preprocessings",
+			BatchSize, len(idRaw), PartitionSize, maxQ)
+		BatchSize = int(maxQ)
+	}
 
 	idPIR := pianopir.NewSimpleBatchPianoPIR(
-		uint64(len(idRaw)), idWords, idWords*8, 24, idRaw, 20, 24)
+		uint64(len(idRaw)), idWords, idWords*8, uint64(BatchSize), idRaw, 20, uint64(BatchSize))
 
 	//SCifact is such a small DB that if we make the batch size big enough, then PIR crashes (it cant
 	// make batches of a size big enough) so we have it do a fixed/globally known number of rounds.
@@ -267,6 +277,16 @@ func MakeVecDb(config *globals.Args) VecBins {
 			maxQuery = 15
 		}
 	}
+
+	PartitionNum = stage2Batch / 2
+	PartitionSize = (len(vecRaw) + PartitionNum - 1) / PartitionNum
+	PartitionNum = (len(vecRaw) + PartitionSize - 1) / PartitionSize // drop partitions that would start past DBSize
+	if maxQ := uint64(math.Sqrt(float64(PartitionSize)) * math.Log(float64(PartitionSize))); maxQ < 4*2 {
+		logrus.Errorf("BatchSize %d too large for DBSize %d: %d-row partitions allow only %d lookups between preprocessings",
+			stage2Batch, len(idRaw), PartitionSize, maxQ)
+		stage2Batch = int(maxQ)
+	}
+
 	logrus.Infof("Stage2 Max query size: %d and Stage2 Batch size is %d", maxQuery, stage2Batch)
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, uint64(maxQuery))

@@ -314,11 +314,21 @@ func ProcessVecDBOld(config *globals.Args, maxRowSize uint, vectorsInBins [][][]
 	DBEntrySize := config.Dimensions * 4 * maxRowSize
 	maxWordsPerEntry := (uint64(DBEntrySize) + 7) / 8
 
+	BatchSize := OldBatchSize
+	PartitionNum := BatchSize / 2
+	PartitionSize := (DBSize + PartitionNum - 1) / PartitionNum
+	PartitionNum = (DBSize + PartitionSize - 1) / PartitionSize // drop partitions that would start past DBSize
+	if maxQ := uint64(math.Sqrt(float64(PartitionSize)) * math.Log(float64(PartitionSize))); maxQ < 4*2 {
+		logrus.Errorf("BatchSize %d too large for DBSize %d: %d-row partitions allow only %d lookups between preprocessings",
+			BatchSize, DBSize, PartitionSize, maxQ)
+		BatchSize = int(maxQ)
+	}
+
 	pir := pianopir.NewSimpleBatchPianoPIR(
 		uint64(DBSize),
 		maxWordsPerEntry,
 		uint64(DBEntrySize),
-		OldBatchSize,
+		uint64(BatchSize),
 		rawDB,
 		20,
 		OldBatchSize,
