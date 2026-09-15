@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=Bins_Ablation_High
+#SBATCH --job-name=Bins_High
 #SBATCH --partition=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -103,6 +103,18 @@ fi
 OUT_DIR="/scratch/dblackle/results/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
 # OUT_DIR="../results/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
 mkdir -p "$OUT_DIR"
+
+cat <<EOF > "${OUT_DIR}/slurm_name.txt"
+========================================
+Array Task ID: $SLURM_ARRAY_TASK_ID
+Method:        $method
+Dataset:       $dataset
+K Value:       $k_val
+Bin Size:      $bin_size
+Docs/Bin:      $docs_val
+Output Dir:    $OUT_DIR
+========================================
+EOF
 
 echo "========================================"
 echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
