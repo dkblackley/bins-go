@@ -2,9 +2,9 @@
 #SBATCH --job-name=Bins_Low
 #SBATCH --partition=normal
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=3
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=70G
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=80G
 #SBATCH --time=0-03:00:00
 #SBATCH --array=0-615
 #SBATCH --account=evgenios

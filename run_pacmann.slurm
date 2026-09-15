@@ -2,8 +2,8 @@
 #SBATCH --job-name=Pacmann_Ablation
 #SBATCH --partition=normal
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2
-#SBATCH --cpus-per-task=20
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=100G
 #SBATCH --time=0-03:30:00
 #SBATCH --account=evgenios
