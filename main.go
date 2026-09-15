@@ -437,8 +437,6 @@ func doPIRSearch(PIRImplemented PIRImplement, qids []string, k int, config *glob
 	decodables := make(map[string]globals.Decodable)
 	maintainenceTime := time.Duration(0)
 
-	finishedBatchNum, batchNumNeeded, supportBatchNum := PIRImplemented.GetBatchNums()
-
 	//start := time.Now()
 
 	// TODO REMOVE THIS (?)
@@ -454,6 +452,8 @@ func doPIRSearch(PIRImplemented PIRImplement, qids []string, k int, config *glob
 			log.Fatal(err)
 		}
 		q := qids[i]
+
+		finishedBatchNum, batchNumNeeded, supportBatchNum := PIRImplemented.GetBatchNums()
 
 		if finishedBatchNum+batchNumNeeded >= supportBatchNum {
 			// re-run the preprocessing

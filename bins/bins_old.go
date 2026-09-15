@@ -331,7 +331,7 @@ func ProcessVecDBOld(config *globals.Args, maxRowSize uint, vectorsInBins [][][]
 		uint64(BatchSize),
 		rawDB,
 		20,
-		OldBatchSize,
+		1,
 	)
 
 	if config.DebugLevel >= 1 && len(rawDB) > 0 {

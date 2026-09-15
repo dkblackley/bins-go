@@ -35,13 +35,14 @@ type VecBins struct {
 }
 
 func (v VecBins) PIRPreprocess() time.Duration {
-	if (v.vecPIR.FinishedBatchNum+v.vecPIR.Config().BatchNumNeeded >= v.vecPIR.SupportBatchNum) && (v.idPIR.FinishedBatchNum+v.idPIR.Config().BatchNumNeeded >= v.idPIR.SupportBatchNum) {
-		return v.idPIR.Preprocessing() + v.vecPIR.Preprocessing()
+	var t time.Duration
+	if v.idPIR.FinishedBatchNum+v.idPIR.Config().BatchNumNeeded >= v.idPIR.SupportBatchNum {
+		t += v.idPIR.Preprocessing()
 	}
 	if v.vecPIR.FinishedBatchNum+v.vecPIR.Config().BatchNumNeeded >= v.vecPIR.SupportBatchNum {
-		return v.vecPIR.Preprocessing()
+		t += v.vecPIR.Preprocessing()
 	}
-	return v.idPIR.Preprocessing() + v.vecPIR.Preprocessing()
+	return t
 }
 
 func (v VecBins) Preprocess() {
@@ -257,7 +258,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 	}
 
 	idPIR := pianopir.NewSimpleBatchPianoPIR(
-		uint64(len(idRaw)), idWords, idWords*8, uint64(BatchSize), idRaw, 20, uint64(BatchSize))
+		uint64(len(idRaw)), idWords, idWords*8, uint64(BatchSize), idRaw, 20, 1)
 
 	//SCifact is such a small DB that if we make the batch size big enough, then PIR crashes (it cant
 	// make batches of a size big enough) so we have it do a fixed/globally known number of rounds.
