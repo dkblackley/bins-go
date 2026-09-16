@@ -12,6 +12,7 @@
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 #SBATCH --signal=B:TERM@120
+#SBATCH --constraint=amd
 
 set -euo pipefail
 # cd "$SLURM_SUBMIT_DIR"

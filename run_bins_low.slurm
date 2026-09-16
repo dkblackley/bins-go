@@ -12,6 +12,7 @@
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 #SBATCH --signal=B:TERM@120
+#SBATCH --constraint=amd
 
 unset SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU
 
