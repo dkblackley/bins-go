@@ -77,8 +77,8 @@ Array Task ID: $SLURM_ARRAY_TASK_ID
 Method:        $method
 Dataset:       $dataset
 K Value:       $k_val
-Bin Size:      $bin_size
-Docs/Bin:      $docs_val
+echo "Steps:         $steps_val"
+echo "Neighbours:    $neighb_val"
 Output Dir:    $OUT_DIR
 ========================================
 EOF
