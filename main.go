@@ -563,8 +563,17 @@ func CosineReRank(results map[string][]string, config *globals.Args) map[string]
 		queryEmb := qidEmbedMap[qid]
 
 		scoredDocs := make([]ScoredDoc, 0, len(docIds))
+		seen := make(map[string]bool, len(docIds))
 
 		for _, docId := range docIds {
+
+			if docId == "-1" { // debug signal/not found for something like pacmann
+				continue
+			}
+			if seen[docId] {
+				continue
+			}
+			seen[docId] = true
 
 			if docId == "-1" { // debug signal/not found for something like pacmann
 				continue
