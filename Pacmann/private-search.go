@@ -102,7 +102,8 @@ func PacmannMain(args *globals.Args) *PIRGraphInfo {
 	k = int(outputNum)
 	// q = queryNum
 	nonPrivateMode = false
-	workingDir := filepath.Dir(inputFile)
+	// workingDir := filepath.Dir(inputFile)
+	workingDir := filepath.Dir("/scratch/dblackle/pac/")
 	fmt.Println("Working directory: ", workingDir)
 	dataName := filepath.Base(inputFile)
 	dataName = strings.TrimSuffix(dataName, filepath.Ext(dataName))
