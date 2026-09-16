@@ -14,7 +14,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"regexp"
+	"runtime"
+	"sort"
 	"strconv"
+	"sync"
+	"sync/atomic"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
@@ -62,7 +66,7 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 	//tokeniser := en.NewAnalyzer()
 
-	tokeniser := strictEnglishAnalyzer()
+	// tokeniser := strictEnglishAnalyzer()
 
 	//logrus.Info("Making Unigram Database")
 	//queries, er := LoadQueries(dataset.Queries)
@@ -72,43 +76,38 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 	docs, er := LoadCorpus(dataset.OriginalDir)
 	Must(er)
 
-	total_items_in_set := 0
-
 	bar := progressbar.Default(int64(len(docs)), fmt.Sprintf("Scanning Vocab for %s", dataset.Name))
 
 	// No sets in go, gotta make my own...
 	set := make(map[string]struct{})
 
-	for i, doc := range docs {
-
-		title := doc.Title
-		text := doc.Text
-		if text == "" {
-			text = doc.Abstract
-		}
-		if text == "" && title == "" {
-			logrus.Errorf("Empty document? doc ID: %s at %d", doc.ID, i)
-		}
-
-		result := title + " " + text
-
-		tokens := tokeniser.Analyze([]byte(result))
-
-		for _, t := range tokens {
-			logrus.Tracef("%q term=%q start=%d end=%d posIncr=%d\n",
-				result[t.Start:t.End], t.Term, t.Start, t.End, t.PositionIncr)
-			word := fmt.Sprintf("%s", t.Term)
-			_, ok := set[word]
-
-			if !ok { // item does not exist in set
-				total_items_in_set++
+	nw := runtime.GOMAXPROCS(0)
+	local := make([]map[string]struct{}, nw)
+	chunk := (len(docs) + nw - 1) / nw
+	var vwg sync.WaitGroup
+	for w := 0; w < nw; w++ {
+		lo, hi := min(w*chunk, len(docs)), min((w+1)*chunk, len(docs))
+		vwg.Add(1)
+		go func(w, lo, hi int) {
+			defer vwg.Done()
+			an := strictEnglishAnalyzer()
+			m := make(map[string]struct{})
+			for _, doc := range docs[lo:hi] {
+				for _, t := range an.Analyze([]byte(doc.Title + " " + doc.Text)) {
+					m[string(t.Term)] = struct{}{}
+				}
+				bar.Add(1)
 			}
-			set[word] = struct{}{}
-		}
-
-		bar.Add(1)
-
+			local[w] = m
+		}(w, lo, hi)
 	}
+	vwg.Wait()
+	for _, m := range local {
+		for k := range m {
+			set[k] = struct{}{}
+		}
+	}
+	total_items_in_set := len(set)
 
 	bar.Finish()
 
@@ -130,83 +129,40 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 	bar = progressbar.Default(int64(total_items_in_set), fmt.Sprintf("Putting items into bins %s", dataset.Name))
 
-	for word := range set {
+	words := make([]string, 0, len(set))
+	for w := range set {
+		words = append(words, w)
+	}
+	sort.Strings(words)
+	set = nil
+	docs = nil
 
-		bar.Add(1)
-		// Perform BM25 search using each individual word as the Query
-
-		matchTitle := bluge.NewMatchQuery(word).SetField("title")
-		matchBody := bluge.NewMatchQuery(word).SetField("body")
-		boolean := bluge.NewBooleanQuery().
-			AddShould(matchTitle).
-			AddShould(matchBody)
-
-		req := bluge.NewTopNSearch(int(config.DocsPerBin), boolean)
-		it, err := reader.Search(context.Background(), req)
-
-		var doc_ids []string
-
-		for {
-			match, err := it.Next()
-			if err != nil {
-				break
-			}
-			if match == nil { // Should I do something if we have too few items??
-				break
-			}
-
-			// pull out the stored "_id" field instead of match.ID()
-			var docID string
-			err = match.VisitStoredFields(func(field string, value []byte) bool {
-				if field == "_id" {
-					docID = string(value)
-					// storedIDs = append(storedIDs, docID)
+	topDocs := make([][]string, len(words))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < runtime.GOMAXPROCS(0); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1) - 1)
+				if i >= len(words) {
+					return
 				}
-				return true // keep scanning other stored fields
-			})
-			Must(err)
+				topDocs[i] = searchTopDocs(reader, words[i], int(config.DocsPerBin))
+				bar.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	bar.Finish()
 
-			doc_ids = append(doc_ids, docID)
-		}
-
-		Must(err)
-
-		var storedIDs []string
-		// var counter := 0
-		for rank := 0; rank < len(doc_ids) && rank < int(config.DocsPerBin); rank++ {
-			storedIDs = append(storedIDs, doc_ids[rank])
-		}
+	for i, word := range words {
 		for d := uint(0); d <= config.DChoice; d++ {
 			var bin_index = hashTokenChoice(word, d)
-			mergeIntoBin(binsOrder, binHits, uint(bin_index)%realBinSize, storedIDs, config.DocsPerBin)
+			mergeIntoBin(binsOrder, binHits, uint(bin_index)%realBinSize, topDocs[i], config.DocsPerBin)
 		}
-
-		//for rank := uint(0); rank <= config.DocsPerBin; rank++ {
-		//
-		//	if int(rank) >= len(doc_ids) || int(rank) >= int(config.DocsPerBin) { // Ran out of hits
-		//		break
-		//	}
-		//	storedIDs = append(storedIDs, doc_ids[rank])
-		//
-		//	// Now to do the actual 'binning' for each unigram.
-		//	for d := uint(0); d <= config.DChoice; d++ {
-		//
-		//		var bin_index = hashTokenChoice(word, d)
-		//
-		//		if !config.Vectors { // If we're just the filenames/raw text
-		//			for _, docID := range storedIDs {
-		//				add(setsBins, uint(bin_index)%realBinSize, docID)
-		//			}
-		//		} else {
-		//			for _, storedID := range storedIDs {
-		//				add(setsBins, uint(bin_index)%realBinSize, storedID)
-		//			}
-		//		}
-		//
-		//	}
-		//
-		//}
-
+		topDocs[i] = nil
 	}
 
 	bar.Finish()
@@ -227,6 +183,33 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 	return binsSlice
 
+}
+
+func searchTopDocs(reader *bluge.Reader, word string, n int) []string {
+	matchTitle := bluge.NewMatchQuery(word).SetField("title")
+	matchBody := bluge.NewMatchQuery(word).SetField("body")
+	boolean := bluge.NewBooleanQuery().AddShould(matchTitle).AddShould(matchBody)
+
+	it, err := reader.Search(context.Background(), bluge.NewTopNSearch(n, boolean))
+	Must(err)
+
+	doc_ids := make([]string, 0, n)
+	for {
+		match, err := it.Next()
+		if err != nil || match == nil {
+			break
+		}
+		var docID string
+		Must(match.VisitStoredFields(func(field string, value []byte) bool {
+			if field == "_id" {
+				docID = string(value)
+				return false
+			}
+			return true
+		}))
+		doc_ids = append(doc_ids, docID)
+	}
+	return doc_ids
 }
 
 // mergeIntoBin interleaves incoming (BM25 rank order) with whatever is already
