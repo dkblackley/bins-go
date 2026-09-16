@@ -52,13 +52,15 @@ type SimpleBatchPianoPIR struct {
 	FinishedBatchNum        uint64
 	QueriesMadeInPartition  uint64
 	SupportBatchNum         uint64
-	localStorage            uint64  // bytes
-	preprocessingTime       float64 // seconds
-	commCostPerBatchOnline  uint64  // bytes
-	commCostPerBatchOffline uint64  // bytes
+	localStorage            uint64 // bytes
+	commCostPerBatchOnline  uint64 // bytes
+	commCostPerBatchOffline uint64 // bytes
 
-	permutation []uint64
-	roundsMade  uint64
+	permutation              []uint64
+	roundsMade               uint64
+	InitialPreprocessingTime float64
+	MaintainenceTime         float64
+	TotalPreProcs            uint
 }
 
 func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum uint64, BatchSize uint64,
@@ -214,12 +216,13 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	metadata["FailureProbLog2"] = fmt.Sprintf("%v", PIR.config.FailureProbLog2)
 	metadata["ClientStorageMB"] = fmt.Sprintf("%v", p.LocalStorageSize()/1024/1024)
 	metadata["CommCostPerBatchKB"] = fmt.Sprintf("%v", p.CommCostPerBatchOnline()/1024)
+	metadata["PreprocessingTime"] = fmt.Sprintf("%v", p.InitialPreprocessingTime)
+	metadata["MaintainenceTime"] = fmt.Sprintf("%v", p.MaintainenceTime)
 
 	return metadata
 }
 
-func (p *SimpleBatchPianoPIR) RecordStats(prepTime float64) {
-	p.preprocessingTime = prepTime
+func (p *SimpleBatchPianoPIR) RecordStats() {
 	p.localStorage = uint64(p.LocalStorageSize())                 // bytes
 	p.commCostPerBatchOnline = uint64(p.CommCostPerBatchOnline()) // bytes
 	p.SupportBatchNum = p.subPIR[0].client.MaxQueryNum / QueryPerPartition
@@ -262,13 +265,18 @@ func (p *SimpleBatchPianoPIR) Preprocessing() time.Duration {
 
 	wg.Wait()
 
-	wg.Wait()
-
 	endTime := time.Now()
 	prepTime := endTime.Sub(startTime).Seconds()
+	if p.TotalPreProcs >= 1 {
+		p.MaintainenceTime += prepTime
+		p.TotalPreProcs += 1
+	} else {
+		p.InitialPreprocessingTime = prepTime
+		p.TotalPreProcs = 1
+	}
 	logrus.Debugf("Preprocessing time = %v\n", endTime.Sub(startTime))
 
-	p.RecordStats(prepTime)
+	p.RecordStats()
 
 	return endTime.Sub(startTime)
 }
@@ -281,7 +289,7 @@ func (p *SimpleBatchPianoPIR) DummyPreprocessing() {
 	}
 
 	log.Printf("Skipping Prep")
-	p.RecordStats(0)
+	p.RecordStats()
 }
 
 /// TODO: optimize for multiple batch
@@ -523,10 +531,6 @@ func (p *SimpleBatchPianoPIR) CommCostPerBatchOnline() uint64 {
 
 func (p *SimpleBatchPianoPIR) CommCostPerBatchOffline() uint64 {
 	return p.commCostPerBatchOffline
-}
-
-func (p *SimpleBatchPianoPIR) PreprocessingTime() float64 {
-	return p.preprocessingTime
 }
 
 func (p *SimpleBatchPianoPIR) Config() *SimpleBatchPianoPIRConfig {
