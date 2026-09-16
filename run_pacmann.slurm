@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=100G
-#SBATCH --time=0-03:30:00
+#SBATCH --time=0-04:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
 #SBATCH --array=0-143
