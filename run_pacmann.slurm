@@ -8,9 +8,10 @@
 #SBATCH --time=0-03:30:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-215
+#SBATCH --array=0-143
 #SBATCH --output=logs/Pacmann_%A_%a.out
 #SBATCH --error=logs/Pacmann_%A_%a.err
+#SBATCH --signal=B:TERM@120
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
@@ -67,6 +68,19 @@ else
     exit 1
 fi
 
+FAIL_FILE="${SLURM_SUBMIT_DIR:-$PWD}/pacman_fails"
+finished=0
+
+on_exit() {
+    local rc=$?
+    if [[ "$finished" -ne 1 ]]; then
+        echo "${SLURM_ARRAY_JOB_ID:-?}_${SLURM_ARRAY_TASK_ID:-?} rc=${rc} $(date '+%F %T')" >> "$FAIL_FILE"
+    fi
+    cleanup
+}
+trap on_exit EXIT
+trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT
+
 OUT_DIR="/scratch/dblackle/results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 # OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 mkdir -p "$OUT_DIR"
@@ -77,8 +91,8 @@ Array Task ID: $SLURM_ARRAY_TASK_ID
 Method:        $method
 Dataset:       $dataset
 K Value:       $k_val
-echo "Steps:         $steps_val"
-echo "Neighbours:    $neighb_val"
+"Steps:         $steps_val"
+"Neighbours:    $neighb_val"
 Output Dir:    $OUT_DIR
 ========================================
 EOF
@@ -99,8 +113,6 @@ cleanup() {
     local prefix="${DATASET_DIR}/${dataset}/${dataset}_corpus_embed_f32_${DB_SIZE}_192_${neighb_val}_neigh${neighb_val}_step${steps_val}_k${k_val}"
     rm -rf -- "${prefix}.ngt" "${prefix}_graph.npy"
 }
-trap cleanup EXIT
-trap 'exit 143' TERM INT
 
 # Execute binary
 srun ./pir_app \
@@ -114,9 +126,13 @@ srun ./pir_app \
     -outFile "results" \
     -dataset "$DATASET_DIR" \
     -debug 1 \
-    -dim 192
+    -dim 192 &
+
+srun_pid=$!
+wait "$srun_pid"
 
 mv "logs/Pacmann_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
 mv "logs/Pacmann_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err" "${OUT_DIR}/error.log" || true
 
+finished=1
 echo "All done for this node."

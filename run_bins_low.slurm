@@ -11,6 +11,7 @@
 #SBATCH --qos=normal
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
+#SBATCH --signal=B:TERM@120
 
 unset SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU
 
@@ -76,6 +77,18 @@ if [[ "${1:-}" == "--count" ]]; then
     exit 0
 fi
 
+FAIL_FILE="${SLURM_SUBMIT_DIR:-$PWD}/bins_low_fails"
+finished=0
+
+on_exit() {
+    local rc=$?
+    if [[ "$finished" -ne 1 ]]; then
+        echo "${SLURM_ARRAY_JOB_ID:-?}_${SLURM_ARRAY_TASK_ID:-?} rc=${rc} $(date '+%F %T')" >> "$FAIL_FILE"
+    fi
+}
+trap on_exit EXIT
+trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT
+
 task_id=$SLURM_ARRAY_TASK_ID
 
 dataset=${DATA_ARR[$task_id]}
@@ -139,9 +152,13 @@ srun ./pir_app \
     -dataset "../../datasets" \
     -debug 1 \
     -vectors="$vec_val" \
-    -dim 192
+    -dim 192 &
+
+srun_pid=$!
+wait "$srun_pid"
 
 mv "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
 mv "logs/Bins_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err" "${OUT_DIR}/error.log" || true
 
+finished=1
 echo "All done for this node."
