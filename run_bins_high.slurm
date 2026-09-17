@@ -42,7 +42,7 @@ TIER="${TIER:?set TIER to low or high}"
 tier_of() {
     local d=$1 k=$2 bs=$3 dpb=$4 vec=$5
 
-    if [[ "$dpb" -ge 1000 ]]; then
+    if [[ "$dpb" -ge 1500 ]]; then
         echo "high"
     elif [[ "$vec" == "true" && ( "$dpb" -ge 250 || "$bs" -ge 1000000 ) ]]; then
         echo "high"
