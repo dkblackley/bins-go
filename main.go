@@ -563,12 +563,17 @@ func CosineReRank(results map[string][]string, config *globals.Args) map[string]
 		queryEmb := qidEmbedMap[qid]
 
 		scoredDocs := make([]ScoredDoc, 0, len(docIds))
+		seen := make(map[string]bool, len(docIds))
 
 		for _, docId := range docIds {
 
 			if docId == "-1" { // debug signal/not found for something like pacmann
 				continue
 			}
+			if seen[docId] {
+				continue
+			}
+			seen[docId] = true
 
 			// Safety check: ensure doc has an embedding
 			if docEmb, ok := docEmbedMap[docId]; ok {
@@ -676,8 +681,12 @@ func calcRecall(results map[string][]string, qrels map[string]map[string]int) fl
 
 		relevantRetrievedCount := 0
 
-		// 2. Iterate through all ranked results to count total relevant matches
+		seen := make(map[string]bool, len(rankedDocs))
 		for _, docID := range rankedDocs {
+			if seen[docID] {
+				continue
+			}
+			seen[docID] = true
 			if _, isRelevant := relDocs[docID]; isRelevant {
 				relevantRetrievedCount++
 			}
