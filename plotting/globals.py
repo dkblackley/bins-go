@@ -53,6 +53,17 @@ DATASET_MARKERS = {'msmarco': 'o', 'scifact': 's'}
 
 BASELINE_LINESTYLE = ':'   # dotted reference lines (e.g. PACMANN DB size)
 
+# Tree PIR stages, used by the stacked latency bars.
+STAGE_ORDER = ['s1', 's2', 's3']
+STAGE_LABELS = {'s1': 'Stage 1', 's2': 'Stage 2', 's3': 'Stage 3'}
+STAGE_COLORS = {'s1': '#0072B2', 's2': '#56B4E9', 's3': '#E69F00'}
+STAGE_HATCHES = {'s1': '', 's2': '///', 's3': 'xxx'}
+
+# Bins DB layouts, used wherever vec0 and vec1 are compared directly.
+VEC_LABELS = {1: '1-stage (single DB)', 0: '2-stage (split DBs)'}
+VEC_COLORS = {1: '#009E73', 0: '#D55E00'}
+VEC_HATCHES = {1: '', 0: '///'}
+
 # ==========================================
 # METRICS
 # ==========================================
@@ -75,6 +86,9 @@ METRICS = {
     'client_storage_mb':  {'label': 'Client Storage (MB)', 'better': 'lower'},
     'bs':                 {'label': 'Bin Size',           'better': 'lower'},
     'dpb':                {'label': 'Docs per Bin',       'better': 'lower'},
+    'maintenance_time': {'label': 'Maintenance (s)', 'better': 'lower'},
+    'preproc_rounds': {'label': 'Preproc. Rounds', 'better': 'lower'},
+    'pir_rounds': {'label': 'PIR Rounds', 'better': 'lower'},
 }
 
 

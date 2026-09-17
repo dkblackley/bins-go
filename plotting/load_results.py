@@ -101,7 +101,9 @@ log = logging.getLogger('load')
 
 BINS_NAME = re.compile(r'^bins_vec(?P<vec>\d)_(?P<dataset>[a-z0-9-]+)_k(?P<k>\d+)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
 PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>\d+)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
-TREE_NAME = re.compile(r'^tree_(?P<dataset>[a-z0-9-]+)_(?P<config>.+)$')
+TREE_NAME = re.compile(r'^tree_(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)_k(?P<k>\d+)$')
+
+TREE_STAGES = [1, 2, 3]   # each stage is one PIR DB; totals are the sum over these
 
 DURATION_PART = re.compile(r'(\d+(?:\.\d+)?)(h|ms|µs|μs|us|ns|m|s)')
 DURATION_UNITS = {'h': 3600, 'm': 60, 's': 1, 'ms': 1e-3, 'µs': 1e-6, 'μs': 1e-6, 'us': 1e-6, 'ns': 1e-9}
@@ -150,7 +152,21 @@ def read_db_part(meta, n, prefix=''):
         'db_size_mb':        read_float(meta, prefix + 'DBSizeInBytesMB'),
         'client_storage_mb': read_float(meta, prefix + 'ClientStorageMB'),
         'comm_per_batch_kb': read_float(meta, prefix + 'CommCostPerBatchKB'),
+        'maintenance_time': read_seconds(meta, prefix + 'MaintainenceTime'),  # all preproc calls
+        'preprocessing_time': read_seconds(meta, prefix + 'PreprocessingTime'),  # first call only
+        'preproc_rounds': read_float(meta, prefix + 'TotalPreProc'),  # number of calls
     }
+
+def combine_parts(run, parts):
+    """
+    Writes one set of per-DB values per part plus their total. `parts` is
+    {suffix: {key: value}}, e.g. {'s1': {...}, 's2': {...}, 's3': {...}}.
+    run[key] ends up as the sum, run[key_suffix] as that part's own value.
+    """
+    for key in next(iter(parts.values())):
+        for suffix, values in parts.items():
+            run[f'{key}_{suffix}'] = values[key]
+        run[key] = sum(values[key] for values in parts.values())
 
 
 # ==========================================
@@ -243,22 +259,41 @@ def parse_pacmann(folder, meta):
 
 def parse_tree(folder, meta):
     """
-    Placeholder until the tree folder layout and metadata keys are fixed.
-    Reads the common keys, the dataset and k; everything else in the folder
-    name is kept as `config`.
+    Three PIR stages, each with its own DB and its own Stage{N}* keys. The
+    end-to-end value is the sum over the stages, and each stage is also kept as
+    <key>_s1 / _s2 / _s3 for the stacked latency plot. A missing stage counts
+    as 0 (stage 3 is still buggy) and is logged once per run.
     """
     name = TREE_NAME.match(folder)
-    k = re.search(r'_k(\d+)', folder)
-    if not (name and k):
-        log.warning("%s: can't find dataset and _k<K> in tree folder name, skipping", folder)
+    if not name:
+        log.warning("%s: doesn't match tree_<dataset>_b<B>_r<R>_s<S>_L<L>_k<K>, skipping", folder)
         return None
     run = parse_common(folder, meta)
     if run is None:
         return None
 
-    config = re.sub(r'_?k\d+$', '', name['config']).strip('_') or 'default'
-    run.update(method='tree', dataset=name['dataset'], k=int(k.group(1)), config=config)
-    # TODO: tree-specific keys go here
+    b, r, s, L = int(name['b']), int(name['r']), int(name['s']), int(name['L'])
+    run.update(method='tree', dataset=name['dataset'], k=int(name['k']),
+               b=b, r=r, s=s, L=L, config=f'b{b}_r{r}_s{s}_L{L}')
+
+    parts, missing = {}, []
+    for stage in TREE_STAGES:
+        if f'Stage{stage}TotalLANTime' in meta:
+            parts[f's{stage}'] = read_db_part(meta, run['num_queries'], prefix=f'Stage{stage}')
+        else:
+            missing.append(stage)
+    if not parts:
+        log.error("%s: no Stage* keys at all, skipping", folder)
+        return None
+    if missing:
+        log.warning("%s: stage(s) %s missing, counted as 0 in the totals",
+                    folder, ', '.join(map(str, missing)))
+        zero = {key: 0.0 for key in next(iter(parts.values()))}
+        parts.update({f's{stage}': dict(zero) for stage in missing})
+
+    combine_parts(run, {f's{stage}': parts[f's{stage}'] for stage in TREE_STAGES})
+    run['pir_rounds'] = sum(read_float(meta, f'Stage{stage}Rounds') for stage in TREE_STAGES
+                            if f'Stage{stage}Rounds' in meta)
     return run
 
 
