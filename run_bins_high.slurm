@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=Bins_High
-#SBATCH --partition=bigmem,normal
+#SBATCH --partition=bigmem
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
