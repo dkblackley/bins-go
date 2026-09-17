@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=100G
+#SBATCH --mem=120G
 #SBATCH --time=0-04:00:00
 #SBATCH --array=0-615
 #SBATCH --account=evgenios
@@ -41,10 +41,11 @@ TIER="low"
 TIER="${TIER:?set TIER to low or high}"
 
 tier_of() {
-        local d=$1 k=$2 bs=$3 dpb=$4 vec=$5
-    if [[ "$d" == "msmarco" && "$dpb" -ge 1000 ]]; then
+    local d=$1 k=$2 bs=$3 dpb=$4 vec=$5
+
+    if [[ "$dpb" -ge 1000 ]]; then
         echo "high"
-    elif [[ "$vec" == "true" && "$dpb" -ge 250 ]]; then
+    elif [[ "$vec" == "true" && ( "$dpb" -ge 250 || "$bs" -ge 1000000 ) ]]; then
         echo "high"
     else
         echo "low"
