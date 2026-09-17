@@ -522,6 +522,7 @@ func (c *PianoPIRClient) Query(idx uint64, server *PianoPIRServer, realQuery boo
 		for i := uint64(0); i < c.config.SetSize; i++ {
 			offsets[i] = uint32(rand.Uint64() & (c.config.ChunkSize - 1))
 		}
+		// still simulate/count the time and bits for the query
 		_, err := server.PrivateQuery(offsets)
 
 		return ret, err
