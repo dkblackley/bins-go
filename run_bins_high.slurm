@@ -8,7 +8,7 @@
 #SBATCH --time=0-07:30:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-351
+#SBATCH --array=0-411
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 #SBATCH --signal=B:TERM@120
@@ -37,7 +37,6 @@ DPB_ARR=()
 TIER="high"
 
 TIER="${TIER:?set TIER to low or high}"
-
 
 tier_of() {
     local d=$1 k=$2 bs=$3 dpb=$4 vec=$5
