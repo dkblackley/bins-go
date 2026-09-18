@@ -113,7 +113,7 @@ def label(key, k=K_MAIN, axis=None):
     elif key.endswith('_vec'):
         text = 'Vec DB ' + text
     if axis and meta.get('better'):
-        text += ' ' + ARROWS[(meta['better'], axis)]
+        text += '' + ARROWS[(meta['better'], axis)] + ''
     return text
 
 
@@ -121,11 +121,11 @@ def label(key, k=K_MAIN, axis=None):
 # SIZES AND FONTS
 # ==========================================
 
-FIG_SIZE = (2.7, 1.6)   # (width, height) in inches, two of these fit side by side in ICLR's 5.5in
+FIG_SIZE = (2.0, 1.6)   # (width, height) in inches, two of these fit side by side in ICLR's 5.5in
 
-FONT_SIZE = 22          # axis labels and titles
-TICK_SIZE = 14          # tick labels
-LEGEND_SIZE = 14         # legend text
+FONT_SIZE = 20          # axis labels and titles
+TICK_SIZE = 12          # tick labels
+LEGEND_SIZE = 12         # legend text
 LINE_WIDTH = 1.6
 MARKER_SIZE = 4.5
 
