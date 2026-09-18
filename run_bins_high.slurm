@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=1500G
 #SBATCH --time=0-07:30:00
-#SBATCH --array=0-351
+#SBATCH --array=0-287
 #SBATCH --output=logs/Bins_%A_%a.out
 #SBATCH --error=logs/Bins_%A_%a.err
 #SBATCH --signal=B:TERM@120
