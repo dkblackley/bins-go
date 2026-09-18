@@ -32,7 +32,7 @@ import (
 // makes PartitionNum*QueryPerPartition sub-queries whatever you pass it, so this
 // is *also* the number of query terms we can hide - it has to be comfortably
 // bigger than the token count of a query or terms get dropped on collisions.
-const OldBatchSize = 12
+const OldBatchSize = 14
 
 type VecBinsOld struct {
 	N                    int                      // Number of Bins
