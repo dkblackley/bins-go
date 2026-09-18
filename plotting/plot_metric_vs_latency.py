@@ -1,9 +1,11 @@
 """
-Quality vs latency, one line per method, one PDF per (dataset, metric):
+Quality vs latency, one line per method, all in one grid PDF
+(rows = metrics in Y_KEYS, columns = datasets):
 
-    figures/latency_<dataset>_<y_key>.pdf     (4 metrics x 2 datasets = 8 PDFs)
+    figures/latency_grid_<x_key>.pdf
 """
 
+import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
 import globals as g
@@ -13,7 +15,7 @@ import select_configs as sc
 
 X_KEY = 'wan_time'   # swap for 'total_time' (computation) or 'wan_time'
 # Y_KEYS = ['mrr', 'recall', 'faithfulness', 'answer_relevancy']
-Y_KEYS = ['recall', 'mrr']
+Y_KEYS = ['mrr', 'recall']   # one grid row each, top to bottom
 K = g.K_MAIN
 
 ONLY_IMPROVING = False   # False plots every config, True drops configs that are slower and no better
@@ -21,14 +23,21 @@ BEST_N = 5              # keep only this many configs per method (None = every c
 LOG_X = True
 BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
 
-Y_LIM = (0.0, 1.0)      # fallback for any (dataset, metric) not listed in Y_LIMS
-Y_LIMS = {              # per-(dataset, metric) ranges, so each plot fills its axes
-    ('msmarco', 'mrr'): (0.0, 0.5),
-    ('scifact', 'mrr'): (0.3, 0.8),
-    ('msmarco', 'recall'): (0.1, 0.6),
-    ('scifact', 'recall'): (0.5, 1.0),
+Y_LIM = (0.0, 1.0)      # fallback for any metric not listed in Y_LIMS
+Y_LIMS = {              # per-metric range, shared by every dataset in that row
+    'mrr': (0.1, 0.7),
+    'recall': (0.2, 0.9),
 }
-Y_TICK_STEP = 0.1       # one gridline and one label every 0.1
+Y_TICK_STEP = 0.2       # one gridline and one label every 0.2
+
+# Label overrides for this plot only (globals.py is left alone).
+Y_LABEL_SIZE = 16       # font size of the per-row metric labels; None = g.FONT_SIZE
+Y_LABEL_TEXT = {}       # e.g. {'recall': 'Recall'} to replace g.label()'s text for a row
+LEGEND_Y = 0.99         # legend's bottom edge, as a fraction of figure height; lower = further down
+
+GRID_FIG_SIZE = (2 * g.FIG_SIZE[0], 2 * g.FIG_SIZE[1])
+# (width, height) in inches for the whole grid. If a row's y label runs into
+# the next row's, make the height bigger or Y_LABEL_SIZE smaller
 
 X_TICK_SUBS = (1.0, 2.0, 5.0)   # label these points in each decade: ..., 0.02, 0.05, 0.1, 0.2, ...
 
@@ -38,8 +47,9 @@ def decimal_tick(value, _pos=None):
     return f'{value:g}'
 
 
-def plot_metric_vs_latency(nested_data, dataset, y_key, x_key=X_KEY):
-    fig, ax = pu.new_figure()
+def draw_panel(ax, nested_data, dataset, y_key, x_key=X_KEY):
+    """One (dataset, metric) panel. Labels, titles and the legend are set by the caller."""
+    ax.grid(True, which='major')
 
     for method in g.METHOD_ORDER:
         fixed = BINS_FILTER if method == 'bins' else {}
@@ -61,26 +71,56 @@ def plot_metric_vs_latency(nested_data, dataset, y_key, x_key=X_KEY):
         # switched off come back (labelled 2x10^-2, 3x10^-2, ... on top of each
         # other on a narrow range) unless they are switched off again here
 
-    ax.set_ylim(*Y_LIMS.get((dataset, y_key), Y_LIM))
+    ax.set_ylim(*Y_LIMS.get(y_key, Y_LIM))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(Y_TICK_STEP))
     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
 
-    ax.set_xlabel(g.label(x_key, axis='x'))
-    ax.set_ylabel(g.label(y_key, K, axis='y'))
-    ax.set_title(g.DATASET_LABELS[dataset], pad=18)
-    # pad pushes the title up to leave room for the legend
 
-    if ax.lines:
-        ax.legend(loc='lower center', bbox_to_anchor=(0.5, 0.98), ncol=3, **g.LEGEND_STYLE)
-        # bbox_to_anchor moves the legend: (0.5, 0.98) = centred, just above the axes
+def plot_metric_vs_latency(nested_data, x_key=X_KEY):
+    """
+    One grid: a row per metric in Y_KEYS, a column per dataset in g.DATASETS.
+    Each label is printed once: dataset names above the top row, the metric
+    on the left of each row, the latency centred under the whole grid, and a
+    single legend above everything.
+    """
+    n_rows, n_cols = len(Y_KEYS), len(g.DATASETS)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=GRID_FIG_SIZE, sharex='col',
+                             sharey='row', squeeze=False, layout='constrained')
+    # sharex='col': both rows of a column show the same dataset, so they share
+    # the latency range and only the bottom row needs x tick labels.
+    # sharey='row': both datasets in a row use the same metric range, so only
+    # the left column needs y tick labels
 
-    return pu.save_figure(fig, f'latency_{dataset}_{y_key}')
+    for row, y_key in enumerate(Y_KEYS):
+        for col, dataset in enumerate(g.DATASETS):
+            ax = axes[row][col]
+            draw_panel(ax, nested_data, dataset, y_key, x_key)
+            if row == 0:
+                ax.set_title(g.DATASET_LABELS[dataset])
+            if col == 0:
+                ax.set_ylabel(Y_LABEL_TEXT.get(y_key, g.label(y_key, K, axis='y')),
+                              fontsize=Y_LABEL_SIZE or g.FONT_SIZE)
+            if row < n_rows - 1:
+                ax.tick_params(labelbottom=False)
+            if col > 0:
+                ax.tick_params(labelleft=False)
+
+    fig.supxlabel(g.label(x_key, axis='x'), fontsize=g.FONT_SIZE)
+
+    # every panel draws the same methods, so take the handles from whichever has the most
+    handles, labels = max((ax.get_legend_handles_labels() for ax in axes.flat),
+                          key=lambda hl: len(hl[0]))
+    if handles:
+        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, LEGEND_Y),
+                   ncol=len(handles), **g.LEGEND_STYLE)
+        # the legend hangs above the figure (savefig's bbox='tight' keeps it in
+        # the PDF); lowering LEGEND_Y slides it down towards the dataset titles
+
+    return pu.save_figure(fig, f'latency_grid_{x_key}')
 
 
 def make_plots(nested_data):
-    for dataset in g.DATASETS:
-        for y_key in Y_KEYS:
-            plot_metric_vs_latency(nested_data, dataset, y_key)
+    plot_metric_vs_latency(nested_data)
 
 
 if __name__ == '__main__':
