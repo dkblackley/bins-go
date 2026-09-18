@@ -28,7 +28,7 @@ LOG_LEVEL = logging.INFO   # logging.DEBUG also prints every folder as it is par
 # EXPERIMENT SETTINGS
 # ==========================================
 
-K_MAIN = 100       # k for the method comparison plots
+K_MAIN = 10      # k for the method comparison plots
 K_ABLATION = 10    # k for the bins ablations (the dpb=1500 sweep only exists at k10 right now)
 
 BINS_FIXED_DPB = 1500                                  # docs per bin when sweeping bin size

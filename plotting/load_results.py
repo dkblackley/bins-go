@@ -209,7 +209,8 @@ def parse_common(folder, meta):
 def parse_bins(folder, meta):
     name = BINS_NAME.match(folder)
     if not name:
-        log.warning("%s: doesn't match bins_vec<0|1>_<dataset>_k<K>_bs<BS>_dpb<DPB>, skipping", folder)
+        if not "k100" in folder:
+            log.warning("%s: doesn't match bins_vec<0|1>_<dataset>_k<K>_bs<BS>_dpb<DPB>, skipping", folder)
         return None
     run = parse_common(folder, meta)
     if run is None:
@@ -246,7 +247,8 @@ def parse_bins(folder, meta):
 def parse_pacmann(folder, meta):
     name = PACMANN_NAME.match(folder)
     if not name:
-        log.warning("%s: doesn't match pacmann_<dataset>_k<K>_steps<S>_neighb<N>, skipping", folder)
+        if not "k100" in folder:
+            log.warning("%s: doesn't match pacmann_<dataset>_k<K>_steps<S>_neighb<N>, skipping", folder)
         return None
     run = parse_common(folder, meta)
     if run is None:
@@ -268,7 +270,8 @@ def parse_tree(folder, meta):
     """
     name = TREE_NAME.match(folder)
     if not name:
-        log.warning("%s: doesn't match tree_<dataset>_b<B>_r<R>_s<S>_L<L>_k<K>, skipping", folder)
+        if not "k100" in folder:
+            log.warning("%s: doesn't match tree_<dataset>_b<B>_r<R>_s<S>_L<L>_k<K>, skipping", folder)
         return None
     run = parse_common(folder, meta)
     if run is None:

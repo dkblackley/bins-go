@@ -10,10 +10,11 @@ import plot_utils as pu
 import select_configs as sc
 
 X_KEY = 'lan_time'   # swap for 'total_time' (computation) or 'wan_time'
-Y_KEYS = ['mrr', 'recall', 'faithfulness', 'answer_relevancy']
+# Y_KEYS = ['mrr', 'recall', 'faithfulness', 'answer_relevancy']
+Y_KEYS = ['mrr']
 K = g.K_MAIN
 
-ONLY_IMPROVING = True   # False plots every config, True drops configs that are slower and no better
+ONLY_IMPROVING = False   # False plots every config, True drops configs that are slower and no better
 BEST_N = 5              # keep only this many configs per method (None = every config)
 LOG_X = True
 BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
