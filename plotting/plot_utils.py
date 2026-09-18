@@ -8,6 +8,7 @@ import math
 import os
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 
 import globals as g

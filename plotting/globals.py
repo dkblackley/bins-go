@@ -92,14 +92,28 @@ METRICS = {
 }
 
 
-def label(key, k=K_MAIN):
-    """Axis label for a run key. Split keys ('lan_time_vec') fall back to the base key."""
+# (better, axis) -> arrow appended by label(axis=...). Y labels are rotated 90°
+# CCW, so \rightarrow renders pointing up the page and \leftarrow pointing down.
+# Mathtext (STIX) rather than Unicode so the glyph exists and matches Times.
+ARROWS = {
+    ('higher', 'x'): r'$\uparrow$',    ('lower', 'x'): r'$\downarrow$',
+    ('higher', 'y'): r'$\rightarrow$', ('lower', 'y'): r'$\leftarrow$',
+}
+
+
+def label(key, k=K_MAIN, axis=None):
+    """Axis label for a run key. Split keys ('lan_time_vec') fall back to the base key.
+    Pass axis='x' or 'y' to append a better-direction arrow (only for outcome
+    metrics, not for swept parameters like 'bs' or 'dpb')."""
     base = key.replace('_bm25', '').replace('_vec', '')
-    text = METRICS.get(key, METRICS.get(base, {'label': key}))['label'].format(k=k)
+    meta = METRICS.get(key, METRICS.get(base, {'label': key}))
+    text = meta['label'].format(k=k)
     if key.endswith('_bm25'):
         text = 'BM25 DB ' + text
     elif key.endswith('_vec'):
         text = 'Vec DB ' + text
+    if axis and meta.get('better'):
+        text += ' ' + ARROWS[(meta['better'], axis)]
     return text
 
 

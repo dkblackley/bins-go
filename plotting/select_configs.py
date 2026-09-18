@@ -51,7 +51,7 @@ import plot_utils as pu
 
 log = logging.getLogger('select')
 
-COST_KEY = 'lan_time'                  # the "cheaper is better" axis
+COST_KEY = 'wan_time'                  # the "cheaper is better" axis
 EFFECT_KEYS = ['mrr', 'recall']        # averaged into E after min-max
 QUALITY_KEYS = ['mrr', 'recall']       # dominance test in step 2
 THRESHOLDS = [0.90, 0.95]              # C2 and C3
