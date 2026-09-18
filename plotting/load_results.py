@@ -94,14 +94,16 @@ import os
 import re
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 import globals as g
 
 log = logging.getLogger('load')
 
-BINS_NAME = re.compile(r'^bins_vec(?P<vec>\d)_(?P<dataset>[a-z0-9-]+)_k(?P<k>\d+)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
-PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>\d+)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
-TREE_NAME = re.compile(r'^tree_(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)_k(?P<k>\d+)$')
+BINS_NAME = re.compile(r'^bins_vec(?P<vec>\d)_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
+PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
+TREE_NAME = re.compile(r'^tree_(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)_k(?P<k>10)$')
 
 TREE_STAGES = [1, 2, 3]   # each stage is one PIR DB; totals are the sum over these
 
@@ -304,41 +306,72 @@ PARSERS = {'bins': parse_bins, 'pacmann': parse_pacmann, 'tree': parse_tree}
 # LOADING
 # ==========================================
 
-def load_results(results_dir=g.RESULTS_DIR):
+def _load_folder(results_dir, folder):
+    """
+    Reads and parses one run folder. Returns (status, method_or_None, run_or_None)
+    where status is 'ok', 'not_dir', 'unknown_method', 'no_metadata', 'bad_json',
+    or 'skipped'. Runs in a worker thread, so it must not touch shared state.
+    """
+    path = os.path.join(results_dir, folder)
+    if not os.path.isdir(path):
+        return 'not_dir', None, None
+
+    method = folder.split('_', 1)[0]
+    if method not in PARSERS:
+        return 'unknown_method', None, None
+
+    meta_path = os.path.join(path, 'metadata.json')
+    if not os.path.exists(meta_path):
+        return 'no_metadata', None, None
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+    except json.JSONDecodeError as err:
+        log.error("%s: corrupted metadata.json (%s)", folder, err)
+        return 'bad_json', None, None
+
+    run = PARSERS[method](folder, meta)
+    if run is None:
+        return 'skipped', None, None
+    return 'ok', method, run
+
+
+def load_results(results_dir=g.RESULTS_DIR, max_workers=32):
+    """
+    Reads every folder's metadata.json with a thread pool. Loading is I/O-bound
+    (many small file reads, often over a network filesystem), so threads give a
+    big speedup despite the GIL: it's released during file I/O, and json.load /
+    the parsers only hold it for the small compute part.
+    """
     nested_data = {method: {} for method in g.METHOD_ORDER}
     if not os.path.isdir(results_dir):
         log.error("results directory does not exist: %s", results_dir)
         return nested_data
 
+    folders = sorted(os.listdir(results_dir))
     no_metadata, bad_json, skipped = [], [], []
-    for folder in sorted(os.listdir(results_dir)):
-        path = os.path.join(results_dir, folder)
-        if not os.path.isdir(path):
-            continue
 
-        method = folder.split('_', 1)[0]
-        if method not in PARSERS:
-            log.warning("%s: unknown method, skipping", folder)
-            continue
-
-        meta_path = os.path.join(path, 'metadata.json')
-        if not os.path.exists(meta_path):
-            no_metadata.append(folder)
-            continue
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except json.JSONDecodeError as err:
-            log.error("%s: corrupted metadata.json (%s)", folder, err)
-            bad_json.append(folder)
-            continue
-
-        run = PARSERS[method](folder, meta)
-        if run is None:
-            skipped.append(folder)
-            continue
-        log.debug("loaded %s", folder)
-        nested_data.setdefault(method, {}).setdefault(run['dataset'], []).append(run)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        # pool.map yields results in `folders` order even though workers finish
+        # out of order, so nested_data ends up built deterministically.
+        for folder, (status, method, run) in zip(
+                folders, pool.map(partial(_load_folder, results_dir), folders)):
+            if status == 'not_dir':
+                continue
+            if status == 'unknown_method':
+                log.warning("%s: unknown method, skipping", folder)
+                continue
+            if status == 'no_metadata':
+                no_metadata.append(folder)
+                continue
+            if status == 'bad_json':
+                bad_json.append(folder)
+                continue
+            if status == 'skipped':
+                skipped.append(folder)
+                continue
+            log.debug("loaded %s", folder)
+            nested_data.setdefault(method, {}).setdefault(run['dataset'], []).append(run)
 
     if no_metadata:
         log.warning("%d folders have no metadata.json yet, e.g. %s",
