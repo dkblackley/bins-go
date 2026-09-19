@@ -23,6 +23,7 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
+from matplotlib.transforms import ScaledTranslation
 
 import globals as g
 import load_results
@@ -34,7 +35,8 @@ import select_configs as sc
 # when 'units' is set):
 #   ylim   (lo, hi) in the units shown on the axis, or None to fit the data
 #   step   gap between y ticks, or None for about N_TICKS auto-placed ticks
-#   fmt    tick label format ('%.1f'), or None for matplotlib's default
+#   fmt    tick label format ('%.1f'), a function (value, pos) -> str, or None
+#          for matplotlib's default
 #   log    True for a log y axis (for values spanning several orders of magnitude)
 #   units  'bytes' or 'seconds': rescale to the most readable unit in UNITS
 #          (e.g. KB -> MB -> GB) and put it in the axis label
@@ -42,12 +44,12 @@ import select_configs as sc
 #   label  axis label instead of g.label(key)
 PANELS = [
     dict(key='mrr'),
-    # dict(key='comm_kb', units='bytes', base='KB'),   # TotalByteSent per query
-
+    #dict(key='comm_kb', units='bytes', base='KB'),   # TotalByteSent per query
     # other ready-made panels, swap any of the above for these:
     # dict(key='comm_per_batch_kb', units='bytes', base='KB'),
     # dict(key='db_size_mb', units='bytes', base='MB'),
-    dict(key='wan_time', units='seconds', base='s'),
+    dict(key='wan_time', units='seconds', base='s', ylim=(0, 350), step=350 / 4,
+         fmt=lambda v, _: f'{round(v, -1):.0f}'),   # labels rounded to the nearest 10
     # dict(key='lan_time', units='seconds', base='s', log=True),
     # dict(key='recall'),
     dict(key='faithfulness'),
@@ -58,23 +60,23 @@ K = g.K_MAIN
 
 BEST_N = 5              # pick the bar from this many selected configs per method
 
-# PICK_BY = {'bins': 'wan_time', 'tree': 'mrr', 'pacmann': 'mrr'}
-PICK_BY = {}
+PICK_BY = {'bins': 'wan_time', 'tree': 'wan_time', 'pacmann': 'wan_time'}
+# PICK_BY = {}
 # per method: the metric that picks ONE run out of its BEST_N, used for every
 # panel (best MRR, lowest WAN latency, ...). A method left out or set to None
 # instead shows its best run on each panel's own metric, so its bars can come
 # from different runs in different panels
 BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
 
-BAR_GROUP_WIDTH = 0.8   # share of each dataset slot filled by its bars
+BAR_GROUP_WIDTH = 0.7   # share of each dataset slot filled by its bars
 EDGE_DARKEN = 0.6       # bar outline = fill colour with RGB scaled by this (0 = black, 1 = same)
 SHOW_VALUES = False     # print each bar's height above it
 
-GRID_FIG_SIZE = (2 * g.FIG_SIZE[0], 1.3 * g.FIG_SIZE[0])   # same footprint as the latency grid
+GRID_FIG_SIZE = (2.5 * g.FIG_SIZE[0], 1.5 * g.FIG_SIZE[0])   # same footprint as the latency grid
 
-PANEL_DEFAULTS = dict(ylim=(0.0, 1.0), step=0.2, fmt='%.1f', log=False,
+PANEL_DEFAULTS = dict(ylim=(0.0, 0.7), step=0.7 / 4, fmt='%.1f', log=False,
                       units=None, base=None, label=None)
-# 0.0 to 1.0 with a tick every 0.2, right for MRR / Recall / RAGAS scores
+# 0.0 to 0.7 in 4 equal steps, labels rounded to 1 dp, right for MRR / Recall / RAGAS scores
 UNIT_DEFAULTS = dict(ylim=None, step=None, fmt=None)
 # costs have no natural range, so unit panels fit the data unless told otherwise
 N_TICKS = 5             # roughly how many y ticks an auto-placed ('step': None) axis gets
@@ -87,11 +89,17 @@ UNITS = {               # smallest to largest, each as a multiple of the first
 MISSING_VALUE = 2.0     # a method with no value gets a bar this many times the panel's
                         # height, so it runs off the top: clearly a placeholder
 
-X_LABEL_SIZE = 12       # dataset names under each group of bars
-Y_LABEL_SIZE = 16       # metric name on the left of each panel
+X_LABEL_SIZE = 11       # dataset names under each group of bars
+Y_LABEL_SIZE = 17       # metric name on the left of each panel
+Y_LABEL_PAD = 2        # gap between the metric name and the y tick labels, in points
+Y_TICK_SIZE = 14        # y tick labels (the numbers)
+X_LABEL_SHIFT = {'scifact': 2}   # nudge a dataset name right by this many points (negative = left)
 
-COL_SPACE = 0.0         # extra gap between columns, as a fraction of the figure width
-COL_PAD = 0.05          # padding around each panel, in inches (constrained layout's w_pad)
+RIGHT_COL_ON_RIGHT = True   # True puts the right column's y label and tick labels on the right edge
+SHOW_ARROWS = True          # add the better-direction arrow to each y label, as in the latency grid
+
+COL_SPACE = 0.01        # extra gap between columns, as a fraction of the figure width
+COL_PAD = 0.01          # padding around each panel, in inches (constrained layout's w_pad)
 
 
 def darker(color, factor=EDGE_DARKEN):
@@ -180,7 +188,7 @@ def draw_panel(ax, picks, panel):
 
     def bars(method, xs, ys, **kwargs):
         color = g.METHOD_COLORS[method]
-        return ax.bar(xs, ys, width=bar_width * 0.92, color=color,
+        return ax.bar(xs, ys, width=bar_width * 0.8, color=color,
                       edgecolor=darker(color), linewidth=1.0, **kwargs)
 
     offsets = {method: (i - (len(g.METHOD_ORDER) - 1) / 2) * bar_width
@@ -189,7 +197,7 @@ def draw_panel(ax, picks, panel):
         drawn = bars(method, slots + offsets[method], heights[method],
                      label=g.METHOD_LABELS[method])   # NaN bars draw nothing
         if SHOW_VALUES:
-            ax.bar_label(drawn, fmt='%.2f', padding=1, fontsize=g.LEGEND_SIZE - 1)
+            ax.bar_label(drawn, fmt='%.2f', padding=1, fontsize=g.LEGEND_SIZE)
 
     if spec['log']:
         ax.set_yscale('log')
@@ -202,7 +210,9 @@ def draw_panel(ax, picks, panel):
         ax.yaxis.set_major_locator(ticker.MultipleLocator(spec['step']))
     elif not spec['log']:
         ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=N_TICKS))
-    if spec['fmt']:
+    if callable(spec['fmt']):
+        ax.yaxis.set_major_formatter(ticker.FuncFormatter(spec['fmt']))
+    elif spec['fmt']:
         ax.yaxis.set_major_formatter(ticker.FormatStrFormatter(spec['fmt']))
 
     # placeholders for missing values, drawn after the limits are fixed so they
@@ -214,10 +224,18 @@ def draw_panel(ax, picks, panel):
             bars(method, missing, [top * MISSING_VALUE] * len(missing))
 
     ax.set_xticks(slots)
-    ax.set_xticklabels([g.DATASET_LABELS[d] for d in g.DATASETS], fontsize=X_LABEL_SIZE)
+    ax.set_xticklabels([g.DATASET_LABELS[d] for d in g.DATASETS], fontsize=X_LABEL_SIZE + 4, y=-0.04)
     ax.tick_params(axis='x', length=0)   # no tick marks under the dataset names
+    for tick, dataset in zip(ax.get_xticklabels(), g.DATASETS):
+        shift = X_LABEL_SHIFT.get(dataset, 0)
+        if shift:   # moves only the text; the bars and axes stay put
+            tick.set_transform(tick.get_transform() + ScaledTranslation(
+                shift / 72, 0, ax.figure.dpi_scale_trans))
     ax.grid(False, axis='x')
-    ax.set_ylabel(label, fontsize=Y_LABEL_SIZE)
+    ax.tick_params(axis='y', labelsize=Y_TICK_SIZE)
+    text = ax.set_ylabel(label, fontsize=Y_LABEL_SIZE, y=0.35, labelpad=Y_LABEL_PAD)
+    if SHOW_ARROWS:
+        g.add_arrow(text, y_key, 'y')   # follows the label if it moves to the right edge
 
 
 def plot_best_histograms(nested_data):
@@ -229,13 +247,16 @@ def plot_best_histograms(nested_data):
     picks = candidates(nested_data)
     for ax, panel in zip(axes.flat, PANELS):
         draw_panel(ax, picks, panel)
+    if RIGHT_COL_ON_RIGHT and N_COLS > 1:
+        for ax in axes[:, -1]:
+            ax.yaxis.set_label_position('right')
+            ax.yaxis.tick_right()
+            ax.spines['left'].set_visible(False)   # move the axis line too, not just the ticks
+            ax.spines['right'].set_visible(True)
     for ax in axes.flat[len(PANELS):]:
         ax.set_visible(False)   # spare cell when PANELS doesn't fill the grid
 
-    handles, labels = axes.flat[0].get_legend_handles_labels()
-    if handles:
-        fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.07),
-                   ncol=len(handles), **g.LEGEND_STYLE)
+    pu.method_legend(fig)   # styled and placed in globals (METHOD_LEGEND_*)
 
     return pu.save_figure(fig, 'best_grid')
 

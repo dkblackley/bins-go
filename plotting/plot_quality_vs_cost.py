@@ -52,12 +52,9 @@ def plot_quality_vs_cost(nested_data, dataset, cost_key, y_key=Y_KEY):
         ax.set_xscale('log')
     ax.set_xlabel(g.label(cost_key))
     ax.set_ylabel(g.label(y_key, K))
-    ax.set_title(g.DATASET_LABELS[dataset], pad=18)
-    # pad pushes the title up to leave room for the legend
+    ax.set_title(g.DATASET_LABELS[dataset])
 
-    if ax.lines:
-        ax.legend(loc='lower center', bbox_to_anchor=(0.5, 0.98), ncol=3, **g.LEGEND_STYLE)
-        # bbox_to_anchor moves the legend: (0.5, 0.98) = centred, just above the axes
+    pu.method_legend(fig)   # under the x label; styled and placed in globals (METHOD_LEGEND_*)
 
     return pu.save_figure(fig, f'cost_{dataset}_{cost_key}')
 

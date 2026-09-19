@@ -118,6 +118,38 @@ def dataset_legend(ax, datasets, styles=(), **position):
     return ax.legend(handles=handles, **position, **g.LEGEND_STYLE)
 
 
+def method_legend(fig):
+    """
+    The method legend, centred under everything else in the figure, one line
+    per entry of g.METHOD_LEGEND_ROWS ('Bin  Tree' then 'PACMANN'). One legend
+    can't centre a lone entry, so each line is its own legend, placed under the
+    one before. Handles come from any axes that drew a method (by its
+    g.METHOD_LABELS label); methods nobody drew are left out.
+    """
+    drawn = {}
+    for ax in fig.axes:
+        for handle, text in zip(*ax.get_legend_handles_labels()):
+            drawn.setdefault(text, handle)
+    style = {**g.LEGEND_STYLE, **g.METHOD_LEGEND_STYLE}
+    gap = g.METHOD_LEGEND_LINE_GAP / 72 / fig.get_figheight()   # points -> figure fraction
+
+    fig.draw_without_rendering()   # lay out the figure so each line knows where to go
+    top = fig.get_tightbbox().y0 / fig.get_figheight()   # bottom of the axes, labels, ...
+    legends = []
+    for row in g.METHOD_LEGEND_ROWS:
+        methods = [m for m in row if g.METHOD_LABELS[m] in drawn]
+        if not methods:
+            continue
+        legend = fig.legend([drawn[g.METHOD_LABELS[m]] for m in methods],
+                            [g.METHOD_LEGEND_LABELS[m] for m in methods],
+                            loc='upper center', bbox_to_anchor=(0.5, top - gap),
+                            ncol=len(methods), **style)
+        legends.append(legend)
+        fig.draw_without_rendering()
+        top = legend.get_window_extent().transformed(fig.transFigure.inverted()).y0
+    return legends
+
+
 def save_figure(fig, name):
     os.makedirs(g.FIGURE_DIR, exist_ok=True)
     path = os.path.join(g.FIGURE_DIR, name + '.pdf')

@@ -80,7 +80,7 @@ def plot_metric_vs_latency(nested_data, x_key=X_KEY):
     One grid: a row per metric in Y_KEYS, a column per dataset in g.DATASETS.
     Each label is printed once: dataset names above the top row, the metric
     on the left of each row, the latency centred under the whole grid, and a
-    single legend above everything.
+    single legend below everything.
     """
     n_rows, n_cols = len(Y_KEYS), len(g.DATASETS)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=GRID_FIG_SIZE, sharex='col',
@@ -95,19 +95,13 @@ def plot_metric_vs_latency(nested_data, x_key=X_KEY):
             if row == 0:
                 ax.set_title(g.DATASET_LABELS[dataset])
             if col == 0:
-                ax.set_ylabel(g.label(y_key, K, axis='y'), fontsize=16)
+                g.add_arrow(ax.set_ylabel(g.label(y_key, K), fontsize=16), y_key, 'y')
             if row < n_rows - 1:
                 ax.tick_params(labelbottom=False)
 
-    fig.supxlabel(g.label(x_key, axis='x'), fontsize=g.FONT_SIZE, y=-0.07)
+    g.add_arrow(fig.supxlabel(g.label(x_key), fontsize=g.FONT_SIZE, y=-0.07), x_key, 'x')
 
-    # every panel draws the same methods, so take the handles from whichever has the most
-    handles, labels = max((ax.get_legend_handles_labels() for ax in axes.flat),
-                          key=lambda hl: len(hl[0]))
-    if handles:
-        fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.07), ncol=len(handles),
-                   **g.LEGEND_STYLE)
-        # 'outside' makes constrained layout reserve room above the top row
+    pu.method_legend(fig)   # under the latency label; styled and placed in globals (METHOD_LEGEND_*)
 
     return pu.save_figure(fig, f'latency_grid_{x_key}')
 
