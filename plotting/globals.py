@@ -89,7 +89,7 @@ METRICS = {
     'client_storage_mb':  {'label': 'Client Storage (MB)', 'better': 'lower'},
     'bs':                 {'label': 'Bin Size',           'better': 'lower'},
     'dpb':                {'label': 'Docs per Bin',       'better': 'lower'},
-    'maintenance_time': {'label': 'Maintenance (s)', 'better': 'lower'},
+    'maintenance_time': {'label': 'Preprocessing (s)', 'better': 'lower'},
     'preproc_rounds': {'label': 'Preproc. Rounds', 'better': 'lower'},
     'pir_rounds': {'label': 'PIR Rounds', 'better': 'lower'},
 }

@@ -78,6 +78,8 @@ Not per query:
     failure_prob_log2, preprocessing_time (s, one-off),
     graph_generation_time (s, pacmann only), empty_bins, vocab_size,
     real_bin_size (bins only)
+    pir_rounds   sequential PIR rounds per query: bins 1 (vec1) or 2 (vec0),
+                 pacmann = steps, tree = ceil(sum of Stage{N}Rounds / NumQueries)
 Split keys (bins only): lan_time, wan_time, comm_kb, db_size_mb,
 client_storage_mb and comm_per_batch_kb also exist as <key>_bm25 (main DB)
 and <key>_vec (embedding DB). The unsuffixed key is always the total. For
@@ -219,6 +221,7 @@ def parse_bins(folder, meta):
     vec, bs, dpb = int(name['vec']), int(name['bs']), int(name['dpb'])
     run.update(method='bins', dataset=name['dataset'], k=int(name['k']),
                vec=vec, bs=bs, dpb=dpb, config=f'vec{vec}_bs{bs}_dpb{dpb}',
+               pir_rounds=2 if vec == 0 else 1,   # vec0 queries the BM25 DB, then the Vec DB
                real_bin_size=read_float(meta, 'RealBinSize'),
                empty_bins=read_float(meta, 'EmptyBins'),
                vocab_size=read_float(meta, 'VocabSize'))
@@ -257,7 +260,8 @@ def parse_pacmann(folder, meta):
     steps, neighb = int(name['steps']), int(name['neighb'])
     run.update(method='pacmann', dataset=name['dataset'], k=int(name['k']),
                steps=steps, neighb=neighb, config=f'steps{steps}_neighb{neighb}',
-               graph_generation_time=read_seconds(meta, 'GraphGenerationTime'))   # one-off
+               graph_generation_time=read_seconds(meta, 'GraphGenerationTime'),   # one-off
+               pir_rounds=steps)   # one PIR round per graph hop
     return run
 
 
@@ -297,9 +301,22 @@ def parse_tree(folder, meta):
         parts.update({f's{stage}': dict(zero) for stage in missing})
 
     combine_parts(run, {f's{stage}': parts[f's{stage}'] for stage in TREE_STAGES})
-    run['pir_rounds'] = sum(read_float(meta, f'Stage{stage}Rounds') for stage in TREE_STAGES
-                            if f'Stage{stage}Rounds' in meta)
+    run['pir_rounds'] = tree_pir_rounds(folder, meta, run['num_queries'])
     return run
+
+
+def tree_pir_rounds(folder, meta, n):
+    """
+    Stage{N}Rounds are totals over the whole run, so the per-query count is
+    their sum / NumQueries, rounded up (a query can't do part of a round).
+    NaN if no stage reports its rounds.
+    """
+    keys = [f'Stage{stage}Rounds' for stage in TREE_STAGES if f'Stage{stage}Rounds' in meta]
+    if not keys:
+        log.warning("%s: no Stage*Rounds keys, pir_rounds is NaN", folder)
+        return math.nan
+    total = sum(read_float(meta, key) for key in keys)
+    return math.nan if math.isnan(total) else math.ceil(total / n)
 
 
 PARSERS = {'bins': parse_bins, 'pacmann': parse_pacmann, 'tree': parse_tree}
