@@ -25,10 +25,10 @@ BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
 
 Y_LIM = (0.0, 1.0)      # fallback for any (dataset, metric) not listed in Y_LIMS
 Y_LIMS = {              # per-(dataset, metric) ranges, so each plot fills its axes
-    ('msmarco', 'mrr'): (0.0, 0.5),
-    ('scifact', 'mrr'): (0.3, 0.8),
-    ('msmarco', 'recall'): (0.1, 0.6),
-    ('scifact', 'recall'): (0.5, 1.0),
+    ('msmarco', 'mrr'): (0.0, 0.4),
+    ('scifact', 'mrr'): (0.4, 0.8),
+    ('msmarco', 'recall'): (0.2, 0.6),
+    ('scifact', 'recall'): (0.5, 0.9),
 }
 Y_TICK_STEP = 0.1       # one gridline and one label every 0.1
 
