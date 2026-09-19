@@ -1,10 +1,7 @@
 """
 One 2x2 figure per dataset comparing the methods, one line per method in
-every panel:
-
-    top row      TOP_Y_KEYS (MRR@10, faithfulness) vs latency
-    bottom row   PIR rounds per query vs BOTTOM_X_KEYS (computation,
-                 bytes sent), sharing the rounds axis
+every panel, each panel one of Y_KEYS (MRR@10, recall, relevancy,
+faithfulness) vs latency, sharing one latency label under the figure
 
     figures/comparison_<dataset>.pdf
 """
@@ -17,10 +14,8 @@ import load_results
 import plot_utils as pu
 import select_configs as sc
 
-X_KEY = 'wan_time'   # top row x axis, swap for 'total_time' (computation) or 'lan_time'
-TOP_Y_KEYS = ['mrr', 'faithfulness']   # left to right
-ROUNDS_KEY = 'pir_rounds'              # bottom row y axis
-BOTTOM_X_KEYS = ['total_time', 'comm_kb']   # left to right
+X_KEY = 'wan_time'   # x axis of every panel, swap for 'total_time' (computation) or 'lan_time'
+Y_KEYS = ['mrr', 'recall', 'answer_relevancy', 'faithfulness']   # left to right, then top to bottom
 K = g.K_MAIN
 
 TITLE = 'PPRAG Comparison - {dataset}'
@@ -29,7 +24,6 @@ TITLE = 'PPRAG Comparison - {dataset}'
 
 ONLY_IMPROVING = False   # False plots every config, True drops configs that are slower and no better
 BEST_N = 5              # keep only this many configs per method (None = every config)
-ROUNDS_ALL_CONFIGS = False   # True: the bottom row shows every config, not just the BEST_N picks
 LOG_X = True
 BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
 
@@ -42,23 +36,23 @@ Y_LIMS = {              # per-(dataset, metric) ranges, so each plot fills its a
 }
 Y_TICK_STEP = 0.1       # one gridline and one label every 0.1
 
-ROUNDS_LOG_Y = False    # True if the round counts span a wide range (e.g. PACMANN at 32+ steps)
-ROUNDS_AXIS = (0, 32, 8)   # (min, max, tick step) for the linear rounds axis
-
 EVEN_LOG_X_TICKS = {    # x keys on a log axis with exactly this many ticks, evenly spaced
     'total_time': 4,    # from the smallest to the largest value plotted
     'comm_kb': 4,
 }
-EVEN_LOG_X_PAD = 0.05   # room either side of the outer ticks, as a fraction of the log range
+EVEN_LOG_X_PAD = 0.0   # room either side of the outer ticks, as a fraction of the log range
 
 X_LABELS = {                           # overrides g.label()
     'comm_kb': 'Bytes Sent',           # the ticks carry the unit (KB/MB/GB)
     'total_time': 'Computation (ms)',  # ticks are drawn in ms (ms_tick), the data stays in s
 }
 
-GRID_FIG_SIZE = (2 * g.FIG_SIZE[0], 2 * g.FIG_SIZE[1] + 0.8)
+GRID_FIG_SIZE = (2 * g.FIG_SIZE[0], 2 * g.FIG_SIZE[1] + 0.5)
 # (width, height) in inches for one dataset's figure: two single plots wide,
-# plus room for a title, the two row labels and the legend
+# plus room for a title, the latency label and the legend
+
+PANEL_GAP = 0.1   # space between the left and right panels, as a fraction of the figure width (matplotlib's default is 0.02)
+ROW_GAP = 0.15    # space between the top and bottom panels, as a fraction of the figure height
 
 X_TICK_SUBS = (1.0, 2.0, 5.0)   # label these points in each decade: ..., 0.02, 0.05, 0.1, 0.2, ...
 
@@ -155,7 +149,7 @@ def method_runs(nested_data, dataset, best_n=BEST_N):
 def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
     """One panel, a line per method. Labels, titles and the legend are set by the caller."""
     ax.grid(True, which='major')
-    ax.tick_params(labelsize=TICK_SIZE)
+    ax.tick_params(labelsize=TICK_SIZE + 2)
 
     plotted = []
     for method, runs in runs_by_method.items():
@@ -177,17 +171,6 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
         # switched off come back (labelled 2x10^-2, 3x10^-2, ... on top of each
         # other on a narrow range) unless they are switched off again here
 
-    if y_key == ROUNDS_KEY:   # whole numbers only, no 0.1 steps
-        if ROUNDS_LOG_Y:
-            ax.set_yscale('log', base=2)
-            ax.yaxis.set_major_formatter(ticker.FuncFormatter(decimal_tick))
-            ax.yaxis.set_minor_locator(ticker.NullLocator())
-        else:
-            lo, hi, step = ROUNDS_AXIS
-            ax.set_ylim(lo, hi)
-            ax.yaxis.set_major_locator(ticker.MultipleLocator(step))
-        return
-
     ax.set_ylim(*Y_LIMS.get((dataset, y_key), Y_LIM))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(Y_TICK_STEP))
     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
@@ -195,30 +178,21 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
 
 def plot_dataset(nested_data, dataset, x_key=X_KEY):
     """
-    The 2x2 figure for one dataset. The top row shares one latency label under
-    it (a subfigure each, so it doesn't collide with the bottom row); the
-    bottom row shares the rounds axis, labelled once on the left, and each
-    panel names its own cost under it. One legend below everything.
+    The 2x2 figure for one dataset, a Y_KEYS metric per panel, all sharing the
+    latency axis with one label under the whole grid. One legend below everything.
     """
     fig = plt.figure(figsize=GRID_FIG_SIZE, layout='constrained')
-    top, bottom = fig.subfigures(2, 1)
-    top_axes = top.subplots(1, len(TOP_Y_KEYS), sharex=True)
-    bottom_axes = bottom.subplots(1, len(BOTTOM_X_KEYS), sharey=True)
+    fig.get_layout_engine().set(wspace=PANEL_GAP, hspace=ROW_GAP)
+    axes = fig.subplots(2, 2, sharex=True)   # sharex: only the bottom row labels its latency ticks
 
     picked = method_runs(nested_data, dataset)
-    rounds_runs = method_runs(nested_data, dataset, best_n=None) if ROUNDS_ALL_CONFIGS else picked
-
-    for ax, y_key in zip(top_axes, TOP_Y_KEYS):
+    for ax, y_key in zip(axes.flat, Y_KEYS):
         draw_panel(ax, picked, dataset, y_key, x_key)
-        g.add_arrow(ax.set_ylabel(g.label(y_key, K)), y_key, 'y')
-    g.add_arrow(top.supxlabel(g.label(x_key), fontsize=g.FONT_SIZE), x_key, 'x')
+        g.add_arrow(ax.set_ylabel(g.label(y_key, K), y=0.3, labelpad=4), y_key, 'y')
+    g.add_arrow(fig.supxlabel(x_label(x_key), fontsize=g.FONT_SIZE), x_key, 'x')
 
-    for ax, bottom_x in zip(bottom_axes, BOTTOM_X_KEYS):
-        draw_panel(ax, rounds_runs, dataset, ROUNDS_KEY, bottom_x)
-        g.add_arrow(ax.set_xlabel(x_label(bottom_x)), bottom_x, 'x')
-    g.add_arrow(bottom_axes[0].set_ylabel(g.label(ROUNDS_KEY)), ROUNDS_KEY, 'y')
     if TITLE:
-        fig.suptitle(TITLE.format(dataset=g.DATASET_LABELS[dataset]))
+        fig.suptitle(TITLE.format(dataset=g.DATASET_LABELS[dataset]), fontsize=20)
 
     pu.method_legend(fig)   # under everything; styled and placed in globals (METHOD_LEGEND_*)
 
