@@ -95,17 +95,17 @@ def plot_metric_vs_latency(nested_data, x_key=X_KEY):
             if row == 0:
                 ax.set_title(g.DATASET_LABELS[dataset])
             if col == 0:
-                ax.set_ylabel(g.label(y_key, K, axis='y'), fontsize=13)
+                ax.set_ylabel(g.label(y_key, K, axis='y'), fontsize=16)
             if row < n_rows - 1:
                 ax.tick_params(labelbottom=False)
 
-    fig.supxlabel(g.label(x_key, axis='x'), fontsize=g.FONT_SIZE)
+    fig.supxlabel(g.label(x_key, axis='x'), fontsize=g.FONT_SIZE, y=-0.07)
 
     # every panel draws the same methods, so take the handles from whichever has the most
     handles, labels = max((ax.get_legend_handles_labels() for ax in axes.flat),
                           key=lambda hl: len(hl[0]))
     if handles:
-        fig.legend(handles, labels, loc='outside upper center', ncol=len(handles),
+        fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.07), ncol=len(handles),
                    **g.LEGEND_STYLE)
         # 'outside' makes constrained layout reserve room above the top row
 

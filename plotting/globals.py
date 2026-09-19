@@ -121,7 +121,7 @@ def label(key, k=K_MAIN, axis=None):
 # SIZES AND FONTS
 # ==========================================
 
-FIG_SIZE = (2.0, 1.6)   # (width, height) in inches, two of these fit side by side in ICLR's 5.5in
+FIG_SIZE = (2.0, 1.5)   # (width, height) in inches, two of these fit side by side in ICLR's 5.5in
 
 FONT_SIZE = 20          # axis labels and titles
 TICK_SIZE = 12          # tick labels
