@@ -35,10 +35,10 @@ DPB_TICKS = range(0, 2501, 500)
 SCORE_TICKS = [0.0, 0.25, 0.45, 0.65, 0.85]
 
 FIG_SIZE = (g.FIG_SIZE[0] * 2 + 1.2, g.FIG_SIZE[1] + 0.3)   # two panels side by side, wider than tall
-WSPACE = 0.5   # gap between the panels (fraction of the mean axes width), room for the right y label
+WSPACE = 0.4   # gap between the panels (fraction of the mean axes width), room for the right y label
 TITLE = 'PILLAR.Bins Ablation'
 TITLE_SIZE = 22
-LABEL_SIZE = g.FONT_SIZE + 4   # x/y axis labels, a little bigger than the other plots
+LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
 LEGEND_GAP = -5   # gap between the figure and the legend under it, in points
 # tighter than g.LEGEND_STYLE: labelspacing = gap between rows, columnspacing = between
 # columns, handletextpad = between a line and its text (all in font-size units)
@@ -49,7 +49,7 @@ def short_number(value, _pos=None):
     """0 -> '0', 400 -> '0.4K', 6000 -> '6K', 200000 -> '0.2M', 1000000 -> '1M'."""
     if value == 0:
         return '0'
-    if abs(value) >= 1e5:
+    if abs(value) >= 1e6:
         return f'{value / 1e6:g}M'
     return f'{value / 1e3:g}K'
 

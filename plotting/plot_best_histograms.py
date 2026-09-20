@@ -53,8 +53,8 @@ PANELS = [
     # dict(key='lan_time', units='seconds', base='s', log=True),
     # dict(key='recall'),
     dict(key='faithfulness', ylim=(0.35, 0.9), step=0.15),
-    # both datasets share this panel, so it uses the SciFact range; MS MARCO
-    # bars above 0.75 would be clipped
+    # both datasets share this panel, so the range covers SciFact (0.35-0.75)
+    # and MS MARCO (0.5-0.9) together rather than either one on its own
     dict(key='answer_relevancy', ylim=(0.6, 1.0), step=0.1),
 ]
 N_COLS = 2

@@ -51,19 +51,23 @@ X_LABELS = {                           # overrides g.label()
     'total_time': 'Computation (ms)',  # ticks are drawn in ms (ms_tick), the data stays in s
 }
 
-GRID_FIG_SIZE = (2 * g.FIG_SIZE[0], 2 * g.FIG_SIZE[1] + 0.5)
+GRID_FIG_SIZE = (2 * g.FIG_SIZE[0], 1.7 * g.FIG_SIZE[1])
 # (width, height) in inches for one dataset's figure: two single plots wide,
 # plus room for a title, the latency label and the legend
 
 PANEL_GAP = 0.1   # space between the left and right panels, as a fraction of the figure width (matplotlib's default is 0.02)
-ROW_GAP = 0.15    # space between the top and bottom panels, as a fraction of the figure height
+ROW_GAP = 0.0    # space between the top and bottom panels, as a fraction of the figure height
 
 X_TICK_SUBS = (1.0, 2.0, 5.0)   # label these points in each decade: ..., 0.02, 0.05, 0.1, 0.2, ...
 
 TICK_SIZE = 10   # tick labels in this figure only (g.TICK_SIZE is 12 everywhere else)
 
-Y_LABEL_Y = 0.3    # height of each metric name up its own panel, 0 = bottom, 1 = top (raise to move the labels up)
-Y_LABEL_PAD = 4    # gap between the metric name and the y tick labels, in points
+Y_LABEL_Y = (0.5, 0.35)   # height of each metric name up its own panel, one per row (top, bottom),
+                           # 0 = bottom of the panel, 1 = top (raise a number to move that row's labels up)
+Y_LABEL_PAD = 4            # gap between the metric name and the y tick labels, in points
+
+X_LABEL_SIZE = g.FONT_SIZE + 2   # the latency name under each bottom-row panel
+X_LABEL_PAD = 2                  # gap between it and the latency tick labels, in points
 
 
 def decimal_tick(value, _pos=None):
@@ -186,17 +190,21 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
 def plot_dataset(nested_data, dataset, x_key=X_KEY):
     """
     The 2x2 figure for one dataset, a Y_KEYS metric per panel, all sharing the
-    latency axis with one label under the whole grid. One legend below everything.
+    latency axis, labelled once per column under the bottom row. One legend
+    below everything.
     """
     fig = plt.figure(figsize=GRID_FIG_SIZE, layout='constrained')
     fig.get_layout_engine().set(wspace=PANEL_GAP, hspace=ROW_GAP)
     axes = fig.subplots(2, 2, sharex=True)   # sharex: only the bottom row labels its latency ticks
 
     picked = method_runs(nested_data, dataset)
-    for ax, y_key in zip(axes.flat, Y_KEYS):
+    for i, (ax, y_key) in enumerate(zip(axes.flat, Y_KEYS)):
         draw_panel(ax, picked, dataset, y_key, x_key)
-        g.add_arrow(ax.set_ylabel(g.label(y_key, K), y=Y_LABEL_Y, labelpad=Y_LABEL_PAD), y_key, 'y')
-    g.add_arrow(fig.supxlabel(x_label(x_key), fontsize=g.FONT_SIZE), x_key, 'x')
+        row = i // axes.shape[1]   # the top row's labels sit higher than the bottom row's
+        g.add_arrow(ax.set_ylabel(g.label(y_key, K), y=Y_LABEL_Y[row], labelpad=Y_LABEL_PAD), y_key, 'y')
+    for ax in axes[-1]:   # one latency label per column, under the bottom row, not one per panel
+        g.add_arrow(ax.set_xlabel(x_label(x_key), fontsize=X_LABEL_SIZE,
+                                  labelpad=X_LABEL_PAD, x=0.4), x_key, 'x')
 
     if TITLE:
         fig.suptitle(TITLE.format(dataset=g.DATASET_LABELS[dataset]), fontsize=20)

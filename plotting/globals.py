@@ -164,9 +164,9 @@ def add_arrow(text, key, axis):
 
 FIG_SIZE = (2.0, 1.5)   # (width, height) in inches, two of these fit side by side in ICLR's 5.5in
 
-FONT_SIZE = 18          # axis labels and titles
-TICK_SIZE = 13          # tick labels
-LEGEND_SIZE = 16         # legend text
+FONT_SIZE = 12          # axis labels and titles
+TICK_SIZE = 12          # tick labels
+LEGEND_SIZE = 14         # legend text
 LINE_WIDTH = 1.2
 MARKER_SIZE = 4.5
 

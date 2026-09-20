@@ -47,13 +47,13 @@ Y_LABEL_X = -0.04   # x of the one shared y label, as a figure fraction; lower =
 # panels
 SHOW_PANEL_TITLES = True   # dataset name above each panel
 PANEL_TITLE_SIZE = g.FONT_SIZE
-PANEL_TITLE_PAD = 4
+PANEL_TITLE_PAD = 0
 
 FIG_SIZE = (g.FIG_SIZE[0] * 2 + 1.0, g.FIG_SIZE[1] + 0.3)   # two panels side by side, wider than tall
 WSPACE = 0.35   # gap between the panels (fraction of the mean axes width)
-TITLE = 'Tree Ablation'
+TITLE = 'PILLAR.Tree Ablation'
 TITLE_SIZE = 22
-TITLE_Y = 1.12   # top of the super title, as a figure fraction; lower it if SHOW_PANEL_TITLES is False
+TITLE_Y = 1.14   # top of the super title, as a figure fraction; lower it if SHOW_PANEL_TITLES is False
 LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
 TICK_SIZE = g.TICK_SIZE + 2
 LEGEND_NCOL = 3   # 3 = all stages on one line
