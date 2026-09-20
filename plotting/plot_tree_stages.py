@@ -42,18 +42,18 @@ TOTALS_SIZE = g.LEGEND_SIZE - 1
 # y axis: {dataset: ticks} pins that panel's y range/ticks; missing = automatic
 Y_TICKS = {'msmarco': [0, 0.35, 0.65, 0.95], 'scifact': [0, 0.1, 0.2, 0.3]}
 LOG_Y = False
-Y_LABEL_X = -0.04   # x of the one shared y label, as a figure fraction; lower = further left
+Y_LABEL_X = -0.02   # x of the one shared y label, as a figure fraction; lower = further left
 
 # panels
 SHOW_PANEL_TITLES = True   # dataset name above each panel
 PANEL_TITLE_SIZE = g.FONT_SIZE
 PANEL_TITLE_PAD = 0
 
-FIG_SIZE = (g.FIG_SIZE[0] * 2 + 1.0, g.FIG_SIZE[1] + 0.3)   # two panels side by side, wider than tall
-WSPACE = 0.35   # gap between the panels (fraction of the mean axes width)
+FIG_SIZE = (g.FIG_SIZE[0] * 2 + 0.8, g.FIG_SIZE[1] - 0.3)   # two panels side by side, wider than tall
+WSPACE = 0.25   # gap between the panels (fraction of the mean axes width)
 TITLE = 'PILLAR.Tree Ablation'
 TITLE_SIZE = 22
-TITLE_Y = 1.14   # top of the super title, as a figure fraction; lower it if SHOW_PANEL_TITLES is False
+TITLE_Y = 1.23   # top of the super title, as a figure fraction; lower it if SHOW_PANEL_TITLES is False
 LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
 TICK_SIZE = g.TICK_SIZE + 2
 LEGEND_NCOL = 3   # 3 = all stages on one line
@@ -144,7 +144,7 @@ def plot_tree_stages(nested_data, y_key=Y_KEY):
         ax.minorticks_off()
         plot_panel(ax, nested_data, dataset, y_key)
 
-    fig.supylabel(Y_LABEL or g.label(y_key, K), fontsize=LABEL_SIZE, x=Y_LABEL_X)   # one for both panels
+    fig.supylabel(Y_LABEL or g.label(y_key, K), fontsize=LABEL_SIZE + 2, x=Y_LABEL_X)   # one for both panels
     fig.suptitle(TITLE, fontsize=TITLE_SIZE, fontweight='bold', y=TITLE_Y)
     legend_below(fig)
 

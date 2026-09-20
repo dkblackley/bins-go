@@ -32,14 +32,14 @@ SCORE_LINESTYLES = ['--', ':']   # 1st, 2nd metric
 SCORE_LABELS = {'mrr': 'MRR', 'recall': 'Recall'}
 DPB_LOG_X = True   # log docs per bin axis, a tick per power of 10; False = linear with DPB_TICKS
 DPB_TICKS = range(0, 2501, 500)
-SCORE_TICKS = [0.0, 0.25, 0.45, 0.65, 0.85]
+SCORE_TICKS = [0.0, 0.2, 0.4, 0.6, 0.8]
 
-FIG_SIZE = (g.FIG_SIZE[0] * 2 + 1.2, g.FIG_SIZE[1] + 0.3)   # two panels side by side, wider than tall
+FIG_SIZE = (g.FIG_SIZE[0] * 2 + 0.8, g.FIG_SIZE[1] - 0.3)   # two panels side by side, wider than tall
 WSPACE = 0.4   # gap between the panels (fraction of the mean axes width), room for the right y label
 TITLE = 'PILLAR.Bins Ablation'
 TITLE_SIZE = 22
 LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
-LEGEND_GAP = -5   # gap between the figure and the legend under it, in points
+LEGEND_GAP = -6   # gap between the figure and the legend under it, in points
 # tighter than g.LEGEND_STYLE: labelspacing = gap between rows, columnspacing = between
 # columns, handletextpad = between a line and its text (all in font-size units)
 LEGEND_SPACING = dict(labelspacing=0.1, columnspacing=0.5, handletextpad=0.15)
@@ -83,8 +83,8 @@ def plot_comm(ax, nested_data):
         set_log_x(ax)
     ax.set_ylim(COMM_TICKS[0], COMM_TICKS[-1])
     set_axis(ax.yaxis, COMM_TICKS, short=False)   # plain numbers
-    ax.set_xlabel(g.label('bs'), fontsize=LABEL_SIZE)
-    ax.set_ylabel(g.label(COMM_KEY), fontsize=LABEL_SIZE)
+    ax.set_xlabel(g.label('bs'), fontsize=LABEL_SIZE + 6)
+    ax.set_ylabel(g.label(COMM_KEY), fontsize=LABEL_SIZE + 6)
 
 
 def plot_scores(ax, nested_data):
@@ -104,8 +104,8 @@ def plot_scores(ax, nested_data):
         set_axis(ax.xaxis, DPB_TICKS)
     ax.set_ylim(SCORE_TICKS[0], SCORE_TICKS[-1])
     ax.yaxis.set_major_locator(ticker.FixedLocator(SCORE_TICKS))
-    ax.set_xlabel(g.label('dpb'), fontsize=LABEL_SIZE)
-    ax.set_ylabel('Score', fontsize=LABEL_SIZE)
+    ax.set_xlabel(g.label('dpb'), fontsize=LABEL_SIZE + 6)
+    ax.set_ylabel('Score', fontsize=LABEL_SIZE + 6)
 
 
 def legend_below(fig):
@@ -132,7 +132,7 @@ def plot_bins_ablation_stacked(nested_data):
 
     plot_comm(ax_comm, nested_data)
     plot_scores(ax_score, nested_data)
-    fig.suptitle(TITLE, fontsize=TITLE_SIZE, fontweight='bold', y=1.06)
+    fig.suptitle(TITLE, fontsize=TITLE_SIZE, fontweight='bold', y=1.15)
     legend_below(fig)
 
     return pu.save_figure(fig, 'bins_ablation_stacked')
