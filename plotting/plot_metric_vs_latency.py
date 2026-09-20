@@ -33,6 +33,10 @@ Y_LIMS = {              # per-(dataset, metric) ranges, so each plot fills its a
     ('scifact', 'mrr'): (0.4, 0.8),
     ('msmarco', 'recall'): (0.2, 0.6),
     ('scifact', 'recall'): (0.5, 0.9),
+    ('msmarco', 'answer_relevancy'): (0.6, 1.0),
+    ('scifact', 'answer_relevancy'): (0.6, 1.0),
+    ('msmarco', 'faithfulness'): (0.5, 0.9),
+    ('scifact', 'faithfulness'): (0.35, 0.75),
 }
 Y_TICK_STEP = 0.1       # one gridline and one label every 0.1
 
@@ -57,6 +61,9 @@ ROW_GAP = 0.15    # space between the top and bottom panels, as a fraction of th
 X_TICK_SUBS = (1.0, 2.0, 5.0)   # label these points in each decade: ..., 0.02, 0.05, 0.1, 0.2, ...
 
 TICK_SIZE = 10   # tick labels in this figure only (g.TICK_SIZE is 12 everywhere else)
+
+Y_LABEL_Y = 0.3    # height of each metric name up its own panel, 0 = bottom, 1 = top (raise to move the labels up)
+Y_LABEL_PAD = 4    # gap between the metric name and the y tick labels, in points
 
 
 def decimal_tick(value, _pos=None):
@@ -188,7 +195,7 @@ def plot_dataset(nested_data, dataset, x_key=X_KEY):
     picked = method_runs(nested_data, dataset)
     for ax, y_key in zip(axes.flat, Y_KEYS):
         draw_panel(ax, picked, dataset, y_key, x_key)
-        g.add_arrow(ax.set_ylabel(g.label(y_key, K), y=0.3, labelpad=4), y_key, 'y')
+        g.add_arrow(ax.set_ylabel(g.label(y_key, K), y=Y_LABEL_Y, labelpad=Y_LABEL_PAD), y_key, 'y')
     g.add_arrow(fig.supxlabel(x_label(x_key), fontsize=g.FONT_SIZE), x_key, 'x')
 
     if TITLE:

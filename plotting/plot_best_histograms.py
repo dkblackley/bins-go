@@ -52,8 +52,10 @@ PANELS = [
          fmt=lambda v, _: f'{round(v, -1):.0f}'),   # labels rounded to the nearest 10
     # dict(key='lan_time', units='seconds', base='s', log=True),
     # dict(key='recall'),
-    dict(key='faithfulness'),
-    dict(key='answer_relevancy'),
+    dict(key='faithfulness', ylim=(0.35, 0.9), step=0.15),
+    # both datasets share this panel, so it uses the SciFact range; MS MARCO
+    # bars above 0.75 would be clipped
+    dict(key='answer_relevancy', ylim=(0.6, 1.0), step=0.1),
 ]
 N_COLS = 2
 K = g.K_MAIN

@@ -192,8 +192,8 @@ def parse_common(folder, meta):
         'mrr_pre_rerank':     read_float(meta, 'MRRPreReRank'),
         'recall':             read_float(meta, 'Recall'),
         'recall_pre_rerank':  read_float(meta, 'RecallPreReRank'),
-        'faithfulness':       read_float(meta, 'Faithfulness'),
-        'answer_relevancy':   read_float(meta, 'AnswerRelevancy'),
+        'faithfulness':       read_float(meta, 'faithfulness'),
+        'answer_relevancy':   read_float(meta, 'answer_relevancy'),
         'total_time':         read_seconds(meta, 'TotalAnswerTime') / n,
         'rerank_time':        read_seconds(meta, 'ReRankTime') / n,
         'preprocessing_time': read_seconds(meta, 'PreprocessingTime'),   # one-off, not per query
