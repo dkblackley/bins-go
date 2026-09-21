@@ -43,19 +43,30 @@ import select_configs as sc
 #   base   the unit the run key is stored in, e.g. 'KB' for comm_kb
 #   label  axis label instead of g.label(key)
 PANELS = [
+    # top row: retrieval / answer quality
     dict(key='mrr'),
-    #dict(key='comm_kb', units='bytes', base='KB'),   # TotalByteSent per query
-    # other ready-made panels, swap any of the above for these:
-    # dict(key='comm_per_batch_kb', units='bytes', base='KB'),
-    # dict(key='db_size_mb', units='bytes', base='MB'),
-    dict(key='wan_time', units='seconds', base='s', ylim=(0, 350), step=350 / 4,
-         fmt=lambda v, _: f'{round(v, -1):.0f}'),   # labels rounded to the nearest 10
-    # dict(key='lan_time', units='seconds', base='s', log=True),
-    # dict(key='recall'),
     dict(key='faithfulness', ylim=(0.35, 0.9), step=0.15),
     # both datasets share this panel, so the range covers SciFact (0.35-0.75)
     # and MS MARCO (0.5-0.9) together rather than either one on its own
-    dict(key='answer_relevancy', ylim=(0.6, 1.0), step=0.1),
+
+    # bottom row: cost
+    dict(key='pir_rounds', ylim=(0, 10000), fmt=None, log=True, step=None),   # integer counts, fit the data
+    # to show total computation time or maintenance (preprocessing) time instead
+    # of PIR rounds, replace the line above with one of these:
+    # dict(key='total_time', units='seconds', base='s'),
+    # dict(key='maintenance_time', units='seconds', base='s'),
+    # (add log=True if the methods differ by orders of magnitude, or ylim/step
+    # to fix the range, as in the wan_time panel below)
+    dict(key='wan_time', units='seconds', base='s', ylim=(0, 350), step=350 / 4,
+         fmt=lambda v, _: f'{round(v, -1):.0f}'),   # labels rounded to the nearest 10
+
+    # other ready-made panels, swap any of the above for these:
+    # dict(key='answer_relevancy', ylim=(0.6, 1.0), step=0.1),
+    # dict(key='comm_kb', units='bytes', base='KB'),   # TotalByteSent per query
+    # dict(key='comm_per_batch_kb', units='bytes', base='KB'),
+    # dict(key='db_size_mb', units='bytes', base='MB'),
+    # dict(key='lan_time', units='seconds', base='s', log=True),
+    # dict(key='recall'),
 ]
 N_COLS = 2
 K = g.K_MAIN
@@ -81,7 +92,7 @@ PANEL_DEFAULTS = dict(ylim=(0.0, 0.7), step=0.7 / 4, fmt='%.1f', log=False,
 # 0.0 to 0.7 in 4 equal steps, labels rounded to 1 dp, right for MRR / Recall / RAGAS scores
 UNIT_DEFAULTS = dict(ylim=None, step=None, fmt=None)
 # costs have no natural range, so unit panels fit the data unless told otherwise
-N_TICKS = 5             # roughly how many y ticks an auto-placed ('step': None) axis gets
+N_TICKS = 4             # roughly how many y ticks an auto-placed ('step': None) axis gets
 
 UNITS = {               # smallest to largest, each as a multiple of the first
     'bytes':   {'B': 1, 'KB': 1024, 'MB': 1024 ** 2, 'GB': 1024 ** 3, 'TB': 1024 ** 4},
@@ -97,7 +108,7 @@ Y_LABEL_PAD = 2        # gap between the metric name and the y tick labels, in p
 Y_TICK_SIZE = 14        # y tick labels (the numbers)
 X_LABEL_SHIFT = {'scifact': 2}   # nudge a dataset name right by this many points (negative = left)
 
-RIGHT_COL_ON_RIGHT = True   # True puts the right column's y label and tick labels on the right edge
+RIGHT_COL_ON_RIGHT = False  # True puts the right column's y label and tick labels on the right edge
 SHOW_ARROWS = True          # add the better-direction arrow to each y label, as in the latency grid
 
 COL_SPACE = 0.01        # extra gap between columns, as a fraction of the figure width
