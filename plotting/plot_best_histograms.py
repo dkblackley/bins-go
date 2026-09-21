@@ -45,12 +45,13 @@ import select_configs as sc
 PANELS = [
     # top row: retrieval / answer quality
     dict(key='mrr'),
-    dict(key='faithfulness', ylim=(0.35, 0.9), step=0.15),
     # both datasets share this panel, so the range covers SciFact (0.35-0.75)
     # and MS MARCO (0.5-0.9) together rather than either one on its own
+    dict(key='answer_relevancy', ylim=(0.4, 0.8), step=0.1),
+    # dict(key='recall'),
 
     # bottom row: cost
-    dict(key='pir_rounds', ylim=(0, 10000), fmt=None, log=True, step=None),   # integer counts, fit the data
+    dict(key='pir_rounds', ylim=(0, 8), fmt=None, step=2),   # integer counts, fit the data
     # to show total computation time or maintenance (preprocessing) time instead
     # of PIR rounds, replace the line above with one of these:
     # dict(key='total_time', units='seconds', base='s'),
@@ -61,12 +62,11 @@ PANELS = [
          fmt=lambda v, _: f'{round(v, -1):.0f}'),   # labels rounded to the nearest 10
 
     # other ready-made panels, swap any of the above for these:
-    # dict(key='answer_relevancy', ylim=(0.6, 1.0), step=0.1),
+    # dict(key='faithfulness', ylim=(0.6, 1.0), step=0.1),
     # dict(key='comm_kb', units='bytes', base='KB'),   # TotalByteSent per query
     # dict(key='comm_per_batch_kb', units='bytes', base='KB'),
     # dict(key='db_size_mb', units='bytes', base='MB'),
     # dict(key='lan_time', units='seconds', base='s', log=True),
-    # dict(key='recall'),
 ]
 N_COLS = 2
 K = g.K_MAIN

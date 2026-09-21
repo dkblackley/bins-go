@@ -7,7 +7,7 @@ under the figure, a super title above it.
 
 The configs come from select_configs.py, so they are the same five the other
 tree plots use. Set CONFIGS below to pin specific ones by hand instead. The
-x axis just says C1, C2, ... (largest total first); which config each one is
+x axis just says C1, C2, ... (smallest total first, largest on the right); which config each one is
 gets printed. Both panels share one y label.
 """
 
@@ -30,7 +30,7 @@ DATASETS = g.DATASETS   # one panel per dataset, left to right
 # {dataset: [config, ...]} to choose the bars by hand; empty = use select_configs.
 CONFIGS = {}
 CONFIG_LABEL = 'C{}'   # x tick label, filled with 1, 2, 3, ...
-SORT_BY_TOTAL = True   # bars left to right from largest total to smallest; False = selection order
+SORT_BY_TOTAL = True   # bars left to right from smallest total to largest; False = selection order
 
 # bars
 BAR_WIDTH = 0.65
@@ -86,7 +86,7 @@ def stage_total(run, y_key):
 def plot_panel(ax, nested_data, dataset, y_key):
     runs = pick_runs(nested_data, dataset)
     if SORT_BY_TOTAL:
-        runs = sorted(runs, key=lambda r: stage_total(r, y_key), reverse=True)
+        runs = sorted(runs, key=lambda r: stage_total(r, y_key))
     slots = np.arange(len(runs), dtype=float)
     bottoms = np.zeros(len(runs))
 
