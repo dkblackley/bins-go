@@ -4,24 +4,33 @@ frontiers instead of bars, all in one column PDF:
 
     figures/pareto_grid.pdf
 
-One panel per entry in PANELS, stacked top to bottom (N_COLS = 1). By default
-the top panel is quality against quality (MRR vs Relevancy) and the bottom one
-is cost against cost (PIR rounds vs Latency).
+The grid is one row per entry in PANELS and one column per entry in
+PANEL_DATASETS, so the default is four panels: quality against quality (MRR vs
+Relevancy) along the top row and cost against cost (LAN vs WAN latency) along
+the bottom, MS MARCO on the left and SciFact on the right. A panel with one
+dataset takes that dataset's ranges out of the PANELS entry, the way
+plot_best_histograms.py keeps one range per metric.
 
-A histogram bar hides everything except the one run behind it; a frontier shows
-the whole trade-off: every non-dominated config of a method, so "PILLAR-Bin is
-up and to the left" is readable straight off the axes without first arguing
-about which single config is the fair one to show.
+A histogram bar hides everything except the one run behind it. Here each method
+brings its BEST_N configs, picked by select_configs.py exactly as
+plot_metric_vs_latency.py picks them, and every one of them gets a marker in
+its method's colour. So "PILLAR-Bin is up and to the left" is readable straight
+off the axes, and it is the whole spread that says it, not one hand-picked run.
 
-Colour is the method (g.METHOD_COLORS); marker and line style are the dataset
-(g.DATASET_MARKERS, DATASET_LINESTYLES here), so both datasets share a panel
-and the same method can be followed across them. That means one frontier per
-(method, dataset), six lines per panel.
+Colour (g.METHOD_COLORS) is the only channel that means anything: one dataset
+per panel, named by the column heading, so every point is the same MARKER. Only
+a panel given several datasets falls back to a shape per dataset
+(DATASET_MARKERS, DATASET_FILLED, DATASET_LINESTYLES).
 
-A point is on the frontier when no other run of the same (method, dataset) is
-at least as good on BOTH axes and strictly better on one, 'better' following
-g.METRICS (highest MRR, lowest latency, ...), so the panels need no per-axis
-direction of their own. Every point drawn is logged with its folder, so
+A point is on a frontier when nothing else in the same pool is at least as good
+on BOTH axes and strictly better on one, 'better' following g.METRICS (highest
+MRR, lowest latency, ...), so the panels need no per-axis direction of their
+own. The only line drawn by default is the grey GLOBAL_FRONTIER: that test run
+over all methods of a dataset pooled together, i.e. the outer envelope of the
+whole figure, made of whichever method wins in each region. Turn METHOD_LINES
+on to also join each method's own frontier (six more lines, one per method and
+dataset), or set POINTS to 'frontier' to drop the configs each method's own
+frontier rejects. Every point drawn is logged with its folder, so
 
     python load_results.py <folder>
 
@@ -39,10 +48,10 @@ import load_results
 import plot_utils as pu
 import select_configs as sc
 
-# One dict per panel, top to bottom. 'x' and 'y' are the run keys; every other
-# field is optional, named by the axis it belongs to ('xlim', 'ystep', ...),
-# and falls back to AXIS_DEFAULTS (or UNIT_DEFAULTS / LOG_DEFAULTS when 'units'
-# or 'log' is set for that axis):
+# One dict per ROW of the grid, top to bottom. 'x' and 'y' are the run keys;
+# every other field is optional, named by the axis it belongs to ('xlim',
+# 'ystep', ...), and falls back to AXIS_DEFAULTS (or UNIT_DEFAULTS /
+# LOG_DEFAULTS when 'units' or 'log' is set for that axis):
 #   xlim/ylim    (lo, hi) in the units shown on the axis, or None to fit the data
 #   xstep/ystep  gap between ticks, or None for about N_TICKS auto-placed ticks
 #   xfmt/yfmt    tick label format ('%.1f'), a function (value, pos) -> str, or
@@ -52,52 +61,126 @@ import select_configs as sc
 #                UNITS (e.g. KB -> MB -> GB) and put it in the axis label
 #   xbase/ybase  the unit the run key is stored in, e.g. 'KB' for comm_kb
 #   xlabel/ylabel  axis label instead of g.label(key)
+# A dataset name ('msmarco', 'scifact') holds the same fields again, used only
+# in that dataset's column: ranges that fit one dataset but not the other, as
+# in plot_metric_vs_latency.py's Y_LIMS. A panel showing both datasets at once
+# ignores them and uses the panel's own fields.
 PANELS = [
-    # top: retrieval / answer quality, both datasets together, so the ranges
-    # cover SciFact and MS MARCO at once rather than either one on its own
-    dict(x='answer_relevancy', y='mrr',
-         xlim=(0.4, 0.8), xstep=0.1,
-         ylim=(0.0, 0.8), ystep=0.2),
+    # top row: retrieval / answer quality-
+    dict(x='answer_relevancy', y='mrr',                    # used if the two share a panel
+         msmarco=dict(xlim=(0.54, 0.8),  ylim=(0.08, 0.4), ystep=0.08),       # MRR lands much lower on MS MARCO
+         scifact=dict(xlim=(0.56, 0.72), ylim=(0.5, 0.7))),       # than on SciFact, so each gets its own
 
-    # bottom: cost against cost
-    dict(x='wan_time', y='pir_rounds', xunits='seconds', xbase='s', xlog=True,
-         ylim=(0, 8), ystep=2, yfmt='%.0f'),
+    # dict(x='wan_time', y='pir_rounds', xunits='seconds', xbase='s',
+    #      msmarco=dict(xlim=(0.0, 2.0),  ylim=(0.0, 40), ystep=10),
+    #      scifact=dict(xlim=(0.0, 1.5), ylim=(0.0, 20))),
 
-    # other ready-made panels, swap any of the above for these:
+    dict(x='wan_time', y='pir_rounds', xunits='seconds', xbase='s',
+         msmarco=dict(xlim=(0.0, 450),  ylim=(0.0, 10)),
+         scifact=dict(xlim=(0.0, 300), ylim=(0.0, 10))),
+
+# # top row: retrieval / answer quality-
+#     dict(x='wan_time', y='mrr', xunits='seconds', xbase='s',                    # used if the two share a panel
+#          msmarco=dict(xlim=(0.0, 2.0),  ylim=(0.08, 0.4), ystep=0.08),       # MRR lands much lower on MS MARCO
+#          scifact=dict(xlim=(0.0, 1.5), ylim=(0.5, 0.7))),       # than on SciFact, so each gets its own
+#
+#     dict(x='wan_time', y='answer_relevancy', xunits='seconds', xbase='s',
+#          msmarco=dict(xlim=(0.0, 2.0),  ylim=(0.54, 0.8)),
+#          scifact=dict(xlim=(0.0, 1.5), ylim=(0.56, 0.72))),
+
+    # # top row: retrieval / answer quality-
+    # dict(x='wan_time', xunits='seconds', xbase='s',  y='mrr',                    # used if the two share a panel
+    #      msmarco=dict(ylim=(0.08, 0.4)),        # MRR lands much lower on MS MARCO
+    #      scifact=dict(ylim=(0.5, 0.7))),       # than on SciFact, so each gets its own
+
+    # # bottom row: cost against cost, the same latency over two link speeds
+    # dict(x='pir_rounds', y='wan_time', xunits='seconds', xbase='s', xlog=True,
+    #      yunits='seconds', ybase='s', ylog=True),
+    # per-dataset ranges here too, if the two end up on different scales, e.g.
+    #    msmarco=dict(xlim=(10, 400)), scifact=dict(xlim=(1, 40)),
+    # (a lim on a unit axis is in the unit the axis ended up in, see xunits)
+
+    # other ready-made rows, swap any of the above for these:
+    # dict(x='wan_time', y='pir_rounds', xunits='seconds', xbase='s', xlog=True,
+    #      ylim=(0, 8), ystep=2, yfmt='%.0f'),   # the PIR rounds panel
     # dict(x='answer_relevancy', y='recall', xlim=(0.4, 0.8), xstep=0.1),
     # dict(x='faithfulness', y='mrr', xlim=(0.35, 1.0), xstep=0.1),
     # dict(x='wan_time', y='mrr', xunits='seconds', xbase='s', xlog=True),
     # dict(x='comm_kb', y='mrr', xunits='bytes', xbase='KB', xlog=True),
-    # dict(x='maintenance_time', y='pir_rounds', xunits='seconds', xbase='s', xlog=True),
+
 ]
-N_COLS = 1              # 1 = one panel under the other, as asked for; 2 puts them side by side
+
+PANEL_DATASETS = [['msmarco'], ['scifact']]
+# one COLUMN per entry: [['msmarco'], ['scifact']] is the four-panel grid, one
+# dataset per panel. An entry listing several datasets draws them together in
+# one panel, so [g.DATASETS] gives the earlier one-column figure back
 K = g.K_MAIN
 
-BEST_N = None           # None uses every config of a method (the frontier is the filter);
-                        # set to e.g. 5 to draw the frontier of the select_configs.py picks only
+BEST_N = 1              # configs per method, picked by select_configs.py exactly as
+                        # plot_metric_vs_latency.py picks them (None = every config in the sweep)
 BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
 
-SHOW_DOMINATED = False  # also scatter the configs the frontier drops, faintly
-DOMINATED_ALPHA = 0.25
-DOMINATED_SIZE = 0.6    # marker size of those points, as a fraction of g.MARKER_SIZE
+POINTS = 'all'          # which of a method's runs get a marker:
+                        #   'all'       every run in the pool, i.e. all BEST_N picks
+                        #   'frontier'  only the runs on that method's own frontier
+                        #   'fade'      the frontier solid, the rest faint
+DOMINATED_ALPHA = 0.25  # 'fade' only
+DOMINATED_SIZE = 0.6    # 'fade' only: marker size of those points, as a fraction of MARKER_SIZE
 
-STEP = False            # True draws the frontier as a staircase (what is actually attainable
-                        # between two configs) instead of joining the points with a straight line
+GLOBAL_FRONTIER = True  # one line per dataset: the frontier over ALL methods pooled together,
+                        # i.e. the best anyone achieves at each trade-off. Every point on it is
+                        # already drawn in its own method's colour, so the line only says which
+                        # of them survive the comparison across methods
+GLOBAL_COLOR = '#000000'
+GLOBAL_LINESTYLE = "-"
+GLOBAL_WIDTH = g.LINE_WIDTH
+GLOBAL_LABEL = 'Pareto Frontier'
+
+METHOD_LINES = False    # also join each method's own frontier, one line per (method, dataset).
+                        # False leaves the global line as the only line, with every config a
+                        # scatter point: the figure then says 'here is everything each method
+                        # can do, and here is the envelope' without six curves crossing
+STEP = False            # True draws a line as a staircase (what is actually attainable between
+                        # two configs) instead of joining the points straight
 LINE_WIDTH = g.LINE_WIDTH
-MARKER_SIZE = g.MARKER_SIZE + 1
-MARKER_EDGE = 0.0       # white outline around each marker, in points (0 = none); helps where
-                        # two methods overlap
 
+MARKER_SIZE = 5        # in points: big enough to read the shape, not just the colour
+MARKER_EDGE = 0       # white ring around a filled marker, in points (0 = none), so two
+                        # methods landing on the same spot stay apart
+HOLLOW_EDGE = 1.8       # line width of a hollow marker, in points
+SAME_POINT_TOL = 1e-6   # two frontier points closer than this (relative to the axis range)
+                        # are the same point: one marker, and no line drawn between them
+
+MARKER = 'o'            # every point's shape. A panel is one dataset (PANEL_DATASETS) and the
+                        # column heading names it, so the shape has nothing left to say and
+                        # colour alone carries the method
+
+# Only used by a panel that shows more than one dataset, where the shape has to tell
+# them apart again: marker, fill and line style per dataset. A hollow marker can sit on
+# top of a filled one and both stay visible, which a pair of filled shapes cannot.
+DATASET_MARKERS = {'msmarco': 'D', 'scifact': '^'}
+DATASET_FILLED = {'msmarco': True, 'scifact': False}
 DATASET_LINESTYLES = {'msmarco': '-', 'scifact': '--'}
-# second channel for the dataset, on top of g.DATASET_MARKERS ('o' / 's'), so the
-# two frontiers of one method stay apart in greyscale. Set both to '-' to drop it.
 
-GRID_FIG_SIZE = (2.5 * g.FIG_SIZE[0], 1.55 * g.FIG_SIZE[1] * -(-len(PANELS) // N_COLS))
-# as wide as the histogram grid, one panel's worth of height per row
+PANEL_SIZE = (1.1 * g.FIG_SIZE[0], 1 * g.FIG_SIZE[1])   # (width, height) of ONE panel, in inches
+GRID_FIG_SIZE = (PANEL_SIZE[0] * len(PANEL_DATASETS), PANEL_SIZE[1] * len(PANELS))
+# two columns of these land at 5.6in, so the figure still fits a page width at its natural size
 
-AXIS_DEFAULTS = dict(lim=None, step=None, fmt='%.1f', log=False,
+TICK_DP = 2             # decimal places on an axis with no fmt of its own
+
+
+def trim_tick(value, _pos=None):
+    """Tick label rounded to TICK_DP decimals with trailing zeros dropped, so a
+    0.05 step prints 0.6, 0.65, 0.7 rather than 0.60, 0.65, 0.70 (or 0.6, 0.7, 0.7)."""
+    text = f'{value:.{TICK_DP}f}'
+    if '.' in text:
+        text = text.rstrip('0').rstrip('.')
+    return '0' if text in ('', '-', '-0') else text
+
+
+AXIS_DEFAULTS = dict(lim=None, step=None, fmt=trim_tick, log=False,
                      units=None, base=None, label=None)
-# labels rounded to 1 dp, right for MRR / Recall / RAGAS scores
+# trimmed to 2 dp, right for MRR / Recall / RAGAS scores
 UNIT_DEFAULTS = dict(lim=None, step=None, fmt=None)
 LOG_DEFAULTS = dict(step=None, fmt=None)
 # costs and log axes have no natural range, so they fit the data unless told otherwise
@@ -118,8 +201,21 @@ TICK_SIZE = 12          # tick labels (the numbers)
 
 SHOW_ARROWS = True      # add the better-direction arrow to each axis label, as in the other grids
 
-DATASET_LEGEND_PANEL = 0        # which panel carries the dataset legend (None for no legend)
-DATASET_LEGEND_LOC = 'lower left'   # where in that panel, e.g. 'upper right', 'best'
+TITLES = True           # dataset name over each column, so the panels say which is which
+TITLE_SIZE = 15
+
+LEGEND_ROWS = [['bins', 'tree'], ['pacmann', 'global']]
+# one centred legend line per row, under the figure, in place of pu.method_legend's
+# g.METHOD_LEGEND_ROWS. An entry is a method (labelled from g.METHOD_LEGEND_LABELS),
+# 'global' (the GLOBAL_FRONTIER line) or a dataset (a black marker, labelled from
+# g.DATASET_LABELS) — that last one only earns its place in a figure where a panel
+# shows more than one dataset, since the column headings name them otherwise. An
+# entry nothing was drawn for is skipped and an empty line disappears, so 'global'
+# costs nothing when GLOBAL_FRONTIER is off
+LEGEND_MARKER_SIZE = 8          # markers in the legend, where they need less room
+METHOD_LEGEND_MARKER = MARKER   # the method's swatch when METHOD_LINES draws no lines
+LEGEND_STYLE = dict(handlelength=1.6)   # on top of g.LEGEND_STYLE / g.METHOD_LEGEND_STYLE:
+                                        # room for a marker plus a dash of line
 
 COL_SPACE = 0.06        # extra gap between columns, as a fraction of the figure width
 ROW_SPACE = 0.08        # extra gap between rows, as a fraction of the figure height
@@ -138,8 +234,9 @@ def frontier(runs, x_key, y_key, name=''):
     """
     The non-dominated runs, sorted by x. A run is dominated when another is at
     least as good on both axes (each in its own better direction) and strictly
-    better on one. Runs tied on both values are kept once, so two configs that
-    landed on the same point draw one marker.
+    better on one. Runs landing on the same point (within SAME_POINT_TOL of the
+    spread of the data) are kept once, so they draw one marker and no line is
+    drawn from a point to itself.
     """
     good = [r for r in runs if pu.is_number(r.get(x_key)) and pu.is_number(r.get(y_key))]
     if runs and len(good) < len(runs):
@@ -154,12 +251,18 @@ def frontier(runs, x_key, y_key, name=''):
     front = [r for r in good if not any(dominates(o, r) for o in good if o is not r)]
     front.sort(key=lambda r: r[x_key])
 
-    kept, seen = [], set()
+    def spread(key):
+        values = [r[key] for r in good]
+        return (max(values) - min(values)) or abs(max(values)) or 1.0
+
+    tol_x, tol_y = spread(x_key) * SAME_POINT_TOL, spread(y_key) * SAME_POINT_TOL
+    kept = []   # the frontier is sorted, so a repeat of a point sits next to it
     for run in front:
-        point = (run[x_key], run[y_key])
-        if point in seen:
+        if kept and (abs(run[x_key] - kept[-1][x_key]) <= tol_x
+                     and abs(run[y_key] - kept[-1][y_key]) <= tol_y):
+            pu.log.debug("%s: %s is the same point as %s, drawn once",
+                         name, run['folder'], kept[-1]['folder'])
             continue
-        seen.add(point)
         kept.append(run)
     pu.log.debug("%s: %d of %d runs on the %s/%s frontier", name, len(kept), len(good), x_key, y_key)
     return kept
@@ -190,6 +293,19 @@ def group_runs(nested_data):
 # ==========================================
 # AXES
 # ==========================================
+
+def panel_for(panel, datasets):
+    """
+    A PANELS entry with the per-dataset overrides applied, for the dataset(s)
+    one panel shows. Only a panel showing a single dataset takes them: with
+    both in one panel there is one pair of axes for the two, so the panel's own
+    fields have to cover both.
+    """
+    plain = {key: value for key, value in panel.items() if key not in g.DATASETS}
+    if len(datasets) == 1:
+        return {**plain, **panel.get(datasets[0], {})}
+    return plain
+
 
 def axis_spec(panel, prefix):
     """
@@ -252,9 +368,11 @@ def setup_axis(ax, which, spec, values):
         set_lim(*spec['lim'])
     elif values:
         lo, hi = min(values), max(values)
-        if spec['log'] and lo > 0:
-            pad = (hi / lo) ** PAD if hi > lo else 1.5
-            set_lim(lo / pad, hi * pad)
+        if spec['log']:
+            if lo > 0:   # a zero or negative value has no place on a log axis; leaving
+                         # the limits alone lets matplotlib drop it and autoscale
+                pad = (hi / lo) ** PAD if hi > lo else 1.5
+                set_lim(lo / pad, hi * pad)
         else:
             pad = (hi - lo) * PAD or (abs(hi) or 1) * PAD
             set_lim(lo - pad, hi + pad)
@@ -278,48 +396,105 @@ def setup_axis(ax, which, spec, values):
 # DRAWING
 # ==========================================
 
-def draw_panel(ax, groups, panel):
-    """One pair of metrics: a frontier per (method, dataset). The legends are set by the caller."""
-    xspec, yspec = axis_spec(panel, 'x'), axis_spec(panel, 'y')
+def marker_style(color, dataset=None, size=MARKER_SIZE, distinct=False):
+    """
+    Marker keywords for a point in one method's colour: MARKER, filled, with a
+    white ring. With `distinct` (a panel holding more than one dataset) the
+    shape and fill come from the dataset instead, and the hollow one goes on
+    top, so a pair sitting on the same point shows both outlines.
+    """
+    if not distinct:
+        return dict(marker=MARKER, markersize=size, markerfacecolor=color,
+                    markeredgecolor='white' if MARKER_EDGE else color,
+                    markeredgewidth=MARKER_EDGE, zorder=2)
+    if DATASET_FILLED[dataset]:
+        return dict(marker=DATASET_MARKERS[dataset], markersize=size, markerfacecolor=color,
+                    markeredgecolor='white' if MARKER_EDGE else color,
+                    markeredgewidth=MARKER_EDGE, zorder=2)
+    return dict(marker=DATASET_MARKERS[dataset], markersize=size, markerfacecolor='none',
+                markeredgecolor=color, markeredgewidth=HOLLOW_EDGE, zorder=3)
+
+
+def draw_panel(ax, groups, panel, datasets):
+    """
+    One pair of metrics for one dataset (or several, when a PANEL_DATASETS
+    entry lists more than one): a marker per config in its method's colour
+    (POINTS), the frontier over all methods pooled per dataset as one grey line
+    (GLOBAL_FRONTIER) and, if METHOD_LINES is on, each method's own frontier as
+    a line of its own. The legend is set by the caller.
+    """
+    spec = panel_for(panel, datasets)
+    xspec, yspec = axis_spec(spec, 'x'), axis_spec(spec, 'y')
     x_key, y_key = xspec['key'], yspec['key']
 
-    fronts, dropped = {}, {}
+    def usable(runs):
+        return [r for r in runs if pu.is_number(r.get(x_key)) and pu.is_number(r.get(y_key))]
+
+    shown, faded, fronts = {}, {}, {}
     for method in g.METHOD_ORDER:
-        for dataset in g.DATASETS:
+        for dataset in datasets:
             name = f'{method}/{dataset}'
-            runs = groups[method, dataset]
-            front = frontier(runs, x_key, y_key, name=name)
-            if not front:
+            runs = usable(groups[method, dataset])
+            if not runs:
                 pu.warn_once("pareto_grid: %s has no run with both %s and %s",
                              name, x_key, y_key)
                 continue
-            fronts[method, dataset] = front
+            front = frontier(runs, x_key, y_key, name=name)
             on_front = {id(r) for r in front}
-            dropped[method, dataset] = [r for r in runs if id(r) not in on_front
-                                        and pu.is_number(r.get(x_key))
-                                        and pu.is_number(r.get(y_key))]
-            for run in front:
-                pu.log.info("%-12s %-8s %-8s %s=%-10.4g %s=%-10.4g %s", 'frontier', method,
+            fronts[method, dataset] = front
+            shown[method, dataset] = runs if POINTS == 'all' else front
+            faded[method, dataset] = ([r for r in runs if id(r) not in on_front]
+                                      if POINTS == 'fade' else [])
+            for run in shown[method, dataset]:
+                pu.log.info("%-9s %-8s %-8s %s=%-10.4g %s=%-10.4g %s",
+                            'frontier' if id(run) in on_front else 'point', method,
                             dataset, x_key, run[x_key], y_key, run[y_key], run['folder'])
 
-    every = [r for runs in fronts.values() for r in runs]
-    if SHOW_DOMINATED:
-        every += [r for runs in dropped.values() for r in runs]
-    xscale, xlabel = scale_for(xspec, [r[x_key] for r in every])
-    yscale, ylabel = scale_for(yspec, [r[y_key] for r in every])
+    every = [r for runs in shown.values() for r in runs]
+    every += [r for runs in faded.values() for r in runs]
 
-    for (method, dataset), front in fronts.items():
-        style = dict(color=g.METHOD_COLORS[method], marker=g.DATASET_MARKERS[dataset],
-                     markersize=MARKER_SIZE, markeredgewidth=MARKER_EDGE,
-                     markeredgecolor='white' if MARKER_EDGE else 'none')
-        if SHOW_DOMINATED and dropped[method, dataset]:
-            ax.plot([r[x_key] * xscale for r in dropped[method, dataset]],
-                    [r[y_key] * yscale for r in dropped[method, dataset]],
-                    linestyle='none', alpha=DOMINATED_ALPHA,
-                    **{**style, 'markersize': MARKER_SIZE * DOMINATED_SIZE, 'markeredgewidth': 0})
-        ax.plot([r[x_key] * xscale for r in front], [r[y_key] * yscale for r in front],
-                linestyle=DATASET_LINESTYLES[dataset], linewidth=LINE_WIDTH,
-                drawstyle=step_style(x_key) if STEP else 'default', **style)
+    def all_runs(key):
+        """Every value of `key` in the figure, so one metric keeps one unit in every panel."""
+        return [r[key] for runs in groups.values() for r in runs if pu.is_number(r.get(key))]
+
+    xscale, xlabel = scale_for(xspec, all_runs(x_key))
+    yscale, ylabel = scale_for(yspec, all_runs(y_key))
+
+    if GLOBAL_FRONTIER:
+        for dataset in datasets:
+            # pooled per dataset: MRR on SciFact and on MS MARCO are different
+            # scales, so a frontier over the two together would mean nothing
+            pooled = [r for method in g.METHOD_ORDER for r in groups[method, dataset]]
+            front = frontier(pooled, x_key, y_key, name=f'all/{dataset}')
+            for run in front:
+                pu.log.info("%-12s %-8s %-8s %s=%-10.4g %s=%-10.4g %s", 'global', 'all',
+                            dataset, x_key, run[x_key], y_key, run[y_key], run['folder'])
+            if len(front) > 1:   # a single point is already drawn in its method's colour
+                ax.plot([r[x_key] * xscale for r in front], [r[y_key] * yscale for r in front],
+                        color=GLOBAL_COLOR, linewidth=GLOBAL_WIDTH, linestyle=GLOBAL_LINESTYLE,
+                        marker='', drawstyle=step_style(x_key) if STEP else 'default',
+                        zorder=1)   # under the method markers, which are its own points
+
+    def draw(runs, **kwargs):
+        return ax.plot([r[x_key] * xscale for r in runs], [r[y_key] * yscale for r in runs],
+                       **kwargs)
+
+    # one dataset in the panel: the heading names it, so every point is MARKER
+    # and only the colour means anything. Several: they need telling apart again
+    distinct = len(datasets) > 1
+    for (method, dataset), runs in shown.items():
+        color = g.METHOD_COLORS[method]
+        if faded[method, dataset]:
+            draw(faded[method, dataset], linestyle='none', alpha=DOMINATED_ALPHA,
+                 **marker_style(color, dataset, MARKER_SIZE * DOMINATED_SIZE, distinct))
+        # the line and the markers are drawn separately: the line follows the
+        # method's frontier, the markers cover every config POINTS asks for, and
+        # a frontier down to one point would only draw a stub of a line
+        if METHOD_LINES and len(fronts[method, dataset]) > 1:
+            draw(fronts[method, dataset], color=color, linewidth=LINE_WIDTH,
+                 linestyle=DATASET_LINESTYLES[dataset] if distinct else '-', marker='',
+                 drawstyle=step_style(x_key) if STEP else 'default', zorder=2)
+        draw(runs, linestyle='none', **marker_style(color, dataset, distinct=distinct))
 
     setup_axis(ax, 'x', xspec, [r[x_key] * xscale for r in every])
     setup_axis(ax, 'y', yspec, [r[y_key] * yscale for r in every])
@@ -333,43 +508,73 @@ def draw_panel(ax, groups, panel):
         g.add_arrow(y_text, y_key, 'y')
 
 
-def dataset_legend(ax):
-    """One black entry per dataset: colour is the method, marker and line style the dataset."""
-    handles = [Line2D([], [], color='black', marker=g.DATASET_MARKERS[d],
-                      linestyle=DATASET_LINESTYLES[d], markersize=MARKER_SIZE,
-                      label=g.DATASET_LABELS[d]) for d in g.DATASETS]
-    return ax.legend(handles=handles, loc=DATASET_LEGEND_LOC, **g.LEGEND_STYLE)
+def legend_handle(entry):
+    """
+    The legend line for one LEGEND_ROWS entry, or None when that entry was not
+    drawn. A method is its colour as a line when METHOD_LINES draws lines, and
+    as a plain dot otherwise. A dataset is drawn in black, since its colour is
+    whichever method it belongs to, in the shape a shared panel gives it.
+    """
+    if entry in g.METHOD_ORDER:
+        color = g.METHOD_COLORS[entry]
+        shape = dict(marker='') if METHOD_LINES else dict(
+            marker=METHOD_LEGEND_MARKER, markersize=LEGEND_MARKER_SIZE,
+            markerfacecolor=color, markeredgecolor=color, linestyle='none')
+        return Line2D([], [], color=color, linewidth=LINE_WIDTH,
+                      label=g.METHOD_LEGEND_LABELS[entry], **shape)
+    if entry in g.DATASETS:
+        return Line2D([], [], color='black', linewidth=LINE_WIDTH,
+                      linestyle=DATASET_LINESTYLES[entry] if METHOD_LINES else 'none',
+                      label=g.DATASET_LABELS[entry],
+                      **marker_style('black', entry, LEGEND_MARKER_SIZE, distinct=True))
+    if entry == 'global' and GLOBAL_FRONTIER:
+        return Line2D([], [], color=GLOBAL_COLOR, linewidth=GLOBAL_WIDTH,
+                      linestyle=GLOBAL_LINESTYLE, marker='', label=GLOBAL_LABEL)
+    pu.warn_once("pareto_grid: legend entry %r was not drawn, left out", entry)
+    return None
 
 
-def method_proxies(ax):
+def combined_legend(fig):
     """
-    Colour-only handles for pu.method_legend. The drawn lines carry a marker
-    each, which would put one dataset's symbol in the method legend and read as
-    if it meant something, so the legend gets its own markerless lines instead.
+    LEGEND_ROWS centred under the figure, one line per row ('Bin  Tree', then
+    'PACMANN  MS MARCO  SciFact'). Same layout as pu.method_legend, which can't
+    be used here because a dataset entry has to share a line with a method one:
+    each line is its own legend, placed under the one before, since one legend
+    can't centre a lone entry.
     """
-    for method in g.METHOD_ORDER:
-        ax.plot([], [], color=g.METHOD_COLORS[method], linewidth=LINE_WIDTH,
-                marker='', label=g.METHOD_LABELS[method])
+    style = {**g.LEGEND_STYLE, **g.METHOD_LEGEND_STYLE, **LEGEND_STYLE}
+    gap = g.METHOD_LEGEND_LINE_GAP / 72 / fig.get_figheight()   # points -> figure fraction
+
+    fig.draw_without_rendering()   # lay out the figure so each line knows where to go
+    top = fig.get_tightbbox().y0 / fig.get_figheight()   # bottom of the axes, labels, ...
+    legends = []
+    for row in LEGEND_ROWS:
+        handles = [h for h in (legend_handle(entry) for entry in row) if h is not None]
+        if not handles:
+            continue
+        legend = fig.legend(handles, [h.get_label() for h in handles],
+                            loc='upper center', bbox_to_anchor=(0.5, top - gap),
+                            ncol=len(handles), **style)
+        legends.append(legend)
+        fig.draw_without_rendering()
+        top = legend.get_window_extent().transformed(fig.transFigure.inverted()).y0
+    return legends
 
 
 def plot_pareto_frontier(nested_data):
-    n_rows = -(-len(PANELS) // N_COLS)   # ceiling division
-    fig, axes = plt.subplots(n_rows, N_COLS, figsize=GRID_FIG_SIZE,
+    fig, axes = plt.subplots(len(PANELS), len(PANEL_DATASETS), figsize=GRID_FIG_SIZE,
                              squeeze=False, layout='constrained')
     fig.get_layout_engine().set(wspace=COL_SPACE, hspace=ROW_SPACE)
 
     groups = group_runs(nested_data)
-    for ax, panel in zip(axes.flat, PANELS):
-        draw_panel(ax, groups, panel)
-    for ax in axes.flat[len(PANELS):]:
-        ax.set_visible(False)   # spare cell when PANELS doesn't fill the grid
+    for row, panel in enumerate(PANELS):
+        for col, datasets in enumerate(PANEL_DATASETS):
+            draw_panel(axes[row][col], groups, panel, list(datasets))
+    if TITLES:
+        for ax, datasets in zip(axes[0], PANEL_DATASETS):   # one heading per column
+            ax.set_title(' / '.join(g.DATASET_LABELS[d] for d in datasets), fontsize=TITLE_SIZE)
 
-    if PANELS:
-        method_proxies(axes.flat[0])
-    if DATASET_LEGEND_PANEL is not None and DATASET_LEGEND_PANEL < len(PANELS):
-        dataset_legend(axes.flat[DATASET_LEGEND_PANEL])
-
-    pu.method_legend(fig)   # under everything; styled and placed in globals (METHOD_LEGEND_*)
+    combined_legend(fig)   # methods, datasets and the global frontier (LEGEND_ROWS)
 
     return pu.save_figure(fig, 'pareto_grid')
 
