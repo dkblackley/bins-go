@@ -55,7 +55,7 @@ ABLATION_KEYS = ['wan_time', 'lan_time', 'total_time', 'comm_kb']
 # 'cols' is panels per row (None = all on one row); '{sweep}' in the title
 # becomes that sweep's X_LABELS name.
 FIGURES = [
-    dict(name='bins_ablation', title='Ablation: {sweep}',
+    dict(name='bins_ablation', title='Time/Data by {sweep}',
          keys=ABLATION_KEYS, cols=2),
 ]
 
@@ -144,7 +144,8 @@ X_LABEL_EACH = False   # False: one x label under the whole figure (every panel 
 # put numbers in place of the pg.* ones to tune this file on its own)
 # ==========================================
 
-PANEL_SIZE = pg.PANEL_SIZE   # (width, height) in inches of one panel, before the gaps
+# PANEL_SIZE = pg.PANEL_SIZE   # (width, height) in inches of one panel, before the gaps
+PANEL_SIZE = (1.0 * g.FIG_SIZE[0], 1.0 * g.FIG_SIZE[1])
 PANEL_GAP = pg.PANEL_GAP     # space between two columns, as a fraction of a panel's width
 ROW_GAP = pg.ROW_GAP         # space between two rows, as a fraction of a panel's height
 HEADROOM = 0.0               # inches added to the figure height for the super title and the

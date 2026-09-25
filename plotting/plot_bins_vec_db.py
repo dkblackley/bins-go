@@ -76,8 +76,8 @@ DATASETS = g.DATASETS   # the split figures' columns, left to right
 FIGURES = {
     'quality': dict(name='bins_vec_db_quality', title='Embedding DB: Quality',
                     cols=None, panel=(2.5, 1.5), headroom=0.6),
-    'cost':    dict(name='bins_vec_db_cost', title='Embedding DB: Cost',
-                    cols=2, panel=None, headroom=0.0),   # None = PANEL_SIZE
+    'cost':    dict(name='bins_vec_db_cost', title='Embedding DB Ablation',
+                    cols=2, panel=(2.5, 1.5), headroom=0.0),   # None = PANEL_SIZE
 }
 
 # Shorter than g.label() where the panel is narrow; anything not listed uses g.label().
@@ -169,8 +169,8 @@ LEGEND_LINE_GAP = 0   # gap between two lines of the legend, in points (the data
                       # line, the layouts on the next)
 # labelspacing = gap between rows, columnspacing = between columns, handletextpad =
 # between a line and its text (all in font-size units)
-LEGEND_SPACING = dict(labelspacing=0.1, columnspacing=0.8, handletextpad=0.3,
-                      handlelength=1.6,   # long enough to show a dashed line
+LEGEND_SPACING = dict(labelspacing=0.0, columnspacing=0.4, handletextpad=0.1,
+                      handlelength=0.6,   # long enough to show a dashed line
                       fontsize=pg.LEGEND_STYLE.get('fontsize', g.LEGEND_SIZE))
 
 # ==========================================

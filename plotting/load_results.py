@@ -100,12 +100,13 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 import globals as g
+from client_estimate import estimate_client
 
 log = logging.getLogger('load')
 
 BINS_NAME = re.compile(r'^bins_vec(?P<vec>\d)_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
 PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
-TREE_NAME = re.compile(r'^tree_(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)_k(?P<k>10)$')
+TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?_k(?P<k>10)$')
 
 TREE_STAGES = [1, 2, 3]   # each stage is one PIR DB; totals are the sum over these
 
@@ -244,6 +245,14 @@ def parse_bins(folder, meta):
         run[key + '_bm25'] = main[key]
         run[key + '_vec'] = second[key]
         run[key] = main[key] + second[key]
+
+    # est = estimate_client(meta, bs, vec, dpb)
+    # run['client_storage_mb_reported'] = run['client_storage_mb']
+    # run['client_storage_mb_bm25'] = est['client_mb_best']
+    # run['client_storage_mb_low'] = est['client_mb_low'] + run['client_storage_mb_vec']
+    # run['client_storage_mb'] = est['client_mb_low'] + run['client_storage_mb_vec']
+    # if not est['consistent']:
+    #     log.warning("%s: ClientStorageMB/CommCostPerBatchKB don't fit bs=%d, estimate is suspect", folder, bs)
     return run
 
 

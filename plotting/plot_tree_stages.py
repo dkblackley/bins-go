@@ -39,7 +39,7 @@ BAR_WIDTH = 0.65
 BAR_EDGE_COLOR = '#333333'
 BAR_EDGE_WIDTH = 0.6
 SHOW_TOTALS = False   # print the total above each bar
-TOTALS_SIZE = g.LEGEND_SIZE - 1
+TOTALS_SIZE = g.LEGEND_SIZE
 
 # y axis: {dataset: ticks} pins that panel's y range/ticks; missing = automatic
 Y_TICKS = {'msmarco': [0, 0.35, 0.65, 0.95], 'scifact': [0, 0.1, 0.2, 0.3]}
@@ -54,9 +54,9 @@ PANEL_TITLE_PAD = 0
 FIG_SIZE = (g.FIG_SIZE[0] * 2 + 0.8, g.FIG_SIZE[1] - 0.3)   # two panels side by side, wider than tall
 WSPACE = 0.3   # gap between the panels (fraction of the mean axes width)
 TITLE = 'PILLAR-Tree Latency by Stages'
-TITLE_SIZE = 20
+TITLE_SIZE = 18
 TITLE_Y = 1.25   # top of the super title, as a figure fraction; lower it if SHOW_PANEL_TITLES is False
-LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
+LABEL_SIZE = g.FONT_SIZE   # x/y axis labels, a little bigger than the other plots
 TICK_SIZE = g.TICK_SIZE
 LEGEND_NCOL = 3   # 3 = all stages on one line
 LEGEND_GAP = -1    # gap between the figure and the legend under it, in points

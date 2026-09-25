@@ -73,13 +73,14 @@ BEST_N = None           # configs per method, picked by select_configs.py (None 
                         # in the sweep), for any panel that doesn't name its own
 BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
 
-COST_KEYS = ['wan_time', 'lan_time', 'total_time']
+# COST_KEYS = ['wan_time', 'lan_time', 'total_time']
+COST_KEYS = ['maintenance_time', 'comm_kb', 'client_storage_mb']
+
 QUALITY_KEYS = ['mrr', 'recall']
 # the columns and the rows of the default PANELS below, a panel per pair. The
 # other three costs asked for are 'comm_kb' (total data sent) and
 # 'client_storage_mb' (client storage), which with 'maintenance_time' make the
 # second figure:
-# COST_KEYS = ['maintenance_time', 'comm_kb', 'client_storage_mb']
 
 FIG_NAME = 'pareto_grid_storage_{dataset}'   # figures/<this>.pdf, '{dataset}' becoming the
                         # dataset of the figure, so the two figures of one run don't overwrite
@@ -212,6 +213,7 @@ AXIS_DEFAULTS = {
     # round 0, 256MB, 512MB, 768MB, 1GB), and 'step' is another way to say the
     # same thing: step=256 with no lim puts a tick every 256 MB.
     # SciFact gets the same 0 to 1 GB so the two figures' storage axes match.
+
     ('msmarco', 'client_storage_mb'): dict(lim=(0, 6500), log=False),
     ('scifact', 'client_storage_mb'): dict(lim=(0, 135), log=False),
     ('msmarco', 'wan_time'): dict(lim=(0, 1), log=False),
@@ -220,14 +222,17 @@ AXIS_DEFAULTS = {
     ('scifact', 'lan_time'): dict(lim=(0, 0.035), log=False),
     ('msmarco', 'total_time'): dict(lim=(0, 0.9), log=False),
     ('scifact', 'total_time'): dict(lim=(0, 0.025), log=False),
+
     # data sent (stored in KB) and preprocessing (stored in seconds), per
     # dataset. lim=None fits the data; set a (lo, hi) to pin the range, e.g.
     # lim=(1, 1024 ** 2) for 1 KB to 1 GB sent, or lim=(1, 3600) for 1 s to
     # 1 h of preprocessing. Both are log axes, so lo has to be above 0
+
     ('msmarco', 'comm_kb'):          dict(lim=(0, 35000), step=None, log=False),
     ('scifact', 'comm_kb'):          dict(lim=(0, 1500), step=None, log=False),
     ('msmarco', 'maintenance_time'): dict(lim=(0, 3000), step=None, log=False),
     ('scifact', 'maintenance_time'): dict(lim=(0, 20), step=None, log=False),
+
     # the quality metrics keep the plain axis and the trimmed decimals of the
     # fallbacks; pin a range per dataset here when the auto fit is too generous
     ('msmarco', 'mrr'):    dict(lim=(0.0, 0.35)),      # e.g. dict(lim=(0.12, 0.36), step=0.06)
@@ -285,8 +290,8 @@ POINTS_AGAINST = 'global'   # which frontier 'frontier'/'fade' judge a run again
                         #             drawn, so a run is solid exactly when it sits on that line
                         #   'method'  that method's own frontier, which also keeps runs the line
                         #             skips because another method dominates them
-DOMINATED_ALPHA = 0.45  # 'fade' only
-DOMINATED_SIZE = 0.7    # 'fade' only: marker size of those points, as a fraction of MARKER_SIZE
+DOMINATED_ALPHA = 0.5  # 'fade' only
+DOMINATED_SIZE = 0.5    # 'fade' only: marker size of those points, as a fraction of MARKER_SIZE
 
 GLOBAL_FRONTIER = True  # the frontier over ALL methods pooled together, i.e. the best anyone
                         # achieves at each cost. Every point on it is already drawn in its own
@@ -308,11 +313,17 @@ PER_METHOD_MARKERS = False   # True takes each method's shape from g.METHOD_MARK
 MARKER_SIZE = 5         # in points: big enough to read the shape, not just the colour
 MARKER_EDGE = 0         # white ring around a marker, in points (0 = none), so two methods
                         # landing on the same spot stay apart
+FRONTIER_EDGE = 0.6     # black outline around the points on the global frontier, in points
+                        # (0 = none), so the configs the black line passes through stand out
+FRONTIER_EDGE_COLOR = '#000000'
 SAME_POINT_TOL = 1e-6   # two frontier points closer than this (relative to the spread of the
                         # data) are the same point: one marker, and no line drawn between them
 
 LOG_POINTS = True       # log every point drawn with its folder, as the other Pareto files do.
                         # With BEST_N = None that is the whole sweep, several hundred lines
+
+FRONTIER_SUMMARY = True # print, once every figure is drawn, how many of the points on each
+                        # panel's global frontier belong to each method, as a share of them all
 
 
 # ==========================================
@@ -703,9 +714,14 @@ def marker_for(method):
     return g.METHOD_MARKERS[method] if PER_METHOD_MARKERS else MARKER
 
 
-def marker_style(method, size=MARKER_SIZE):
-    """Marker keywords for a point in one method's colour, with a white ring."""
+def marker_style(method, size=MARKER_SIZE, on_global=False):
+    """Marker keywords for a point in one method's colour, with a white ring, or a
+    black one (FRONTIER_EDGE) when the point is on the global frontier."""
     color = g.METHOD_COLORS[method]
+    if on_global and FRONTIER_EDGE:
+        return dict(marker=marker_for(method), markersize=size, markerfacecolor=color,
+                    markeredgecolor=FRONTIER_EDGE_COLOR, markeredgewidth=FRONTIER_EDGE,
+                    zorder=3)
     return dict(marker=marker_for(method), markersize=size, markerfacecolor=color,
                 markeredgecolor='white' if MARKER_EDGE else color,
                 markeredgewidth=MARKER_EDGE, zorder=2)
@@ -761,6 +777,12 @@ def draw_panel(ax, panel, nested_data, figure_dataset):
                  marker='', drawstyle=step_style(x_key) if STEP_LINE else 'default',
                  zorder=1)   # under the method markers, which are its own points
 
+    global_front = on_frontier(pooled, pooled, x_key, y_key)
+    _frontier_counts.append(dict(
+        dataset=dataset, x=x_key, y=y_key,
+        counts={m: sum(id(r) in global_front for r in usable(per_method.get(m, [])))
+                for m in g.METHOD_ORDER}))
+
     drawn = []
     for method in g.METHOD_ORDER:
         name = f'{method}/{dataset}'
@@ -785,7 +807,13 @@ def draw_panel(ax, panel, nested_data, figure_dataset):
         if METHOD_LINES and len(front) > 1:
             draw(front, color=g.METHOD_COLORS[method], linewidth=LINE_WIDTH, marker='',
                  drawstyle=step_style(x_key) if STEP_LINE else 'default', zorder=2)
-        draw(shown, linestyle='none', label=g.METHOD_LABELS[method], **marker_style(method))
+        # the points on the global frontier (the black line) get a black outline
+        rest = [r for r in shown if id(r) not in global_front]
+        outlined = [r for r in shown if id(r) in global_front]
+        if rest:
+            draw(rest, linestyle='none', **marker_style(method))
+        if outlined:
+            draw(outlined, linestyle='none', **marker_style(method, on_global=True))
 
     if panel.get('title'):
         ax.set_title(panel['title'].format(dataset=g.DATASET_LABELS[dataset]),
@@ -912,9 +940,44 @@ def plot_pareto_grid(nested_data, dataset, name=FIG_NAME):
     return pu.save_figure(fig, name.format(dataset=dataset))
 
 
+_frontier_counts = []   # one entry per panel drawn, for print_frontier_summary
+
+
+def print_frontier_summary():
+    """
+    Per panel, how many points on the global frontier each method has and what
+    share of that frontier's points that is, then the same pooled over every
+    panel of a dataset. A point counts when nothing in the panel beats it, i.e.
+    exactly the solid markers of POINTS = 'fade' against the global frontier
+    (runs landing on the same spot each count).
+    """
+    methods = g.METHOD_ORDER
+    width = max(len(g.METHOD_LABELS[m]) for m in methods)
+
+    def row(counts):
+        total = sum(counts.values())
+        cells = [f'{g.METHOD_LABELS[m]:>{width}} {counts[m]:3d} ({100 * counts[m] / total:5.1f}%)'
+                 if total else f'{g.METHOD_LABELS[m]:>{width}}   -' for m in methods]
+        return f'{total:3d} on frontier | ' + '  '.join(cells)
+
+    print('\nPoints on the global Pareto frontier, per method')
+    for dataset in dict.fromkeys(e['dataset'] for e in _frontier_counts):
+        entries = [e for e in _frontier_counts if e['dataset'] == dataset]
+        print(f'\n{g.DATASET_LABELS.get(dataset, dataset)}')
+        label_width = max(len(f"{e['y']} vs {e['x']}") for e in entries)
+        for e in entries:
+            print(f"  {e['y'] + ' vs ' + e['x']:<{label_width}}  {row(e['counts'])}")
+        pooled = {m: sum(e['counts'][m] for e in entries) for m in methods}
+        print(f"  {'all panels':<{label_width}}  {row(pooled)}")
+
+
 def make_plots(nested_data):
     """The same panels once per dataset in DATASETS, i.e. two figures by default."""
-    return [plot_pareto_grid(nested_data, dataset) for dataset in DATASETS]
+    _frontier_counts.clear()
+    figures = [plot_pareto_grid(nested_data, dataset) for dataset in DATASETS]
+    if FRONTIER_SUMMARY:
+        print_frontier_summary()
+    return figures
 
 
 if __name__ == '__main__':

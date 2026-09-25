@@ -46,12 +46,15 @@ MAX_DPB = 500        # runs with more docs per bin than this are left out (the o
 # figures/<name>_<sweep>.pdf. '{sweep}' in the title becomes that sweep's
 # X_LABELS name; None for no title.
 FIGURES = [
-    dict(name='bins_storage', title='Cost by {sweep}',
+    dict(name='bins_storage', title='Storage by {sweep}',
          keys=['db_size_mb', 'client_storage_mb']),
     dict(name='bins_preproc_quality', title='Preproc/Quality by {sweep}',
          keys=['maintenance_time', ('mrr', 'recall')]),
 ]
 
+SKIP_TOP_ROW = True     # True leaves out each figure's first row (its first 'keys' entry), so
+                         # Server and Preproc. go and Client and Quality stay; a figure can
+                         # override it with skip_top_row=True/False in its FIGURES entry
 SWEEPS = ['bs', 'dpb']   # a figure per sweep; ['dpb'] for the docs per bin figures only
 SWEEPS_IN_ONE = False    # True: one figure per FIGURES entry, figures/<name>.pdf, with each
                          # sweep's rows stacked under the one before (a 4x2 for two keys)
@@ -96,7 +99,7 @@ Y_LIMS = {
         ('scifact', 'maintenance_time'):  (0, 1.5),
         ('msmarco', 'db_size_mb'):        (0, 1024),
         ('scifact', 'db_size_mb'):        (0, 10),
-        ('msmarco', 'client_storage_mb'): (0, 10240),
+        ('msmarco', 'client_storage_mb'): (0, 2540),
         ('scifact', 'client_storage_mb'): (0, 50),
         ('msmarco', ('mrr', 'recall')):   (0.0, 0.075),
         ('scifact', ('mrr', 'recall')):   (0.0, 0.6),
@@ -104,10 +107,10 @@ Y_LIMS = {
     'dpb': {    # the docs per bin figures
         ('msmarco', 'maintenance_time'):  (0, 330),
         ('scifact', 'maintenance_time'):  (0, 120),
-        ('msmarco', 'db_size_mb'):        (0, 15024),
-        ('scifact', 'db_size_mb'):        (0, 15024),
+        ('msmarco', 'db_size_mb'):        (0, 5024),
+        ('scifact', 'db_size_mb'):        (0, 10),
         ('msmarco', 'client_storage_mb'): (0, 15024),
-        ('scifact', 'client_storage_mb'): (0, 15024),
+        ('scifact', 'client_storage_mb'): (0, 120),
         ('msmarco', ('mrr', 'recall')):   (0.0, 0.3),
         ('scifact', ('mrr', 'recall')):   (0.25, 0.8),
     },
@@ -150,7 +153,7 @@ HEADROOM = abl.HEADROOM       # inches added to the figure height for the titles
 TITLE_SIZE = abl.TITLE_SIZE
 COL_TITLES = True             # the dataset's name over each column
 COL_TITLE_SIZE = pg.TITLE_SIZE
-X_LABEL_SIZE = abl.X_LABEL_SIZE
+X_LABEL_SIZE = abl.X_LABEL_SIZE - 2
 Y_LABEL_SIZE = abl.Y_LABEL_SIZE
 LABEL_PAD = abl.LABEL_PAD
 TICK_SIZE = abl.TICK_SIZE
@@ -346,12 +349,17 @@ def make_plots(nested_data):
                     "k=%d, vec=%s", dataset, FIXED_DPB, g.BINS_FIXED_BS.get(dataset), K, BINS_VEC)
     paths = []
     for figure in FIGURES:
+        keys = figure['keys'][1:] if figure.get('skip_top_row', SKIP_TOP_ROW) else figure['keys']
+        if not keys:
+            pu.warn_once("bins_ablation_split: %s has no rows left once its top one is "
+                         "skipped, not drawn", figure['name'])
+            continue
         if SWEEPS_IN_ONE:
-            rows = [(x_key, panel) for x_key in SWEEPS for panel in figure['keys']]
+            rows = [(x_key, panel) for x_key in SWEEPS for panel in keys]
             paths.append(plot_grid(nested_data, rows, figure['name'], figure.get('title')))
             continue
         for x_key in SWEEPS:
-            rows = [(x_key, panel) for panel in figure['keys']]
+            rows = [(x_key, panel) for panel in keys]
             paths.append(plot_grid(nested_data, rows, f"{figure['name']}_{x_key}",
                                    figure.get('title')))
     return paths

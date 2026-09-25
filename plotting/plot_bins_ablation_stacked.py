@@ -41,8 +41,8 @@ SCORE_TICKS = [0.0, 0.2, 0.4, 0.6, 0.8]
 FIG_SIZE = (g.FIG_SIZE[0] * 2 + 0.8, g.FIG_SIZE[1] - 0.3)   # two panels side by side, wider than tall
 WSPACE = 0.4   # gap between the panels (fraction of the mean axes width), room for the right y label
 TITLE = 'PILLAR-Bins Ablation'
-TITLE_SIZE = 20
-LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
+TITLE_SIZE = 18
+LABEL_SIZE = g.FONT_SIZE   # x/y axis labels, a little bigger than the other plots
 MARKER_SIZE = g.MARKER_SIZE - 1.5   # smaller than the other plots, the points here sit close together
 LEGEND_GAP = -6   # gap between the figure and the legend under it, in points
 # tighter than g.LEGEND_STYLE: labelspacing = gap between rows, columnspacing = between
