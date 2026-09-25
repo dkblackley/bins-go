@@ -30,6 +30,7 @@ DATASETS = g.DATASETS   # one panel per dataset, left to right
 # {dataset: [config, ...]} to choose the bars by hand; empty = use select_configs.
 CONFIGS = {}
 CONFIG_LABEL = 'C{}'   # x tick label, filled with 1, 2, 3, ...
+X_LABELS = {'msmarco': 'Tree MS MARCO Configs', 'scifact': 'Tree SciFact Configs'}   # missing = no x label
 SORT_BY_TOTAL = True   # bars left to right from smallest total to largest; False = selection order
 
 # bars
@@ -42,7 +43,7 @@ TOTALS_SIZE = g.LEGEND_SIZE - 1
 # y axis: {dataset: ticks} pins that panel's y range/ticks; missing = automatic
 Y_TICKS = {'msmarco': [0, 0.35, 0.65, 0.95], 'scifact': [0, 0.1, 0.2, 0.3]}
 LOG_Y = False
-Y_LABEL_X = -0.02   # x of the one shared y label, as a figure fraction; lower = further left
+Y_LABEL_X = 0.0  # x of the one shared y label, as a figure fraction; lower = further left
 
 # panels
 SHOW_PANEL_TITLES = True   # dataset name above each panel
@@ -50,14 +51,14 @@ PANEL_TITLE_SIZE = g.FONT_SIZE
 PANEL_TITLE_PAD = 0
 
 FIG_SIZE = (g.FIG_SIZE[0] * 2 + 0.8, g.FIG_SIZE[1] - 0.3)   # two panels side by side, wider than tall
-WSPACE = 0.25   # gap between the panels (fraction of the mean axes width)
-TITLE = 'PILLAR.Tree Ablation'
+WSPACE = 0.3   # gap between the panels (fraction of the mean axes width)
+TITLE = 'PILLAR-Tree Ablation'
 TITLE_SIZE = 22
 TITLE_Y = 1.23   # top of the super title, as a figure fraction; lower it if SHOW_PANEL_TITLES is False
 LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
-TICK_SIZE = g.TICK_SIZE + 2
+TICK_SIZE = g.TICK_SIZE
 LEGEND_NCOL = 3   # 3 = all stages on one line
-LEGEND_GAP = -5    # gap between the figure and the legend under it, in points
+LEGEND_GAP = -1    # gap between the figure and the legend under it, in points
 # tighter than g.LEGEND_STYLE: labelspacing = gap between rows, columnspacing = between
 # columns, handletextpad = between a patch and its text (all in font-size units)
 LEGEND_SPACING = dict(labelspacing=0.2, columnspacing=0.5, handletextpad=0.15)
@@ -109,6 +110,8 @@ def plot_panel(ax, nested_data, dataset, y_key):
         print(f"  {text} = {run['config']}  (total {stage_total(run, y_key):.3g})")
     ax.set_xticks(slots)
     ax.set_xticklabels(labels)
+    if dataset in X_LABELS:
+        ax.set_xlabel(X_LABELS[dataset], fontsize=LABEL_SIZE, x=0.46)
     ax.tick_params(axis='x', length=0)
     ax.tick_params(labelsize=TICK_SIZE)
     ax.grid(False, axis='x')
@@ -145,7 +148,7 @@ def plot_tree_stages(nested_data, y_key=Y_KEY):
         plot_panel(ax, nested_data, dataset, y_key)
 
     fig.supylabel(Y_LABEL or g.label(y_key, K), fontsize=LABEL_SIZE + 2, x=Y_LABEL_X)   # one for both panels
-    fig.suptitle(TITLE, fontsize=TITLE_SIZE, fontweight='bold', y=TITLE_Y)
+    fig.suptitle(TITLE, fontsize=TITLE_SIZE, y=TITLE_Y)
     legend_below(fig)
 
     return pu.save_figure(fig, 'tree_stages')

@@ -67,17 +67,21 @@ import select_configs as sc
 # ignores them and uses the panel's own fields.
 PANELS = [
     # top row: retrieval / answer quality-
-    dict(x='answer_relevancy', y='mrr',                    # used if the two share a panel
-         msmarco=dict(xlim=(0.54, 0.8),  ylim=(0.08, 0.4), ystep=0.08),       # MRR lands much lower on MS MARCO
-         scifact=dict(xlim=(0.56, 0.72), ylim=(0.5, 0.7))),       # than on SciFact, so each gets its own
+    # dict(x='answer_relevancy', y='mrr',                    # used if the two share a panel
+    #      msmarco=dict(xlim=(0.54, 0.8),  ylim=(0.08, 0.4), ystep=0.08),       # MRR lands much lower on MS MARCO
+    #      scifact=dict(xlim=(0.56, 0.72), ylim=(0.5, 0.7))),       # than on SciFact, so each gets its own
 
+    dict(x='answer_relevancy', y='faithfulness',                    # used if the two share a panel
+         msmarco=dict(xlim=(0.54, 0.8), ylim=(0.6, 0.9)),       # MRR lands much lower on MS MARCO
+         scifact=dict(xlim=(0.54, 0.8), ylim=(0.6, 0.9))),       # than on SciFact, so each gets its own
+
+    # # dict(x='wan_time', y='pir_rounds', xunits='seconds', xbase='s',
+    # #      msmarco=dict(xlim=(0.0, 2.0),  ylim=(0.0, 40), ystep=10),
+    # #      scifact=dict(xlim=(0.0, 1.5), ylim=(0.0, 20))),
+    #
     # dict(x='wan_time', y='pir_rounds', xunits='seconds', xbase='s',
-    #      msmarco=dict(xlim=(0.0, 2.0),  ylim=(0.0, 40), ystep=10),
-    #      scifact=dict(xlim=(0.0, 1.5), ylim=(0.0, 20))),
-
-    dict(x='wan_time', y='pir_rounds', xunits='seconds', xbase='s',
-         msmarco=dict(xlim=(0.0, 450),  ylim=(0.0, 10)),
-         scifact=dict(xlim=(0.0, 300), ylim=(0.0, 10))),
+    #      msmarco=dict(xlim=(0.0, 450),  ylim=(0.0, 10)),
+    #      scifact=dict(xlim=(0.0, 300), ylim=(0.0, 10))),
 
 # # top row: retrieval / answer quality-
 #     dict(x='wan_time', y='mrr', xunits='seconds', xbase='s',                    # used if the two share a panel
@@ -214,7 +218,7 @@ LEGEND_ROWS = [['bins', 'tree'], ['pacmann', 'global']]
 # costs nothing when GLOBAL_FRONTIER is off
 LEGEND_MARKER_SIZE = 8          # markers in the legend, where they need less room
 METHOD_LEGEND_MARKER = MARKER   # the method's swatch when METHOD_LINES draws no lines
-LEGEND_STYLE = dict(handlelength=1.6)   # on top of g.LEGEND_STYLE / g.METHOD_LEGEND_STYLE:
+LEGEND_STYLE = dict(handlelength=1.6, fontsize=11)   # on top of g.LEGEND_STYLE / g.METHOD_LEGEND_STYLE:
                                         # room for a marker plus a dash of line
 
 COL_SPACE = 0.06        # extra gap between columns, as a fraction of the figure width

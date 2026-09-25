@@ -5,18 +5,16 @@ faithfulness) against latency, sharing one latency label under the figure
 
     figures/pareto_comparison_<dataset>.pdf
 
-The difference is what a line means. plot_metric_vs_latency.py sorts a method's
-configs by latency and joins all of them, so the line doubles back every time a
-slower config scores worse. Here each method's line is its own Pareto frontier:
-only the configs nothing else beats on BOTH axes at once, so the line is what
-that method can actually buy with more latency, and it never goes backwards.
-Every config still gets a marker (POINTS), so the runs the frontier rejects are
-still on the page, just not on the line.
+The look matches plot_pareto_single.py: each method brings its BEST_N configs,
+every one gets a marker in its method's colour, and the only line drawn by
+default is the GLOBAL_FRONTIER over all methods pooled: the configs nothing
+else beats on BOTH axes at once, i.e. the best anyone achieves at each latency,
+made of whichever method wins in each region. The runs off that line are drawn
+faint (POINTS = 'fade'). Turn METHOD_LINES on to also join each method's own
+frontier.
 
 'Better' follows g.METRICS (highest MRR, lowest latency, ...), so swapping X_KEY
 or a Y_KEYS entry for something where lower is better needs no other change.
-Turn GLOBAL_FRONTIER on for the envelope over all methods pooled: the best
-anyone achieves at each latency, made of whichever method wins in each region.
 Every point drawn is logged with its folder, so
 
     python load_results.py <folder>
@@ -41,52 +39,68 @@ TITLE = 'PPRAG Comparison - {dataset}'
 # '{dataset}' becomes g.DATASET_LABELS[dataset]. None for no title, e.g. when
 # the LaTeX caption already says which dataset it is
 
-BEST_N = None           # keep only this many configs per method, picked by select_configs.py
-                        # (None = every config in the sweep, which is the point here: the
-                        # frontier does the picking, and on more configs it says more)
+BEST_N = 5              # configs per method, picked by select_configs.py exactly as
+                        # plot_metric_vs_latency.py picks them (None = every config in the sweep)
 BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
 LOG_X = True
 
 Y_LIM = (0.0, 1.0)      # fallback for any (dataset, metric) not listed in Y_LIMS
 Y_LIMS = {              # per-(dataset, metric) ranges, so each plot fills its axes
-    ('msmarco', 'mrr'): (0.0, 0.4),
-    ('scifact', 'mrr'): (0.4, 0.8),
+    ('msmarco', 'mrr'): (0.12, 0.36),
+    ('scifact', 'mrr'): (0.52, 0.68),
     ('msmarco', 'recall'): (0.2, 0.6),
-    ('scifact', 'recall'): (0.5, 0.9),
-    ('msmarco', 'answer_relevancy'): (0.6, 1.0),
-    ('scifact', 'answer_relevancy'): (0.6, 1.0),
-    ('msmarco', 'faithfulness'): (0.5, 0.9),
-    ('scifact', 'faithfulness'): (0.35, 0.75),
+    ('scifact', 'recall'): (0.65, 0.85),
+    ('msmarco', 'answer_relevancy'): (0.54, 0.78),
+    ('scifact', 'answer_relevancy'): (0.55, 0.7),
+    ('msmarco', 'faithfulness'): (0.8, 0.96),
+    ('scifact', 'faithfulness'): (0.6, 0.72),
 }
 Y_TICK_STEP = 0.1       # one gridline and one label every 0.1
+Y_TICK_STEPS = {
+('msmarco', 'mrr'): 0.06,
+('scifact', 'mrr'): 0.04,
+('scifact', 'recall'): 0.05,
+('msmarco', 'faithfulness'): 0.04,
+('msmarco', 'answer_relevancy'): 0.06,
+('scifact', 'answer_relevancy'): 0.05,
+('scifact', 'faithfulness'): 0.03,
+}       # per-(dataset, metric) steps, overriding Y_TICK_STEP
+Y_TICK_DP = 2           # decimals on the y tick labels, trailing zeros dropped (trim_tick)
 
 # ==========================================
 # THE POINTS AND THE LINES
 # ==========================================
 
-POINTS = 'all'          # which of a method's runs get a marker:
-                        #   'all'       every run in the pool
-                        #   'frontier'  only the runs on that method's own frontier
+POINTS = 'fade'         # which of a method's runs get a marker:
+                        #   'all'       every run in the pool, i.e. all BEST_N picks
+                        #   'frontier'  only the runs on the frontier (POINTS_AGAINST)
                         #   'fade'      the frontier solid, the rest faint
-DOMINATED_ALPHA = 0.25  # 'fade' only
-DOMINATED_SIZE = 0.6    # 'fade' only: marker size of those points, as a fraction of MARKER_SIZE
+POINTS_AGAINST = 'global'   # which frontier 'frontier'/'fade' judge a run against:
+                        #   'global'  the pooled frontier, i.e. the black line that is actually
+                        #             drawn, so a run is solid exactly when it sits on that line
+                        #   'method'  that method's own frontier, which also keeps runs the line
+                        #             skips because another method dominates them
+DOMINATED_ALPHA = 0.45  # 'fade' only
+DOMINATED_SIZE = 0.75   # 'fade' only: marker size of those points, as a fraction of MARKER_SIZE
 
-METHOD_LINES = True     # join each method's own frontier, which is what this file is for.
-                        # False leaves every config a scatter point, with only the global
-                        # line (if it is on) saying anything about the trade-off
+GLOBAL_FRONTIER = True  # the frontier over ALL methods pooled together, i.e. the best anyone
+                        # achieves at each latency. Every point on it is already drawn in its
+                        # own method's colour, so the line only says which of them survive the
+                        # comparison across methods
+GLOBAL_COLOR = '#000000'
+GLOBAL_LINESTYLE = '-'
+GLOBAL_WIDTH = g.LINE_WIDTH + 0.5
+GLOBAL_LABEL = 'Pareto Frontier'
+
+METHOD_LINES = False    # also join each method's own frontier, one line per method. False leaves
+                        # the global line as the only line, with every config a scatter point
 STEP = False            # True draws a line as a staircase (what is actually attainable between
                         # two configs) instead of joining the points straight
 LINE_WIDTH = g.LINE_WIDTH
 
-GLOBAL_FRONTIER = False  # also the frontier over ALL methods pooled together. Every point on it
-                         # is already drawn in its own method's colour, so the line only says
-                         # which of them survive the comparison across methods
-GLOBAL_COLOR = '#000000'
-GLOBAL_LINESTYLE = '--'
-GLOBAL_WIDTH = g.LINE_WIDTH
-GLOBAL_LABEL = 'Pareto Frontier'
-
-MARKER_SIZE = g.MARKER_SIZE   # shape per method from g.METHOD_MARKERS, as in the line version
+MARKER = 'o'            # every point's shape: colour alone carries the method
+PER_METHOD_MARKERS = False   # True takes each method's shape from g.METHOD_MARKERS instead
+MARKER_SIZE = 5         # in points: big enough to read the shape, not just the colour
 MARKER_EDGE = 0         # white ring around a marker, in points (0 = none), so two methods
                         # landing on the same spot stay apart
 SAME_POINT_TOL = 1e-6   # two frontier points closer than this (relative to the spread of the
@@ -102,12 +116,17 @@ EVEN_LOG_X_TICKS = {    # x keys on a log axis with exactly this many ticks, eve
 }
 EVEN_LOG_X_PAD = 0.0   # room either side of the outer ticks, as a fraction of the log range
 
+X_AXES = {              # (dataset, x key) -> (lo, hi, step): a plain (not log) x axis with these
+    ('msmarco', 'wan_time'): (0.0, 2.0, 0.5),   # limits and a tick every step. Anything not
+    ('scifact', 'wan_time'): (0.0, 1.4, 0.35),   # listed falls back to EVEN_LOG_X_TICKS / LOG_X
+}
+
 X_LABELS = {                           # overrides g.label()
     'comm_kb': 'Bytes Sent',           # the ticks carry the unit (KB/MB/GB)
     'total_time': 'Computation (ms)',  # ticks are drawn in ms (ms_tick), the data stays in s
 }
 
-GRID_FIG_SIZE = (2 * g.FIG_SIZE[0], 1.7 * g.FIG_SIZE[1])
+GRID_FIG_SIZE = (2.1 * g.FIG_SIZE[0], 1.55 * g.FIG_SIZE[1])
 # (width, height) in inches for one dataset's figure: two single plots wide,
 # plus room for a title, the latency label and the legend
 
@@ -118,9 +137,14 @@ X_TICK_SUBS = (1.0, 2.0, 5.0)   # label these points in each decade: ..., 0.02, 
 
 TICK_SIZE = 10   # tick labels in this figure only (g.TICK_SIZE is 12 everywhere else)
 
-Y_LABEL_Y = (0.5, 0.35)   # height of each metric name up its own panel, one per row (top, bottom),
+Y_LABEL_Y = (0.42, 0.2)   # height of each metric name up its own panel, one per row (top, bottom),
                            # 0 = bottom of the panel, 1 = top (raise a number to move that row's labels up)
 Y_LABEL_PAD = 4            # gap between the metric name and the y tick labels, in points
+Y_LABEL_X = -0.3          # x of every metric name, as a fraction of its panel's width (0 = the
+                           # y axis, negative = left of it). Pinned rather than left to Y_LABEL_PAD
+                           # because matplotlib places the label off the widest tick label, so a
+                           # panel with wider ticks ('0.96' vs '0.3') would sit further out than
+                           # the rest. None restores the automatic placement from Y_LABEL_PAD.
 
 X_LABEL_SIZE = g.FONT_SIZE + 2   # the latency name under each bottom-row panel
 X_LABEL_PAD = 2                  # gap between it and the latency tick labels, in points
@@ -130,9 +154,9 @@ LEGEND_ROWS = [['bins', 'tree'], ['pacmann', 'global']]
 # g.METHOD_LEGEND_ROWS. An entry is a method (labelled from g.METHOD_LEGEND_LABELS) or
 # 'global' (the GLOBAL_FRONTIER line), which is skipped when nothing was drawn for it,
 # so 'global' costs nothing while GLOBAL_FRONTIER is off
-LEGEND_MARKER_SIZE = 8          # markers in the legend, where they need less room
-LEGEND_STYLE = dict(handlelength=1.6)   # on top of g.LEGEND_STYLE / g.METHOD_LEGEND_STYLE:
-                                        # room for a marker plus a dash of line
+LEGEND_MARKER_SIZE = 6          # markers in the legend, where they need less room
+LEGEND_STYLE = dict(handlelength=0.6, fontsize=13)   # on top of g.LEGEND_STYLE /
+                                                     # g.METHOD_LEGEND_STYLE
 
 
 # ==========================================
@@ -142,6 +166,28 @@ LEGEND_STYLE = dict(handlelength=1.6)   # on top of g.LEGEND_STYLE / g.METHOD_LE
 def better_sign(key):
     """+1 when higher is better for this metric, -1 when lower is."""
     return -1 if g.METRICS.get(key, {}).get('better') == 'lower' else 1
+
+
+def dominance(x_key, y_key):
+    """The 'a is better than b' test for one pair of axes, each in its own better direction."""
+    sx, sy = better_sign(x_key), better_sign(y_key)
+
+    def dominates(a, b):
+        return (sx * a[x_key] >= sx * b[x_key] and sy * a[y_key] >= sy * b[y_key]
+                and (sx * a[x_key] > sx * b[x_key] or sy * a[y_key] > sy * b[y_key]))
+
+    return dominates
+
+
+def on_frontier(runs, pool, x_key, y_key):
+    """
+    The ids of the runs nothing in `pool` beats, i.e. the ones sitting on `pool`'s
+    frontier. `pool` is what the run is judged against (its own method's runs, or
+    every method pooled). Runs landing on the same point are all kept here, unlike
+    in frontier(), where the duplicate would only redraw a marker already there.
+    """
+    dominates = dominance(x_key, y_key)
+    return {id(r) for r in runs if not any(dominates(o, r) for o in pool if o is not r)}
 
 
 def frontier(runs, x_key, y_key, name=''):
@@ -156,11 +202,7 @@ def frontier(runs, x_key, y_key, name=''):
     if runs and len(good) < len(runs):
         pu.warn_once("%s: %d of %d runs are missing %s or %s (NaN), dropped",
                      name, len(runs) - len(good), len(runs), x_key, y_key)
-    sx, sy = better_sign(x_key), better_sign(y_key)
-
-    def dominates(a, b):
-        return (sx * a[x_key] >= sx * b[x_key] and sy * a[y_key] >= sy * b[y_key]
-                and (sx * a[x_key] > sx * b[x_key] or sy * a[y_key] > sy * b[y_key]))
+    dominates = dominance(x_key, y_key)
 
     front = [r for r in good if not any(dominates(o, r) for o in good if o is not r)]
     front.sort(key=lambda r: r[x_key])
@@ -198,6 +240,15 @@ def step_style(x_key):
 def decimal_tick(value, _pos=None):
     """Tick label as a plain decimal ('0.02'), not scientific notation ('2 x 10^-2')."""
     return f'{value:g}'
+
+
+def trim_tick(value, _pos=None):
+    """Tick label rounded to Y_TICK_DP decimals with trailing zeros dropped, so a
+    0.05 step prints 0.6, 0.65, 0.7 rather than 0.60, 0.65, 0.70 (or 0.6, 0.7, 0.7)."""
+    text = f'{value:.{Y_TICK_DP}f}'
+    if '.' in text:
+        text = text.rstrip('0').rstrip('.')
+    return '0' if text in ('', '-', '-0') else text
 
 
 def round_short(value):
@@ -286,36 +337,59 @@ def method_runs(nested_data, dataset, best_n=BEST_N):
     return per_method
 
 
+def marker_for(method):
+    """The shape of one method's points: MARKER for everyone, unless PER_METHOD_MARKERS."""
+    return g.METHOD_MARKERS[method] if PER_METHOD_MARKERS else MARKER
+
+
 def marker_style(method, size=MARKER_SIZE):
-    """Marker keywords for a point in one method's colour and shape, with a white ring."""
+    """Marker keywords for a point in one method's colour, with a white ring."""
     color = g.METHOD_COLORS[method]
-    return dict(marker=g.METHOD_MARKERS[method], markersize=size, markerfacecolor=color,
+    return dict(marker=marker_for(method), markersize=size, markerfacecolor=color,
                 markeredgecolor='white' if MARKER_EDGE else color,
                 markeredgewidth=MARKER_EDGE, zorder=2)
 
 
 def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
     """
-    One panel: a marker per config in its method's colour (POINTS) and that
-    method's Pareto frontier as its line (METHOD_LINES), plus the frontier over
-    all methods pooled (GLOBAL_FRONTIER). Returns every x value drawn, which
-    the caller needs for the shared latency ticks. Labels, titles and the
-    legend are set by the caller.
+    One panel: a marker per config in its method's colour (POINTS), the
+    frontier over all methods pooled as one black line (GLOBAL_FRONTIER) and,
+    if METHOD_LINES is on, each method's own frontier as a line of its own.
+    Returns every x value drawn, which the caller needs for the shared latency
+    ticks. Labels, titles and the legend are set by the caller.
     """
     ax.grid(True, which='major')
     ax.tick_params(labelsize=TICK_SIZE + 2)
 
+    def usable(runs):
+        return [r for r in runs if pu.is_number(r.get(x_key)) and pu.is_number(r.get(y_key))]
+
+    pooled = [r for runs in runs_by_method.values() for r in usable(runs)]
+
+    def draw(runs, **kwargs):
+        return ax.plot([r[x_key] for r in runs], [r[y_key] for r in runs], **kwargs)
+
+    if GLOBAL_FRONTIER:
+        front = frontier(pooled, x_key, y_key, name=f'all/{dataset}')
+        for run in front:
+            pu.log.info("%-9s %-8s %-8s %-18s %s=%-10.4g %s=%-10.4g %s", 'global', 'all',
+                        dataset, y_key, x_key, run[x_key], y_key, run[y_key], run['folder'])
+        if len(front) > 1:   # a single point is already drawn in its method's colour
+            draw(front, color=GLOBAL_COLOR, linewidth=GLOBAL_WIDTH, linestyle=GLOBAL_LINESTYLE,
+                 marker='', drawstyle=step_style(x_key) if STEP else 'default',
+                 zorder=1)   # under the method markers, which are its own points
+
     plotted = []
     for method, runs in runs_by_method.items():
         name = f'{method}/{dataset}'
-        good = [r for r in runs if pu.is_number(r.get(x_key)) and pu.is_number(r.get(y_key))]
+        good = usable(runs)
         if not good:
             pu.warn_once("pareto_comparison: %s has no run with both %s and %s",
                          name, x_key, y_key)
             continue
-        front = frontier(good, x_key, y_key, name=name)
-        on_front = {id(r) for r in front}
-        shown = good if POINTS == 'all' else front
+        front = frontier(good, x_key, y_key, name=name)   # the METHOD_LINES line
+        on_front = on_frontier(good, pooled if POINTS_AGAINST == 'global' else good, x_key, y_key)
+        shown = good if POINTS == 'all' else [r for r in good if id(r) in on_front]
         faded = [r for r in good if id(r) not in on_front] if POINTS == 'fade' else []
         plotted += [r[x_key] for r in shown] + [r[x_key] for r in faded]
         for run in shown:
@@ -323,33 +397,24 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
                         'frontier' if id(run) in on_front else 'point', method, dataset,
                         y_key, x_key, run[x_key], y_key, run[y_key], run['folder'])
 
-        color = g.METHOD_COLORS[method]
         if faded:
-            ax.plot([r[x_key] for r in faded], [r[y_key] for r in faded], linestyle='none',
-                    alpha=DOMINATED_ALPHA, **marker_style(method, MARKER_SIZE * DOMINATED_SIZE))
+            draw(faded, linestyle='none', alpha=DOMINATED_ALPHA,
+                 **marker_style(method, MARKER_SIZE * DOMINATED_SIZE))
         # the line and the markers are drawn separately: the line follows the
         # method's frontier, the markers cover every config POINTS asks for, and
         # a frontier down to one point would only draw a stub of a line
         if METHOD_LINES and len(front) > 1:
-            ax.plot([r[x_key] for r in front], [r[y_key] for r in front], color=color,
-                    linewidth=LINE_WIDTH, marker='',
-                    drawstyle=step_style(x_key) if STEP else 'default', zorder=2)
-        ax.plot([r[x_key] for r in shown], [r[y_key] for r in shown], linestyle='none',
-                label=g.METHOD_LABELS[method], **marker_style(method))
+            draw(front, color=g.METHOD_COLORS[method], linewidth=LINE_WIDTH, marker='',
+                 drawstyle=step_style(x_key) if STEP else 'default', zorder=2)
+        draw(shown, linestyle='none', label=g.METHOD_LABELS[method], **marker_style(method))
 
-    if GLOBAL_FRONTIER:
-        pooled = [r for runs in runs_by_method.values() for r in runs]
-        front = frontier(pooled, x_key, y_key, name=f'all/{dataset}')
-        for run in front:
-            pu.log.info("%-9s %-8s %-8s %-18s %s=%-10.4g %s=%-10.4g %s", 'global', 'all',
-                        dataset, y_key, x_key, run[x_key], y_key, run[y_key], run['folder'])
-        if len(front) > 1:   # a single point is already drawn in its method's colour
-            ax.plot([r[x_key] for r in front], [r[y_key] for r in front], color=GLOBAL_COLOR,
-                    linewidth=GLOBAL_WIDTH, linestyle=GLOBAL_LINESTYLE, marker='',
-                    drawstyle=step_style(x_key) if STEP else 'default',
-                    zorder=1)   # under the method markers, which are its own points
-
-    if x_key in EVEN_LOG_X_TICKS:
+    if (dataset, x_key) in X_AXES:
+        lo, hi, step = X_AXES[(dataset, x_key)]
+        ax.set_xlim(lo, hi)
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(step))
+        ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))   # 0.0, 0.5, 1.0, ...
+        ax.xaxis.set_minor_locator(ticker.NullLocator())
+    elif x_key in EVEN_LOG_X_TICKS:
         even_log_ticks(ax, x_key, plotted)
     elif LOG_X:
         ax.set_xscale('log')
@@ -361,23 +426,24 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
         # other on a narrow range) unless they are switched off again here
 
     ax.set_ylim(*Y_LIMS.get((dataset, y_key), Y_LIM))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(Y_TICK_STEP))
-    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(Y_TICK_STEPS.get((dataset, y_key), Y_TICK_STEP)))
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(trim_tick))
     return plotted
 
 
 def legend_handle(entry):
     """
     The legend line for one LEGEND_ROWS entry, or None when that entry was not
-    drawn. A method is its colour and shape, as a line through the marker when
-    METHOD_LINES draws lines and as a plain marker otherwise.
+    drawn. A method is its colour as a line when METHOD_LINES draws lines, and
+    as a plain marker otherwise.
     """
     if entry in g.METHOD_ORDER:
         color = g.METHOD_COLORS[entry]
+        shape = dict(marker='') if METHOD_LINES else dict(
+            marker=marker_for(entry), markersize=LEGEND_MARKER_SIZE,
+            markerfacecolor=color, markeredgecolor=color, linestyle='none')
         return Line2D([], [], color=color, linewidth=LINE_WIDTH,
-                      linestyle='-' if METHOD_LINES else 'none',
-                      label=g.METHOD_LEGEND_LABELS[entry],
-                      **marker_style(entry, LEGEND_MARKER_SIZE))
+                      label=g.METHOD_LEGEND_LABELS[entry], **shape)
     if entry == 'global' and GLOBAL_FRONTIER:
         return Line2D([], [], color=GLOBAL_COLOR, linewidth=GLOBAL_WIDTH,
                       linestyle=GLOBAL_LINESTYLE, marker='', label=GLOBAL_LABEL)
@@ -426,7 +492,10 @@ def plot_dataset(nested_data, dataset, x_key=X_KEY):
     for i, (ax, y_key) in enumerate(zip(axes.flat, Y_KEYS)):
         draw_panel(ax, picked, dataset, y_key, x_key)
         row = i // axes.shape[1]   # the top row's labels sit higher than the bottom row's
-        g.add_arrow(ax.set_ylabel(g.label(y_key, K), y=Y_LABEL_Y[row], labelpad=Y_LABEL_PAD), y_key, 'y')
+        text = ax.set_ylabel(g.label(y_key, K), y=Y_LABEL_Y[row], labelpad=Y_LABEL_PAD)
+        if Y_LABEL_X is not None:   # same x in every panel, whatever its tick labels are
+            ax.yaxis.set_label_coords(Y_LABEL_X, Y_LABEL_Y[row])
+        g.add_arrow(text, y_key, 'y')
     for ax in axes[-1]:   # one latency label per column, under the bottom row, not one per panel
         g.add_arrow(ax.set_xlabel(x_label(x_key), fontsize=X_LABEL_SIZE,
                                   labelpad=X_LABEL_PAD, x=0.4), x_key, 'x')

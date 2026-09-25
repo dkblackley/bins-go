@@ -59,11 +59,12 @@ FIG_NAME = 'pareto_{dataset}_{y}_vs_{x}'   # figures/<this>.pdf, so one dataset 
 AUTO = 'auto'           # a format left at AUTO is trim_tick on a plain axis and
                         # matplotlib's own on a log or rescaled-unit axis
 
-X_LIM = (0.0, 2.0)     # (lo, hi) in the units shown on the axis, or None to fit the data
-Y_LIM = (0.5, 0.78)
+X_LIM = (0.0, 2.0)      # (lo, hi) in the units shown on the axis, or None to fit the data. Both ends
+Y_LIM = (0.54, 0.78)     # are whole multiples of the step below, so each one lands on a labelled tick
+                        # rather than sitting between two of them
 
-X_STEP = None           # gap between ticks, or None for about N_TICKS auto-placed ticks
-Y_STEP = 0.07
+X_STEP = 0.5            # gap between ticks, or None for about N_TICKS auto-placed ticks
+Y_STEP = 0.06
 
 X_FMT = AUTO            # tick label format: AUTO, a format string ('%.1f'), a function
 Y_FMT = AUTO            # (value, pos) -> str, or None for matplotlib's default
@@ -88,12 +89,17 @@ Y_LABEL = None
 # THE POINTS AND THE LINES
 # ==========================================
 
-POINTS = 'all'          # which of a method's runs get a marker:
+POINTS = 'fade'          # which of a method's runs get a marker:
                         #   'all'       every run in the pool, i.e. all BEST_N picks
-                        #   'frontier'  only the runs on that method's own frontier
+                        #   'frontier'  only the runs on the frontier (POINTS_AGAINST)
                         #   'fade'      the frontier solid, the rest faint
-DOMINATED_ALPHA = 0.25  # 'fade' only
-DOMINATED_SIZE = 0.6    # 'fade' only: marker size of those points, as a fraction of MARKER_SIZE
+POINTS_AGAINST = 'global'   # which frontier 'frontier'/'fade' judge a run against:
+                        #   'global'  the pooled frontier, i.e. the black line that is actually
+                        #             drawn, so a run is solid exactly when it sits on that line
+                        #   'method'  that method's own frontier, which also keeps runs the line
+                        #             skips because another method dominates them
+DOMINATED_ALPHA = 0.45  # 'fade' only
+DOMINATED_SIZE = 0.75    # 'fade' only: marker size of those points, as a fraction of MARKER_SIZE
 
 GLOBAL_FRONTIER = True  # the frontier over ALL methods pooled together, i.e. the best anyone
                         # achieves at each trade-off. Every point on it is already drawn in its
@@ -101,7 +107,7 @@ GLOBAL_FRONTIER = True  # the frontier over ALL methods pooled together, i.e. th
                         # comparison across methods
 GLOBAL_COLOR = '#000000'
 GLOBAL_LINESTYLE = '-'
-GLOBAL_WIDTH = g.LINE_WIDTH
+GLOBAL_WIDTH = g.LINE_WIDTH + 1.5
 GLOBAL_LABEL = 'Pareto Frontier'
 
 METHOD_LINES = False    # also join each method's own frontier, one line per method. False leaves
@@ -114,7 +120,7 @@ MARKER = 'o'            # every point's shape: the panel is one dataset and one 
                         # colour alone carries the method. Set it per method with g.METHOD_MARKERS
                         # if you would rather the shapes told them apart too (see marker_for)
 PER_METHOD_MARKERS = False   # True takes each method's shape from g.METHOD_MARKERS instead
-MARKER_SIZE = 5         # in points: big enough to read the shape, not just the colour
+MARKER_SIZE = 8         # in points: big enough to read the shape, not just the colour
 MARKER_EDGE = 0         # white ring around a marker, in points (0 = none), so two methods
                         # landing on the same spot stay apart
 SAME_POINT_TOL = 1e-6   # two frontier points closer than this (relative to the spread of the
@@ -124,17 +130,17 @@ SAME_POINT_TOL = 1e-6   # two frontier points closer than this (relative to the 
 # THE FIGURE
 # ==========================================
 
-FIG_SIZE = (1.1 * g.FIG_SIZE[0], 1 * g.FIG_SIZE[1])   # (width, height) in inches, the size one
+FIG_SIZE = (1.6 * g.FIG_SIZE[0], 1.3 * g.FIG_SIZE[1])   # (width, height) in inches, the size one
                                                       # panel of the grid ends up at
 
 TITLE = '{dataset}'     # '{dataset}' becomes g.DATASET_LABELS[DATASET]. None for no title, e.g.
                         # when the LaTeX caption already says which dataset it is
-TITLE_SIZE = 15
+TITLE_SIZE = 20
 
-X_LABEL_SIZE = 15       # metric name under the panel
-Y_LABEL_SIZE = 15       # metric name to the left of it
+X_LABEL_SIZE = 18       # metric name under the panel
+Y_LABEL_SIZE = 18       # metric name to the left of it
 LABEL_PAD = 2           # gap between an axis name and its tick labels, in points
-TICK_SIZE = 12          # tick labels (the numbers)
+TICK_SIZE = 16          # tick labels (the numbers)
 
 SHOW_ARROWS = True      # add the better-direction arrow to each axis label, as in the grids
 
@@ -144,8 +150,8 @@ LEGEND_ROWS = [['bins', 'tree'], ['pacmann', 'global']]
 # g.METHOD_LEGEND_ROWS. An entry is a method (labelled from g.METHOD_LEGEND_LABELS) or
 # 'global' (the GLOBAL_FRONTIER line). An entry nothing was drawn for is skipped and an
 # empty line disappears, so 'global' costs nothing when GLOBAL_FRONTIER is off
-LEGEND_MARKER_SIZE = 8          # markers in the legend, where they need less room
-LEGEND_STYLE = dict(handlelength=1.6)   # on top of g.LEGEND_STYLE / g.METHOD_LEGEND_STYLE:
+LEGEND_MARKER_SIZE = 6          # markers in the legend, where they need less room
+LEGEND_STYLE = dict(handlelength=0.6)   # on top of g.LEGEND_STYLE / g.METHOD_LEGEND_STYLE:
                                         # room for a marker plus a dash of line
 
 TICK_DP = 2             # decimal places on an axis left at AUTO
@@ -169,6 +175,30 @@ def better_sign(key):
     return -1 if g.METRICS.get(key, {}).get('better') == 'lower' else 1
 
 
+def dominance(x_key, y_key):
+    """The 'a is better than b' test for one pair of axes, each in its own better direction."""
+    sx, sy = better_sign(x_key), better_sign(y_key)
+
+    def dominates(a, b):
+        return (sx * a[x_key] >= sx * b[x_key] and sy * a[y_key] >= sy * b[y_key]
+                and (sx * a[x_key] > sx * b[x_key] or sy * a[y_key] > sy * b[y_key]))
+
+    return dominates
+
+
+def on_frontier(runs, pool, x_key, y_key):
+    """
+    The ids of the runs nothing in `pool` beats, i.e. the ones sitting on `pool`'s
+    frontier. `pool` is what the run is judged against (its own method's runs, or
+    every method pooled), which is the part frontier() can't answer: that returns
+    one method's line, while a point is only on the drawn envelope if no other
+    method dominates it. Runs landing on the same point are all kept here, unlike
+    in frontier(), where the duplicate would only redraw a marker already there.
+    """
+    dominates = dominance(x_key, y_key)
+    return {id(r) for r in runs if not any(dominates(o, r) for o in pool if o is not r)}
+
+
 def frontier(runs, x_key=None, y_key=None, name=''):
     """
     The non-dominated runs, sorted by x. A run is dominated when another is at
@@ -182,11 +212,7 @@ def frontier(runs, x_key=None, y_key=None, name=''):
     if runs and len(good) < len(runs):
         pu.warn_once("%s: %d of %d runs are missing %s or %s (NaN), dropped",
                      name, len(runs) - len(good), len(runs), x_key, y_key)
-    sx, sy = better_sign(x_key), better_sign(y_key)
-
-    def dominates(a, b):
-        return (sx * a[x_key] >= sx * b[x_key] and sy * a[y_key] >= sy * b[y_key]
-                and (sx * a[x_key] > sx * b[x_key] or sy * a[y_key] > sy * b[y_key]))
+    dominates = dominance(x_key, y_key)
 
     front = [r for r in good if not any(dominates(o, r) for o in good if o is not r)]
     front.sort(key=lambda r: r[x_key])
@@ -361,6 +387,8 @@ def draw_panel(ax, per_method, dataset=DATASET):
     def usable(runs):
         return [r for r in runs if pu.is_number(r.get(x_key)) and pu.is_number(r.get(y_key))]
 
+    pooled = [r for runs in per_method.values() for r in usable(runs)]
+
     shown, faded, fronts = {}, {}, {}
     for method in g.METHOD_ORDER:
         name = f'{method}/{dataset}'
@@ -368,10 +396,9 @@ def draw_panel(ax, per_method, dataset=DATASET):
         if not runs:
             pu.warn_once("pareto_single: %s has no run with both %s and %s", name, x_key, y_key)
             continue
-        front = frontier(runs, x_key, y_key, name=name)
-        on_front = {id(r) for r in front}
-        fronts[method] = front
-        shown[method] = runs if POINTS == 'all' else front
+        fronts[method] = frontier(runs, x_key, y_key, name=name)   # the METHOD_LINES line
+        on_front = on_frontier(runs, pooled if POINTS_AGAINST == 'global' else runs, x_key, y_key)
+        shown[method] = runs if POINTS == 'all' else [r for r in runs if id(r) in on_front]
         faded[method] = [r for r in runs if id(r) not in on_front] if POINTS == 'fade' else []
         for run in shown[method]:
             pu.log.info("%-9s %-8s %-8s %s=%-10.4g %s=%-10.4g %s",
@@ -393,7 +420,6 @@ def draw_panel(ax, per_method, dataset=DATASET):
                        **kwargs)
 
     if GLOBAL_FRONTIER:
-        pooled = [r for runs in per_method.values() for r in runs]
         front = frontier(pooled, x_key, y_key, name=f'all/{dataset}')
         for run in front:
             pu.log.info("%-12s %-8s %-8s %s=%-10.4g %s=%-10.4g %s", 'global', 'all',
@@ -422,7 +448,7 @@ def draw_panel(ax, per_method, dataset=DATASET):
     ax.grid(True, which='major')
 
     x_text = ax.set_xlabel(xlabel, fontsize=X_LABEL_SIZE, labelpad=LABEL_PAD)
-    y_text = ax.set_ylabel(ylabel, fontsize=Y_LABEL_SIZE, labelpad=LABEL_PAD)
+    y_text = ax.set_ylabel(ylabel, fontsize=Y_LABEL_SIZE, labelpad=LABEL_PAD, y=0.34)
     if SHOW_ARROWS:
         g.add_arrow(x_text, x_key, 'x')
         g.add_arrow(y_text, y_key, 'y')
@@ -457,6 +483,7 @@ def combined_legend(fig):
     legend can't centre a lone entry.
     """
     style = {**g.LEGEND_STYLE, **g.METHOD_LEGEND_STYLE, **LEGEND_STYLE}
+    style['fontsize'] = 13
     gap = g.METHOD_LEGEND_LINE_GAP / 72 / fig.get_figheight()   # points -> figure fraction
 
     fig.draw_without_rendering()   # lay out the figure so each line knows where to go
@@ -480,7 +507,7 @@ def plot_pareto_single(nested_data, dataset=DATASET):
 
     draw_panel(ax, method_runs(nested_data, dataset), dataset)
     if TITLE:
-        ax.set_title(TITLE.format(dataset=g.DATASET_LABELS[dataset]), fontsize=TITLE_SIZE)
+        ax.set_title("MS MARCO Pareto Frontier", fontsize=TITLE_SIZE, y=1.16, x=0.365)
     if LEGEND:
         combined_legend(fig)   # the methods and the global frontier (LEGEND_ROWS)
 

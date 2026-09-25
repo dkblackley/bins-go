@@ -15,6 +15,7 @@ import (
 	"github.com/dkblackley/bins-go/Pacmann"
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
+	testpir "github.com/dkblackley/bins-go/testPIR"
 	"github.com/dkblackley/bins-go/tree/cmd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
@@ -294,6 +295,8 @@ func main() {
 		PIRImplemented = Pacmann.PacmannMain(&config)
 	} else if *searchType == "tree" {
 		PIRImplemented = run_tree.Runtree(&config)
+	} else if *searchType == "test" {
+		PIRImplemented = testpir.MakeTextDb(&config)
 	} else {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return

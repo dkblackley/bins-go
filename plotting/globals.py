@@ -87,8 +87,8 @@ METRICS = {
     'comm_kb':            {'label': 'Comm (KB)', 'better': 'lower'},
     'db_size_mb':         {'label': 'DB Size (MB)',       'better': 'lower'},
     'client_storage_mb':  {'label': 'Client Storage (MB)', 'better': 'lower'},
-    'bs':                 {'label': 'Bin Size',           'better': 'lower'},
-    'dpb':                {'label': 'Docs per Bin',       'better': 'lower'},
+    'bs':                 {'label': 'Hash Table Size (log)',           'better': 'lower'},
+    'dpb':                {'label': 'Docs per Bin (log)',       'better': 'lower'},
     'maintenance_time': {'label': 'Preprocessing (s)', 'better': 'lower'},
     'preproc_rounds': {'label': 'Preproc. Rounds', 'better': 'lower'},
     'pir_rounds': {'label': 'PIR Rounds', 'better': 'lower'},
@@ -165,7 +165,7 @@ def add_arrow(text, key, axis):
 FIG_SIZE = (2.0, 1.5)   # (width, height) in inches, two of these fit side by side in ICLR's 5.5in
 
 FONT_SIZE = 12          # axis labels and titles
-TICK_SIZE = 12          # tick labels
+TICK_SIZE = 10          # tick labels
 LEGEND_SIZE = 14         # legend text
 LINE_WIDTH = 1.2
 MARKER_SIZE = 4.5
