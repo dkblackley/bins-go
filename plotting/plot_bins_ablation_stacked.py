@@ -17,7 +17,7 @@ import load_results
 import plot_utils as pu
 
 K = g.K_ABLATION
-BINS_VEC = 1         # 1 = single DB, 0 = split DBs
+BINS_VEC = 0         # 1 = single DB, 0 = split DBs
 ONLY_IMPROVING = False
 
 # left panel: comm vs bin size
@@ -41,7 +41,7 @@ SCORE_TICKS = [0.0, 0.2, 0.4, 0.6, 0.8]
 FIG_SIZE = (g.FIG_SIZE[0] * 2 + 0.8, g.FIG_SIZE[1] - 0.3)   # two panels side by side, wider than tall
 WSPACE = 0.4   # gap between the panels (fraction of the mean axes width), room for the right y label
 TITLE = 'PILLAR-Bins Ablation'
-TITLE_SIZE = 22
+TITLE_SIZE = 20
 LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
 MARKER_SIZE = g.MARKER_SIZE - 1.5   # smaller than the other plots, the points here sit close together
 LEGEND_GAP = -6   # gap between the figure and the legend under it, in points
@@ -143,7 +143,7 @@ def plot_bins_ablation_stacked(nested_data):
 
     plot_comm(ax_comm, nested_data)
     plot_scores(ax_score, nested_data)
-    fig.suptitle(TITLE, fontsize=TITLE_SIZE, y=1.23)
+    fig.suptitle(TITLE, fontsize=TITLE_SIZE, y=1.25)
     legend_below(fig)
 
     return pu.save_figure(fig, 'bins_ablation_stacked')

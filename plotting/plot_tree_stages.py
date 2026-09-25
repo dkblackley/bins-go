@@ -8,12 +8,13 @@ under the figure, a super title above it.
 The configs come from select_configs.py, so they are the same five the other
 tree plots use. Set CONFIGS below to pin specific ones by hand instead. The
 x axis just says C1, C2, ... (smallest total first, largest on the right); which config each one is
-gets printed. Both panels share one y label.
+gets printed. Both panels share one y label. Laid out with pu.pair_* so it
+lines up with figures/bins_ablation_stacked.pdf next to it in the paper.
 """
 
-import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
+from matplotlib import pyplot as plt
 from matplotlib.patches import Patch
 
 import globals as g
@@ -52,9 +53,9 @@ PANEL_TITLE_PAD = 0
 
 FIG_SIZE = (g.FIG_SIZE[0] * 2 + 0.8, g.FIG_SIZE[1] - 0.3)   # two panels side by side, wider than tall
 WSPACE = 0.3   # gap between the panels (fraction of the mean axes width)
-TITLE = 'PILLAR-Tree Ablation'
-TITLE_SIZE = 22
-TITLE_Y = 1.23   # top of the super title, as a figure fraction; lower it if SHOW_PANEL_TITLES is False
+TITLE = 'PILLAR-Tree Latency by Stages'
+TITLE_SIZE = 20
+TITLE_Y = 1.25   # top of the super title, as a figure fraction; lower it if SHOW_PANEL_TITLES is False
 LABEL_SIZE = g.FONT_SIZE + 2   # x/y axis labels, a little bigger than the other plots
 TICK_SIZE = g.TICK_SIZE
 LEGEND_NCOL = 3   # 3 = all stages on one line

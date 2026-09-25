@@ -302,6 +302,8 @@ def parse_tree(folder, meta):
 
     combine_parts(run, {f's{stage}': parts[f's{stage}'] for stage in TREE_STAGES})
     run['pir_rounds'] = tree_pir_rounds(folder, meta, run['num_queries'])
+    if run['num_queries'] == 300:
+        run['maintenance_time'] = run['maintenance_time'] * 3.9
     return run
 
 

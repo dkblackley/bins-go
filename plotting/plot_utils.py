@@ -106,6 +106,117 @@ def new_figure(size=g.FIG_SIZE):
     return fig, ax
 
 
+# ==========================================
+# TICKS (the look of plot_bins_ablation_stacked: short labels, never 10^x)
+# ==========================================
+
+def short_number(value, _pos=None):
+    """0 -> '0', 50 -> '50', 400 -> '0.4K', 6000 -> '6K', 200000 -> '0.2M', 1e6 -> '1M'.
+    Under 1000 the K form would need two decimals ('0.05K'), so those stay plain."""
+    if value == 0:
+        return '0'
+    if abs(value) >= 1e6:
+        return f'{value / 1e6:g}M'
+    if abs(value) < 1000:
+        return f'{value:g}'
+    return f'{value / 1e3:g}K'
+
+
+def plain_number(value, _pos=None):
+    """A log tick as a plain decimal ('0.01', '1', '250'), never '10^-2'. Values
+    at or above 1000 fall back to short_number, so a byte axis reads '10K'."""
+    if abs(value) >= 1000:
+        return short_number(value)
+    return f'{value:g}'
+
+
+def log_axis(axis, ticks=None, formatter=short_number):
+    """
+    Turn one axis (ax.xaxis / ax.yaxis) into a log axis labelled in plain
+    numbers. `ticks` fixes the labelled positions; None labels every power of
+    10 (numticks is set explicitly because the default skips every other power
+    on a short axis). The caller sets the scale with set_xscale / set_yscale.
+    """
+    if ticks is None:
+        axis.set_major_locator(ticker.LogLocator(base=10, numticks=20))
+    else:
+        axis.set_major_locator(ticker.FixedLocator(list(ticks)))
+    axis.set_major_formatter(ticker.FuncFormatter(formatter))
+    axis.set_minor_locator(ticker.NullLocator())   # set_?scale turns minor ticks back on
+
+
+# ==========================================
+# LEGENDS AND LABELS UNDER A FIGURE
+# ==========================================
+
+def legend_below(fig, handles, gap=-6, ncol=None, style=None):
+    """
+    One legend centred under everything else in the figure (the look of
+    plot_bins_ablation_stacked): all entries on one line unless `ncol` says
+    otherwise. `gap` is the space between the figure and the legend in points,
+    `style` extra keyword arguments on top of g.LEGEND_STYLE.
+    """
+    fig.draw_without_rendering()   # lay out the figure so the legend knows where the bottom is
+    bottom = fig.get_tightbbox().y0 / fig.get_figheight()
+    offset = gap / 72 / fig.get_figheight()   # points -> figure fraction
+    return fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, bottom - offset),
+                      ncol=ncol or len(handles), **{**g.LEGEND_STYLE, **(style or {})})
+
+
+def legend_rows(fig, rows, gap=-6, line_gap=0, style=None):
+    """
+    legend_below with one centred line per entry of `rows` (each a list of
+    handles), e.g. the datasets on one line and the line styles under them. One
+    legend can't centre a short line, so each line is its own legend, placed
+    under the one before. `gap` is the space under the figure and `line_gap`
+    the space between two lines, in points; empty rows are skipped.
+    """
+    style = {**g.LEGEND_STYLE, **(style or {})}
+    fig.draw_without_rendering()   # lay out the figure so the legend knows where the bottom is
+    top = fig.get_tightbbox().y0 / fig.get_figheight() - gap / 72 / fig.get_figheight()
+    legends = []
+    for handles in rows:
+        if not handles:
+            continue
+        legend = fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, top),
+                            ncol=len(handles), **style)
+        legends.append(legend)
+        fig.draw_without_rendering()
+        top = (legend.get_window_extent().transformed(fig.transFigure.inverted()).y0
+               - line_gap / 72 / fig.get_figheight())
+    return legends
+
+
+def row_xlabel(fig, axes, text, gap=4, centre_on=None, **kwargs):
+    """
+    One x label under a row of panels, `gap` points below the lowest of them
+    (its tick labels included), for a grid where every panel in a row shares an
+    x axis but the rows do not. It is centred on `axes`, or on `centre_on`
+    instead when the row is short and the label should still line up with the
+    full grid above it. Returns the Text.
+    """
+    fig.draw_without_rendering()   # tick labels have to be laid out before they can be measured
+
+    def boxes(of):
+        return [ax.get_tightbbox().transformed(fig.transFigure.inverted()) for ax in of]
+
+    across = boxes(axes if centre_on is None else centre_on)
+    centre = (min(b.x0 for b in across) + max(b.x1 for b in across)) / 2
+    bottom = min(b.y0 for b in boxes(axes)) - gap / 72 / fig.get_figheight()
+    return fig.text(centre, bottom, text, ha='center', va='top', **kwargs)
+
+
+def grid_size(panel, n_cols, n_rows, wspace, hspace):
+    """
+    figsize for a grid of `panel`-sized (inches) panels with matplotlib's
+    wspace/hspace between them. Those are fractions of a panel, and
+    subplots_adjust divides a FIXED figure between panels and gaps, so the gaps
+    have to be added here or they eat the panels instead.
+    """
+    return (panel[0] * (n_cols + wspace * (n_cols - 1)),
+            panel[1] * (n_rows + hspace * (n_rows - 1)))
+
+
 def dataset_legend(ax, datasets, styles=(), **position):
     """
     Legend with one coloured entry per dataset plus one black entry per line
