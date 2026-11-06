@@ -41,12 +41,19 @@ BINS_FIXED_BS = {'msmarco': 1000000, 'scifact': 5000}  # bin size when sweeping 
 # ORDER, NAMES, COLOURS (Okabe-Ito)
 # ==========================================
 
-METHOD_ORDER = ['bins', 'tree', 'pacmann']   # order of lines, bars and legend entries
+# Extra private baselines asked for by the reviewers (see baselines/README.md). Set to [] to drop them
+# from every plot; methods without runs are skipped anyway, only the bar widths change.
+EXTRA_BASELINES = ['tiptoe', 'coeus']
 
-METHOD_LABELS = {'bins': 'PILLAR-Bin', 'tree': 'PILLAR-Tree', 'pacmann': 'PACMANN'}
-METHOD_COLORS = {'bins': '#009E73', 'tree': '#E69F00', 'pacmann': '#0072B2'}
-METHOD_MARKERS = {'bins': 's', 'tree': '^', 'pacmann': 'o'}
-METHOD_HATCHES = {'bins': '///', 'tree': 'xxx', 'pacmann': ''}   # greyscale-safe second channel
+METHOD_ORDER = ['bins', 'tree', 'pacmann'] + EXTRA_BASELINES   # order of lines, bars and legend entries
+
+METHOD_LABELS = {'bins': 'PILLAR-Bin', 'tree': 'PILLAR-Tree', 'pacmann': 'PACMANN',
+                 'tiptoe': 'Tiptoe', 'coeus': 'Coeus'}
+METHOD_COLORS = {'bins': '#009E73', 'tree': '#E69F00', 'pacmann': '#0072B2',
+                 'tiptoe': '#CC79A7', 'coeus': '#56B4E9'}
+METHOD_MARKERS = {'bins': 's', 'tree': '^', 'pacmann': 'o', 'tiptoe': 'D', 'coeus': 'v'}
+METHOD_HATCHES = {'bins': '///', 'tree': 'xxx', 'pacmann': '',
+                  'tiptoe': '...', 'coeus': '\\\\'}   # greyscale-safe second channel
 
 DATASETS = ['msmarco', 'scifact']
 
@@ -176,9 +183,9 @@ LEGEND_STYLE = dict(frameon=False, fontsize=LEGEND_SIZE, handlelength=1.0,
 
 # The method legend (pu.method_legend), used by every plot with a line or bar
 # per method: under the figure, one line per row, each line centred
-METHOD_LEGEND_ROWS = [['bins', 'tree'], ['pacmann']]
+METHOD_LEGEND_ROWS = [['bins', 'tree'], ['pacmann'] + EXTRA_BASELINES]
 METHOD_LEGEND_LABELS = {'bins': 'PILLAR-Bin (Ours)', 'tree': 'PILLAR-Tree (Ours)',
-                        'pacmann': 'PACMANN'}
+                        'pacmann': 'PACMANN', 'tiptoe': 'Tiptoe', 'coeus': 'Coeus'}
 METHOD_LEGEND_STYLE = dict(fontsize=15, columnspacing=0.25,   # columnspacing in font-size units
                            borderpad=0, borderaxespad=0)      # no padding, so the lines sit close
 METHOD_LEGEND_LINE_GAP = 2   # gap above each line (and under the figure), in points

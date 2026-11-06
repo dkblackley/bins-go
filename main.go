@@ -16,6 +16,7 @@ import (
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
 	testpir "github.com/dkblackley/bins-go/testPIR"
+	"github.com/dkblackley/bins-go/tiptoe"
 	"github.com/dkblackley/bins-go/tree/cmd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
@@ -192,6 +193,12 @@ func main() {
 	cuckooBuildAttempts := flag.Int("cuckoo-build-attempts", 8, "Maximum full-table Cuckoo rehash attempts")
 	cuckooCacheDir := flag.String("cuckoo-cache-dir", "", "Optional directory for persistent physical Cuckoo tables")
 
+	// Flags for the Tiptoe baseline (needs a build with -tags tiptoe)
+	tiptoeDir := flag.String("tiptoe-dir", "", "Tiptoe corpus dir made by baselines/tiptoe/preprocess_tiptoe.py")
+	tiptoeEmbHint := flag.Int("tiptoe-emb-hint-mb", 500, "Tiptoe ranking-service hint size target in MB (upstream default 500)")
+	tiptoeURLHint := flag.Int("tiptoe-url-hint-mb", 100, "Tiptoe URL-service hint size target in MB (upstream default 100)")
+	tiptoeMaxQueries := flag.Int("tiptoe-max-queries", 0, "Tiptoe: answer only the first N queries (0 = all)")
+
 	flag.Parse()
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
@@ -293,6 +300,11 @@ func main() {
 			CuckooMaxKicks:      *cuckooMaxKicks,
 			CuckooBuildAttempts: *cuckooBuildAttempts,
 			CuckooCacheDir:      *cuckooCacheDir,
+
+			TiptoeDir:        *tiptoeDir,
+			TiptoeEmbHintMB:  *tiptoeEmbHint,
+			TiptoeURLHintMB:  *tiptoeURLHint,
+			TiptoeMaxQueries: *tiptoeMaxQueries,
 		},
 	}
 
@@ -339,6 +351,8 @@ func main() {
 		PIRImplemented = run_tree.Runtree(&config)
 	} else if *searchType == "test" {
 		PIRImplemented = testpir.MakeTextDb(&config)
+	} else if *searchType == "tiptoe" {
+		PIRImplemented = tiptoe.MakeTiptoe(&config)
 	} else {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return

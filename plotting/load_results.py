@@ -30,6 +30,12 @@ finishes, so a folder without metadata.json is skipped (counted in the log).
     tree_{dataset}_..._k{K}
         Layout not fixed yet, see parse_tree().
 
+    tiptoe_{dataset}_c{C}_k{K}
+        C        number of k-means clusters (baselines/tiptoe/preprocess_tiptoe.py)
+
+    coeus_{dataset}_k{K}_f{F}
+        F        keyword dictionary size (baselines/coeus/run_coeus.py)
+
 METADATA.JSON (all values are strings)
 -------------
 Common to every method:
@@ -63,6 +69,14 @@ Bins only:
 
 Pacmann only:
     GraphGenerationTime graph building, a pacmann-only preprocessing step
+
+Tiptoe only (Tiptoe* keys, see tiptoe/tiptoe.go):
+    TiptoeTokenKBPerQuery   offline per-query token (counted in TotalByteSent,
+                            not in LAN/WAN time, like PIR preprocessing)
+    TiptoeOfflineLANTime / TiptoeOfflineWANTime   network time of those tokens
+
+Coeus only (Coeus* keys, see baselines/coeus/run_coeus.py):
+    TotalAnswerTime is only present when Coeus' opt2 benchmark was calibrated.
 
 RUN KEYS
 --------
@@ -330,7 +344,44 @@ def tree_pir_rounds(folder, meta, n):
     return math.nan if math.isnan(total) else math.ceil(total / n)
 
 
-PARSERS = {'bins': parse_bins, 'pacmann': parse_pacmann, 'tree': parse_tree}
+TIPTOE_NAME = re.compile(r'^tiptoe_(?P<dataset>[a-z0-9-]+)_c(?P<c>\d+)_k(?P<k>10)$')
+COEUS_NAME = re.compile(r'^coeus_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_f(?P<f>\d+)$')
+
+
+def parse_tiptoe(folder, meta):
+    name = TIPTOE_NAME.match(folder)
+    if not name:
+        if "k100" not in folder:
+            log.warning("%s: doesn't match tiptoe_<dataset>_c<C>_k<K>, skipping", folder)
+        return None
+    run = parse_common(folder, meta)
+    if run is None:
+        return None
+    c = int(name['c'])
+    run.update(method='tiptoe', dataset=name['dataset'], k=int(name['k']), c=c, config=f'c{c}',
+               pir_rounds=2,   # ranking round + URL round (the token is fetched offline)
+               token_kb=read_float(meta, 'TiptoeTokenKBPerQuery'),
+               offline_wan_time=read_seconds(meta, 'TiptoeOfflineWANTime') / run['num_queries'])
+    return run
+
+
+def parse_coeus(folder, meta):
+    name = COEUS_NAME.match(folder)
+    if not name:
+        if "k100" not in folder:
+            log.warning("%s: doesn't match coeus_<dataset>_k<K>_f<F>, skipping", folder)
+        return None
+    run = parse_common(folder, meta)
+    if run is None:
+        return None
+    f = int(name['f'])
+    run.update(method='coeus', dataset=name['dataset'], k=int(name['k']), f=f, config=f'f{f}',
+               pir_rounds=2)   # encrypted scoring, then metadata PIR
+    return run
+
+
+PARSERS = {'bins': parse_bins, 'pacmann': parse_pacmann, 'tree': parse_tree,
+           'tiptoe': parse_tiptoe, 'coeus': parse_coeus}
 
 
 # ==========================================
