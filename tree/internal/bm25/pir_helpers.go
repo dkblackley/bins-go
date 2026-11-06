@@ -5,11 +5,57 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+
+	pianopir "github.com/dkblackley/bins-go/pir-old"
 )
+
+// verifyPackedPIR checks a small, evenly distributed sample after offline
+// preprocessing. It is intentionally used only in strict benchmark runs: a
+// successful call with an incorrect response must never be mistaken for a
+// legitimate quantized zero row.
+func verifyPackedPIR(name string, pir *pianopir.SimpleBatchPianoPIR, data []uint64, wordsPerRow uint64) error {
+	if pir == nil || wordsPerRow == 0 || len(data)%int(wordsPerRow) != 0 {
+		return fmt.Errorf("%s PIR verification has invalid dimensions", name)
+	}
+	rowCount := uint64(len(data)) / wordsPerRow
+	if rowCount == 0 {
+		return fmt.Errorf("%s PIR verification has an empty database", name)
+	}
+
+	const maxSamples = 32
+	sampleCount := uint64(maxSamples)
+	if rowCount < sampleCount {
+		sampleCount = rowCount
+	}
+	indices := make([]uint64, sampleCount)
+	for i := uint64(0); i < sampleCount; i++ {
+		indices[i] = i * rowCount / sampleCount
+	}
+	responses, err := pir.Query(indices)
+	if err != nil {
+		return fmt.Errorf("%s PIR verification query failed: %w", name, err)
+	}
+	if len(responses) != len(indices) {
+		return fmt.Errorf("%s PIR verification returned %d rows for %d requests", name, len(responses), len(indices))
+	}
+	for i, rowIndex := range indices {
+		expected := data[rowIndex*wordsPerRow : (rowIndex+1)*wordsPerRow]
+		actual := responses[i]
+		if len(actual) != len(expected) {
+			return fmt.Errorf("%s PIR row %d returned %d words; want %d", name, rowIndex, len(actual), len(expected))
+		}
+		for word := range expected {
+			if actual[word] != expected[word] {
+				return fmt.Errorf("%s PIR row %d word %d mismatch: got %#x, want %#x", name, rowIndex, word, actual[word], expected[word])
+			}
+		}
+	}
+	return nil
+}
 
 // convertBytesToUint64 converts a byte slice to a uint64 slice (little-endian)
 // Does NOT pad - assumes data length is compatible with the expected entry size
-func convertBytesToUint64Old(data []byte) []uint64 {
+func convertBytesToUint64(data []byte) []uint64 {
 	// Calculate how many uint64 words we need (ceil), pad last word with zeros if necessary
 	numUint64s := (len(data) + 7) / 8
 	result := make([]uint64, numUint64s)
@@ -28,42 +74,6 @@ func convertBytesToUint64Old(data []byte) []uint64 {
 	return result
 }
 
-func convertBytesToUint64(data []byte, entrySize uint64) [][]uint64 {
-
-	// Calculate how many uint64 words we need (ceil), pad last word with zeros if necessary
-	numUint64s := (len(data) + 7) / 8
-
-	// First build the flat slice
-	flat := make([]uint64, numUint64s)
-	for i := 0; i < numUint64s; i++ {
-		start := i * 8
-		end := start + 8
-		if end <= len(data) {
-			flat[i] = binary.LittleEndian.Uint64(data[start:end])
-		} else {
-			tmp := make([]byte, 8)
-			copy(tmp, data[start:])
-			flat[i] = binary.LittleEndian.Uint64(tmp)
-		}
-	}
-
-	// Reshape into [][]uint64 with `entrySize` items per row
-	// Just assume the DB fits perfectly.
-	converted := int(entrySize)
-	numRows := (numUint64s + converted - 1) / converted
-	result := make([][]uint64, numRows)
-	for r := 0; r < numRows; r++ {
-		start := r * converted
-		end := start + converted
-		if end > numUint64s {
-			end = numUint64s
-		}
-		result[r] = flat[start:end]
-	}
-
-	return result
-}
-
 // convertUint64ToBytes converts a uint64 slice to a byte slice (little-endian)
 func convertUint64ToBytes(data []uint64) []byte {
 	result := make([]byte, len(data)*8)
@@ -71,70 +81,6 @@ func convertUint64ToBytes(data []uint64) []byte {
 		binary.LittleEndian.PutUint64(result[i*8:(i+1)*8], v)
 	}
 	return result
-}
-
-func flatten(matrix [][]uint64) []uint64 {
-	// 1. Calculate the total number of elements
-	totalLen := 0
-	for _, row := range matrix {
-		totalLen += len(row)
-	}
-
-	// 2. Pre-allocate the slice with the exact capacity needed
-	// make(type, length, capacity)
-	result := make([]uint64, 0, totalLen)
-
-	// 3. Append the rows using the variadic "..." operator
-	for _, row := range matrix {
-		result = append(result, row...)
-	}
-
-	return result
-}
-
-// convertRowsToUint64 packs each row (rowSize bytes) into one uint64 word (little-endian).
-// Assumes rowSize <= 8. If data length is not a multiple of rowSize, the last partial row
-// is padded with zeros.
-//func convertRowsToUint64(data []byte, rowSize int) []uint64 {
-//	if rowSize <= 0 { // Shouldn't it always be 1?
-//		return nil
-//	}
-//	numRows := (len(data) + rowSize - 1) / rowSize
-//	result := make([]uint64, numRows)
-//	for i := 0; i < numRows; i++ {
-//		start := i * rowSize
-//		end := start + rowSize
-//		if end > len(data) {
-//			end = len(data)
-//		}
-//		tmp := make([]byte, 8)
-//		copy(tmp, data[start:end])
-//		result[i] = binary.LittleEndian.Uint64(tmp)
-//	}
-//	return result
-//}
-
-func convertRowsToUint64(data []byte, rowSize int) [][]uint64 {
-	if rowSize <= 0 {
-		return nil
-	}
-
-	numRows := (len(data) + rowSize - 1) / rowSize
-	out := make([][]uint64, numRows)
-
-	for i := 0; i < numRows; i++ {
-		start := i * rowSize
-		end := start + rowSize
-		if end > len(data) {
-			end = len(data)
-		}
-
-		tmp := make([]byte, 8)
-		copy(tmp, data[start:end])
-		out[i] = []uint64{binary.LittleEndian.Uint64(tmp)}
-	}
-
-	return out
 }
 
 // allZeroResponseUint64 checks if a uint64 response is all zeros
