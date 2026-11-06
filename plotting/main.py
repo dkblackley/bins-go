@@ -39,7 +39,7 @@ if __name__ == '__main__':
     # plot_pareto_single.make_plots(nested_data)
     # plot_bins_ablation_grid.make_plots(nested_data)  # bins: WAN, LAN, compute, comm vs bs and vs dpb
     # plot_bins_ablation_split.make_plots(nested_data)  # bins: storage, preproc, quality, a dataset each
-    # plot_bins_vec_db.make_plots(nested_data)         # bins: the embedding DB, quality and cost
+    plot_bins_vec_db.make_plots(nested_data)         # bins: the embedding DB, quality and cost
     # plot_bins_ablation_stacked.plot_bins_ablation_stacked(nested_data)
     # plot_pareto_grid.make_plots(nested_data)
 

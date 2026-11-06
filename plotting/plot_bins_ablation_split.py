@@ -99,7 +99,7 @@ Y_LIMS = {
         ('scifact', 'maintenance_time'):  (0, 1.5),
         ('msmarco', 'db_size_mb'):        (0, 1024),
         ('scifact', 'db_size_mb'):        (0, 10),
-        ('msmarco', 'client_storage_mb'): (0, 2540),
+        ('msmarco', 'client_storage_mb'): (0, 4540),
         ('scifact', 'client_storage_mb'): (0, 50),
         ('msmarco', ('mrr', 'recall')):   (0.0, 0.075),
         ('scifact', ('mrr', 'recall')):   (0.0, 0.6),
@@ -109,7 +109,7 @@ Y_LIMS = {
         ('scifact', 'maintenance_time'):  (0, 120),
         ('msmarco', 'db_size_mb'):        (0, 5024),
         ('scifact', 'db_size_mb'):        (0, 10),
-        ('msmarco', 'client_storage_mb'): (0, 15024),
+        ('msmarco', 'client_storage_mb'): (0, 7024),
         ('scifact', 'client_storage_mb'): (0, 120),
         ('msmarco', ('mrr', 'recall')):   (0.0, 0.3),
         ('scifact', ('mrr', 'recall')):   (0.25, 0.8),
@@ -145,16 +145,17 @@ SHARE_X = True         # a panel with the same sweep under it drops its x tick l
 # THE FIGURE (sizes from plot_bins_ablation_grid.py, so the figures read alike)
 # ==========================================
 
-PANEL_SIZE = abl.PANEL_SIZE   # (width, height) in inches of one panel, before the gaps
+# PANEL_SIZE = abl.PANEL_SIZE   # (width, height) in inches of one panel, before the gaps
+PANEL_SIZE = (1.0 * g.FIG_SIZE[0], 1.15 * g.FIG_SIZE[1])
 PANEL_GAP = abl.PANEL_GAP     # space between two columns, as a fraction of a panel's width
 ROW_GAP = abl.ROW_GAP         # space between two rows, as a fraction of a panel's height
 HEADROOM = abl.HEADROOM       # inches added to the figure height for the titles
 
-TITLE_SIZE = abl.TITLE_SIZE
+TITLE_SIZE = abl.TITLE_SIZE - 1
 COL_TITLES = True             # the dataset's name over each column
 COL_TITLE_SIZE = pg.TITLE_SIZE
-X_LABEL_SIZE = abl.X_LABEL_SIZE - 2
-Y_LABEL_SIZE = abl.Y_LABEL_SIZE
+X_LABEL_SIZE = abl.X_LABEL_SIZE - 1
+Y_LABEL_SIZE = abl.Y_LABEL_SIZE - 1
 LABEL_PAD = abl.LABEL_PAD
 TICK_SIZE = abl.TICK_SIZE
 Y_LABEL_EACH = False   # False: the metric name on the leftmost panel of a row only

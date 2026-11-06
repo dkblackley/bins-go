@@ -149,14 +149,15 @@ X_LABEL = 'Docs per Bin'
 # put numbers in place of the pg.* ones to tune this file on its own)
 # ==========================================
 
-PANEL_SIZE = pg.PANEL_SIZE   # (width, height) in inches of one panel, before the gaps, for a
+# PANEL_SIZE = pg.PANEL_SIZE   # (width, height) in inches of one panel, before the gaps, for a
+PANEL_SIZE = (1.6 * g.FIG_SIZE[0], 1.5 * g.FIG_SIZE[1])
                              # figure whose FIGURES entry has no 'panel' of its own
 PANEL_GAP = pg.PANEL_GAP     # space between two columns, as a fraction of a panel's width
 ROW_GAP = pg.ROW_GAP         # space between two rows, as a fraction of a panel's height
 
-TITLE_SIZE = pg.SUPTITLE_SIZE
-X_LABEL_SIZE = pg.X_LABEL_SIZE
-Y_LABEL_SIZE = pg.Y_LABEL_SIZE
+TITLE_SIZE = pg.SUPTITLE_SIZE - 3
+X_LABEL_SIZE = pg.X_LABEL_SIZE - 3
+Y_LABEL_SIZE = pg.Y_LABEL_SIZE - 3
 LABEL_PAD = pg.LABEL_PAD
 TICK_SIZE = pg.TICK_SIZE
 COL_TITLE_SIZE = pg.TITLE_SIZE   # the dataset's name over each column of a split figure
@@ -171,7 +172,7 @@ LEGEND_LINE_GAP = 0   # gap between two lines of the legend, in points (the data
 # between a line and its text (all in font-size units)
 LEGEND_SPACING = dict(labelspacing=0.0, columnspacing=0.4, handletextpad=0.1,
                       handlelength=0.6,   # long enough to show a dashed line
-                      fontsize=pg.LEGEND_STYLE.get('fontsize', g.LEGEND_SIZE))
+                      fontsize=pg.LEGEND_STYLE.get('fontsize', g.LEGEND_SIZE) - 3)
 
 # ==========================================
 # THE BARS (as in plot_best_histograms.py)
@@ -210,9 +211,11 @@ def new_grid(keys, cols, panel, headroom):
     panel = panel or PANEL_SIZE
     n_cols = min(cols or len(keys), len(keys))
     n_rows = -(-len(keys) // n_cols)
-    fig = plt.figure(figsize=(panel[0] * (n_cols + PANEL_GAP * (n_cols - 1)),
-                              panel[1] * (n_rows + ROW_GAP * (n_rows - 1)) + headroom),
-                     layout='constrained')
+    # fig = plt.figure(figsize=(panel[0] * (n_cols + PANEL_GAP * (n_cols - 1)) - 1.1,
+    #                           panel[1] * (n_rows + ROW_GAP * (n_rows - 1)) + 0.0),
+    #                  layout='constrained')
+    fig = plt.figure(figsize=(PANEL_SIZE[0],
+                              PANEL_SIZE[1]), layout='constrained')
     fig.get_layout_engine().set(wspace=PANEL_GAP, hspace=ROW_GAP)
     axes = list(fig.subplots(n_rows, n_cols, squeeze=False).flat)
     for ax in axes[len(keys):]:
