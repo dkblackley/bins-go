@@ -50,3 +50,6 @@ go.work.sum
 *.tsv
 
 app
+data/
+figures/
+*.pdf
