@@ -9,7 +9,7 @@
 #SBATCH --mem=120G
 #SBATCH --time=0-13:30:00
 #SBATCH --constraint=amd
-#SBATCH --array=0-959
+#SBATCH --array=0-960
 #SBATCH --output=logs/Tree_%A_%a.out
 #SBATCH --error=logs/Tree_%A_%a.err
 
@@ -23,41 +23,26 @@ cd "$ROOT_DIR"
 export PATH=$PATH:/usr/local/go/bin
 
 
-DATA_ARR=(); L_ARR=(); KCAND_ARR=(); QWORDS_ARR=(); B_ARR=(); R_ARR=(); S_ARR=(); MAX_Q_ARR=()
-
-# Helper function to generate the grid for one dataset
-add_tree_ablations() {
-    local d=$1 k_cand=$2 max_q=$3 B r s q W
-    for B in $4; do
-        for r in $5; do
-            for s in $6; do
-                for q in $7; do
-                    for W in $8; do
-                        DATA_ARR+=("$d"); B_ARR+=("$B"); R_ARR+=("$r"); S_ARR+=("$s")
-                        QWORDS_ARR+=("$q"); L_ARR+=("$W"); KCAND_ARR+=("$k_cand"); MAX_Q_ARR+=("$max_q")
-                    done
-                done
-            done
-        done
-    done
-}
-
+# The grid lives in tree_sweep_grid.sh (shared with build_tree_artifacts.slurm).
+#   DATASET=msmarco|scifact  SWEEP=legacy|oat|grid|all (default all)
+#   bash tree_sweep_grid.sh --count   -> how many configs, set --array to match
+# Slurm caps array size (MaxArraySize, often 1001), so big sweeps can be sent in
+# chunks: ARRAY_OFFSET=1000 sbatch --array=0-674 ... runs configs 1000..1674.
+# Configs whose metadata.json already exists are skipped, so re-submitting is safe.
+source "${ROOT_DIR}/tree_sweep_grid.sh"
 DATASET="${DATASET:?set DATASET to msmarco or scifact}"
-#                                    k_cand max_q  B              r               s        q*          W
-if [[ "$DATASET" == "msmarco" ]]; then
-    add_tree_ablations "msmarco" 128 6980 "16 32 64"   "8 32 128"   "4 8 16" "2 4 6 8"   "50 100 200 400"
-elif [[ "$DATASET" == "scifact" ]]; then
-    add_tree_ablations "scifact" 20  300  "8 16 32 64" "4 8 32 128" "2 4 8"  "4 8 12 16" "5 10 20 40 80"
-else
-    echo "Unknown DATASET: $DATASET"; exit 1
-fi
+SWEEP="${SWEEP:-all}"
+build_tree_grid "$DATASET" "$SWEEP" || exit 1
 
 if [[ "${1:-}" == "--count" ]]; then
-    echo "${#DATA_ARR[@]} configs for ${DATASET} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
+    echo "${#DATA_ARR[@]} configs for ${DATASET} SWEEP=${SWEEP} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
     exit 0
 fi
 
-task_id=$SLURM_ARRAY_TASK_ID
+task_id=$(( SLURM_ARRAY_TASK_ID + ${ARRAY_OFFSET:-0} ))
+if (( task_id >= ${#DATA_ARR[@]} )); then
+    echo "task ${task_id} is past the ${#DATA_ARR[@]} configs of ${DATASET} SWEEP=${SWEEP}, nothing to do"; exit 0
+fi
 dataset=${DATA_ARR[$task_id]}
 L_val=${L_ARR[$task_id]}
 k_cand_val=${KCAND_ARR[$task_id]}
@@ -69,7 +54,11 @@ max_q_val=${MAX_Q_ARR[$task_id]}
 embed_val=192
 
 BINARY="${ROOT_DIR}/pir_app"
-OUT_DIR="/scratch/dblackle/results/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_k10"
+# _c<k_candidates> is part of the name now that k_candidates is swept (load_results.py reads it)
+OUT_DIR="${RESULTS_ROOT:-/scratch/dblackle/results}/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10"
+if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
+    echo "Already done: ${OUT_DIR} (set FORCE=1 to rerun)"; exit 0
+fi
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
@@ -81,6 +70,7 @@ echo "s Value:       $s_val"
 echo "L Value:       $L_val"
 echo "k_candidates:  $k_cand_val"
 echo "Query Words:   $q_words_val"
+echo "Sweep:         $SWEEP (config $task_id of ${#DATA_ARR[@]})"
 echo "Output Dir:    $OUT_DIR"
 echo "========================================"
 
@@ -113,7 +103,7 @@ elif [ "$dataset" == "scifact" ]; then
     ARTIFACT_DIR="${DATA_ROOT}/pir/B${B_val}_r${r_val}_s${s_val}"
     BLOCK_PERMS="${DATA_ROOT}/block_permutations.json"
 
-    CACHE_DIR="${ROOT_DIR}/cuckoo_cache/scifact/B${B_val}_r${r_val}_s${s_val}/task_${SLURM_ARRAY_TASK_ID}"
+    CACHE_DIR="${ROOT_DIR}/cuckoo_cache/scifact/B${B_val}_r${r_val}_s${s_val}/task_${task_id}"
     mkdir -p "$CACHE_DIR"
 
     LAYOUT_PATH="${ARTIFACT_DIR}/layout.json"
@@ -141,7 +131,11 @@ else
     exit 1
 fi
 
-LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_k10.log"
+for f in "$LAYOUT_PATH" "$VOCAB" "$STAGE1_DATA" "$STAGE1_IDMAP" "$STAGE2_DATA" "$STAGE2_IDMAP"; do
+    [[ -e "$f" ]] || { echo "Missing tree artifact $f: build it first with DATASET=$dataset SWEEP=$SWEEP sbatch build_tree_artifacts.slurm"; exit 1; }
+done
+
+LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10.log"
 
 SECONDS=0
 echo "Running tree search..."
