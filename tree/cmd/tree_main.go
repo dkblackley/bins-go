@@ -19,6 +19,7 @@ import (
 
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
+	pianopir "github.com/dkblackley/bins-go/pir-old"
 	"github.com/dkblackley/bins-go/tree/internal/bm25"
 	"github.com/sirupsen/logrus"
 )
@@ -59,7 +60,15 @@ type AnalyzedQuery struct {
 // The collaborator's PIR does its own re-preprocessing inside Query() (it is
 // counted in MaintainenceTime), so main.go never needs to trigger it.
 func (P *PIRTree) GetBatchNums() (uint64, uint64, uint64) { return 0, 0, 1 }
-func (P *PIRTree) PIRPreprocess() time.Duration           { return 0 }
+
+// stage3BatchSize is -stage3-batch-size, or the original 32 when unset.
+func (P *PIRTree) stage3BatchSize() uint64 {
+	if P.config.BinsConf.Stage3BatchSize > 0 {
+		return uint64(P.config.BinsConf.Stage3BatchSize)
+	}
+	return 32
+}
+func (P *PIRTree) PIRPreprocess() time.Duration { return 0 }
 
 // Preprocess builds the Cuckoo tables and runs the PIR offline phase for all
 // three stages, so main.go's PreprocessingTime covers it.
@@ -86,7 +95,7 @@ func (P *PIRTree) Preprocess() {
 	}
 
 	if bc.DocEmbed != "" && bc.DocIDMap != "" && bc.QueryEmbed != "" {
-		sr, err := bm25.NewStage3Reranker(bc.DocEmbed, bc.DocIDMap, bc.QueryEmbed, bc.BlockPerm, bc.EmbedDim, P.enablePIR, uint64(32))
+		sr, err := bm25.NewStage3Reranker(bc.DocEmbed, bc.DocIDMap, bc.QueryEmbed, bc.BlockPerm, bc.EmbedDim, P.enablePIR, P.stage3BatchSize())
 		if err != nil {
 			logrus.Warnf("failed to initialize Stage3 reranker: %v", err)
 		} else {
@@ -200,6 +209,10 @@ func (P *PIRTree) GetMetaData() map[string]string {
 	meta["strict_pir"] = strconv.FormatBool(bm25.StrictPIR)
 	meta["pir_constant_work"] = strconv.FormatBool(bm25.PIRConstantWork)
 	meta["pir_threads"] = strconv.Itoa(bm25.PIRThreads)
+	meta["pir_download_small"] = strconv.FormatBool(pianopir.DownloadIfCheaper)
+	meta["pir_chunk_factor"] = ff(pianopir.ChunkSizeFactor)
+	meta["pir_query_budget"] = ff(pianopir.QueryBudgetScale)
+	meta["Stage3BatchSize"] = strconv.FormatUint(P.stage3BatchSize(), 10)
 	meta["stage1_level_databases"] = strconv.Itoa(len(P.stage1DB.Levels))
 	meta["physical_cuckoo"] = strconv.FormatBool(len(P.stage1DB.Levels) > 0)
 	meta["cuckoo_hash_functions"] = "2"
@@ -315,6 +328,16 @@ func Runtree(config *globals.Args) *PIRTree {
 		logrus.Fatalf("-pir-threads must be at least 1")
 	}
 	bm25.PIRThreads = bc.PIRThreads
+
+	// client-storage knobs, all package-level in pir-old (zero values from callers
+	// that predate the flags keep the original parameters)
+	pianopir.DownloadIfCheaper = bc.PIRDownloadSmall
+	if bc.PIRChunkFactor > 0 {
+		pianopir.ChunkSizeFactor = bc.PIRChunkFactor
+	}
+	if bc.PIRQueryBudget > 0 {
+		pianopir.QueryBudgetScale = bc.PIRQueryBudget
+	}
 
 	if bc.Index == "" || bc.Queries == "" {
 		logrus.Fatalf("tree needs -index and -queries")

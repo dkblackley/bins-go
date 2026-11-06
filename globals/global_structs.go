@@ -91,6 +91,10 @@ type BinsConf struct {
 	PIRConstantWork     bool
 	PIRThreads          int
 	CuckooLoadFactor    float64
+	PIRDownloadSmall    bool    // pir-old: download a DB whose hints would be larger than it
+	PIRChunkFactor      float64 // pir-old: ChunkSize factor (2 = original)
+	PIRQueryBudget      float64 // pir-old: queries between refreshes, as a fraction of sqrt(n)ln(n)
+	Stage3BatchSize     int64   // tree: Stage3 BatchPIR batch size
 	CuckooMaxKicks      int
 	CuckooBuildAttempts int
 	CuckooCacheDir      string

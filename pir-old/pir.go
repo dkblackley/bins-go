@@ -133,6 +133,59 @@ func primaryNumParam(Q float64, ChunkSize float64, target uint64) uint64 {
 	return uint64(k) * uint64(ChunkSize)
 }
 
+// Client-storage knobs. The defaults reproduce the original Piano parameters,
+// so existing results do not change unless a flag sets them.
+var (
+	// ChunkSizeFactor sets ChunkSize to the next power of two >= factor*sqrt(DBSize).
+	// The primary hint table has ~ln(2)*(FailureProbLog2+1)*ChunkSize entries, so it
+	// shrinks linearly with the factor, while SetSize (upload size and server work per
+	// query) grows as 1/factor. 2.0 is the original setting.
+	ChunkSizeFactor = 2.0
+
+	// QueryBudgetScale scales the number of queries a hint table supports before it is
+	// refreshed (sqrt(n)*ln(n) originally). The backup hint tables are proportional to
+	// it, so a smaller value trades client storage for more frequent re-preprocessing.
+	QueryBudgetScale = 1.0
+)
+
+// pianoChunkLayout returns the (ChunkSize, SetSize) NewPianoPIR uses for a DB of n rows.
+func pianoChunkLayout(n uint64) (uint64, uint64) {
+	targetChunkSize := uint64(ChunkSizeFactor * math.Sqrt(float64(n)))
+	ChunkSize := uint64(1)
+	for ChunkSize < targetChunkSize {
+		ChunkSize *= 2
+	}
+	SetSize := uint64(math.Ceil(float64(n) / float64(ChunkSize)))
+	// round up to the next mulitple of 4
+	SetSize = (SetSize + 3) / 4 * 4
+	return ChunkSize, SetSize
+}
+
+// clientHintCounts returns how many queries the client supports between
+// preprocessings, how many primary hints it keeps, and how many backup hints it
+// keeps per chunk. LocalStorageSize and the hint allocation both follow it.
+func clientHintCounts(config *PianoPIRConfig) (maxQueryNum, primaryHintNum, maxQueryPerChunk uint64) {
+	maxQueryNum = uint64(math.Sqrt(float64(config.DBSize)) * math.Log(float64(config.DBSize)))
+	if QueryBudgetScale != 1.0 {
+		// keep at least one backup per chunk, or the first query in a chunk exhausts it
+		maxQueryNum = max(uint64(QueryBudgetScale*float64(maxQueryNum)), config.SetSize)
+	}
+	primaryHintNum = primaryNumParam(float64(maxQueryNum), float64(config.ChunkSize), config.FailureProbLog2+1) // fail prob 2^(-41)
+	primaryHintNum = (primaryHintNum + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
+	maxQueryPerChunk = 3 * uint64(float64(maxQueryNum)/float64(config.SetSize))
+	maxQueryPerChunk = (maxQueryPerChunk + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
+	return maxQueryNum, primaryHintNum, maxQueryPerChunk
+}
+
+// hintStorageBytes is LocalStorageSize computed from the config alone, before
+// any client is allocated.
+func hintStorageBytes(config *PianoPIRConfig) float64 {
+	_, primaryHintNum, maxQueryPerChunk := clientHintCounts(config)
+	totalBackupHintNum := float64(config.SetSize) * float64(maxQueryPerChunk)
+	return float64(primaryHintNum)*(16+float64(config.DBEntryByteNum)) +
+		totalBackupHintNum*(16+2*float64(config.DBEntryByteNum))
+}
+
 // NewPianoPIRClient is an initialization function for the client
 func NewPianoPIRClient(config *PianoPIRConfig) *PianoPIRClient {
 
@@ -142,11 +195,7 @@ func NewPianoPIRClient(config *PianoPIRConfig) *PianoPIRClient {
 	longKey := GetLongKey((*PrfKey128)(&masterKey))
 	//seed := int64(1678852332934430000)
 
-	maxQueryNum := uint64(math.Sqrt(float64(config.DBSize)) * math.Log(float64(config.DBSize)))
-	primaryHintNum := primaryNumParam(float64(maxQueryNum), float64(config.ChunkSize), config.FailureProbLog2+1) // fail prob 2^(-41)
-	primaryHintNum = (primaryHintNum + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
-	maxQueryPerChunk := 3 * uint64(float64(maxQueryNum)/float64(config.SetSize))
-	maxQueryPerChunk = (maxQueryPerChunk + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
+	maxQueryNum, primaryHintNum, maxQueryPerChunk := clientHintCounts(config)
 
 	//fmt.Printf("maxQueryNum = %v\n", maxQueryNum)
 	//fmt.Printf("primaryHintNum = %v\n", primaryHintNum)
@@ -536,6 +585,19 @@ func (p *PianoPIR) SetConstantWork(enabled bool) {
 	p.client.constantWork = enabled
 }
 
+func newPianoPIRConfig(DBSize, DBEntryByteNum, FailureProbLog2 uint64) *PianoPIRConfig {
+	ChunkSize, SetSize := pianoChunkLayout(DBSize)
+	return &PianoPIRConfig{
+		DBEntryByteNum:  DBEntryByteNum,
+		DBEntrySize:     DBEntryByteNum / 8,
+		DBSize:          DBSize,
+		ChunkSize:       ChunkSize,
+		SetSize:         SetSize,
+		ThreadNum:       8,
+		FailureProbLog2: FailureProbLog2,
+	}
+}
+
 func NewPianoPIR(DBSize uint64, DBEntryByteNum uint64, rawDB []uint64, FailureProbLog2 uint64) *PianoPIR {
 	DBEntrySize := DBEntryByteNum / 8
 
@@ -544,24 +606,7 @@ func NewPianoPIR(DBSize uint64, DBEntryByteNum uint64, rawDB []uint64, FailurePr
 		log.Fatalf("Piano PIR len(rawDB) = %v; want %v", len(rawDB), DBSize*DBEntrySize)
 	}
 
-	targetChunkSize := uint64(2 * math.Sqrt(float64(DBSize)))
-	ChunkSize := uint64(1)
-	for ChunkSize < targetChunkSize {
-		ChunkSize *= 2
-	}
-	SetSize := uint64(math.Ceil(float64(DBSize) / float64(ChunkSize)))
-	// round up to the next mulitple of 4
-	SetSize = (SetSize + 3) / 4 * 4
-
-	config := &PianoPIRConfig{
-		DBEntryByteNum:  DBEntryByteNum,
-		DBEntrySize:     DBEntrySize,
-		DBSize:          DBSize,
-		ChunkSize:       ChunkSize,
-		SetSize:         SetSize,
-		ThreadNum:       8,
-		FailureProbLog2: FailureProbLog2,
-	}
+	config := newPianoPIRConfig(DBSize, DBEntryByteNum, FailureProbLog2)
 
 	client := NewPianoPIRClient(config)
 	server := NewPianoPIRServer(config, rawDB)

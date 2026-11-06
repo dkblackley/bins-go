@@ -15,6 +15,7 @@ import (
 	"github.com/dkblackley/bins-go/Pacmann"
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
+	"github.com/dkblackley/bins-go/pianopir"
 	testpir "github.com/dkblackley/bins-go/testPIR"
 	"github.com/dkblackley/bins-go/tree/cmd"
 	"github.com/schollz/progressbar/v3"
@@ -188,11 +189,17 @@ func main() {
 	pirConstantWork := flag.Bool("pir-constant-work", false, "Use public fixed BatchPIR padding and dummy work for cache hits (tree)")
 	pirThreads := flag.Int("pir-threads", 15, "Maximum number of BatchPIR partitions processed concurrently (tree)")
 	cuckooLoadFactor := flag.Float64("cuckoo-load-factor", 0.4, "Cuckoo table load factor (must be below 0.5 for two hashes)")
+	// client-storage knobs (tree, pir-old). Defaults reproduce the original runs.
+	pirDownloadSmall := flag.Bool("pir-download-small", false, "Download a PIR DB in the clear when its Piano hints would be at least as large as the DB (tree and bins)")
+	pirChunkFactor := flag.Float64("pir-chunk-factor", 2.0, "Piano ChunkSize = next pow2 >= factor*sqrt(partition rows); smaller = smaller primary hints, larger uploads (tree)")
+	pirQueryBudget := flag.Float64("pir-query-budget", 1.0, "Scale on the sqrt(n)ln(n) queries between hint refreshes; smaller = smaller backup hints, more re-preprocessing (tree)")
+	stage3BatchSize := flag.Int64("stage3-batch-size", 32, "BatchPIR batch size of the Stage3 embedding DB, partitions = batch/2 (tree)")
 	cuckooMaxKicks := flag.Int("cuckoo-max-kicks", 1000, "Maximum displacement steps per Cuckoo insertion")
 	cuckooBuildAttempts := flag.Int("cuckoo-build-attempts", 8, "Maximum full-table Cuckoo rehash attempts")
 	cuckooCacheDir := flag.String("cuckoo-cache-dir", "", "Optional directory for persistent physical Cuckoo tables")
 
 	flag.Parse()
+	pianopir.DownloadIfCheaper = *pirDownloadSmall // bins; the tree sets pir-old's copy from BinsConf
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
 
@@ -290,6 +297,10 @@ func main() {
 			PIRConstantWork:     *pirConstantWork,
 			PIRThreads:          *pirThreads,
 			CuckooLoadFactor:    *cuckooLoadFactor,
+			PIRDownloadSmall:    *pirDownloadSmall,
+			PIRChunkFactor:      *pirChunkFactor,
+			PIRQueryBudget:      *pirQueryBudget,
+			Stage3BatchSize:     *stage3BatchSize,
 			CuckooMaxKicks:      *cuckooMaxKicks,
 			CuckooBuildAttempts: *cuckooBuildAttempts,
 			CuckooCacheDir:      *cuckooCacheDir,
