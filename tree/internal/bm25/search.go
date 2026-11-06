@@ -7,95 +7,20 @@ import (
 
 // Round1BeamPrecomputed performs beam search using precomputed stage-1 database with batch PIR queries
 func Round1BeamPrecomputed(layout *LayoutWithStats, queryTerms []string, L int, db *Stage1PIRDB) []int {
-	//fmt.Println("Enter Round1BeamPrecomputed")
-	frontier := []int{1} // Always start at root
+	frontier := []int{1}
 	H := layout.Height()
 	r := db.R
-
-	// Convert query term strings to term_ids
-	var queryTermIDs []int
-	for _, term := range queryTerms {
-		if termID, ok := db.Vocab[term]; ok {
-			queryTermIDs = append(queryTermIDs, termID)
-		}
-	}
-
-	if len(queryTermIDs) == 0 {
-		return []int{}
-	}
-
-	// Loop through each level of the tree
 	for level := 0; level < H; level++ {
-		// Debug: show term and frontier info
-		//fmt.Printf("Round1 start level %d: termIDs=%d frontier=%v\n", level, len(queryTermIDs), frontier)
-		// Step 1: Gather all (termID, parentNodeID) pairs to fetch in batch
-		type queryRequest struct {
-			termID       int
-			parentNodeID int
-			rowIndex     int
-		}
-		var requests []queryRequest
-
-		for _, parentNodeID := range frontier {
-			for _, termID := range queryTermIDs {
-				// Look up the row_index for this (term, parent_node)
-				if termMap, ok := db.LookupTable[termID]; ok {
-					if rowIndex, ok := termMap[parentNodeID]; ok {
-						requests = append(requests, queryRequest{
-							termID:       termID,
-							parentNodeID: parentNodeID,
-							rowIndex:     rowIndex,
-						})
-					}
-				}
-			}
-		}
-
-		// Debug: report if no requests
-		if len(requests) == 0 {
-			fmt.Printf("Round1 level %d: no requests found (maybe lookup table mismatch)\n", level)
-		}
-
-		if len(requests) == 0 {
-			break
-		}
-
-		// Step 2: Perform batch PIR query for all requested term/node pairs
-		// GetScoreBatch returns map[termID]map[nodeID][]byte
-		scoresByTermNode := db.GetScoreBatch(queryTermIDs, frontier)
-
-		// Step 3: Accumulate child scores using batch results
+		// Each row contains all r child scores for one (term,parent) key. The
+		// level-specific database performs both Cuckoo probes for every padded
+		// query term and verifies the returned key before accumulation.
+		scoresByParent := db.SumChildScoresAtLevel(level, queryTerms, frontier)
 		childScores := make(map[int]int)
-		retrieved := 0
-		for _, req := range requests {
-			parentNodeID := req.parentNodeID
-
-			// Retrieve the score row from batch results (termID -> nodeID)
-			termMap, ok := scoresByTermNode[req.termID]
-			if !ok {
-				continue
-			}
-			scoreRow := termMap[req.parentNodeID]
-			if len(scoreRow) == 0 {
-				continue // Skip if no data
-			}
-			retrieved++
-
-			// Add scores to all 'r' children
-			for j := 0; j < r && j < len(scoreRow); j++ {
-				childNodeID := parentNodeID*r + j
-				childScores[childNodeID] += int(scoreRow[j])
+		for _, parentNodeID := range frontier {
+			for child, score := range scoresByParent[parentNodeID] {
+				childScores[parentNodeID*r+child] = score
 			}
 		}
-
-		// Debug: print stats for this level
-		//fmt.Printf("Round1 level %d: requests=%d retrieved=%d childScores=%d\n", level, len(requests), retrieved, len(childScores))
-
-		if len(childScores) == 0 {
-			break
-		}
-
-		// Sort children by score
 		type scoreNode struct {
 			nodeID int
 			score  int
@@ -105,10 +30,11 @@ func Round1BeamPrecomputed(layout *LayoutWithStats, queryTerms []string, L int, 
 			sortedChildren = append(sortedChildren, scoreNode{nodeID, score})
 		}
 		sort.Slice(sortedChildren, func(i, j int) bool {
+			if sortedChildren[i].score == sortedChildren[j].score {
+				return sortedChildren[i].nodeID < sortedChildren[j].nodeID
+			}
 			return sortedChildren[i].score > sortedChildren[j].score
 		})
-
-		// Set new frontier (top L node_ids)
 		frontier = make([]int, 0, L)
 		for i := 0; i < L && i < len(sortedChildren); i++ {
 			frontier = append(frontier, sortedChildren[i].nodeID)

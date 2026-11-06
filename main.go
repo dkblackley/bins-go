@@ -167,9 +167,9 @@ func main() {
 	pirBatchSize := flag.Int64("pir-batch-size", 1024, "Batch size for PIR queries (larger = fewer partitions but more memory)")
 
 	// Stage3 (dense rerank) flags
-	// docEmbed := flag.String("doc-embed", "", "Path to document embeddings (npy float32 file)")
+	docEmbedFlag := flag.String("doc-embed", "", "Path to Stage3 document embeddings (npy float32 file), defaults to the dataset corpus vectors")
 	docIDMap := flag.String("doc-id-map", "", "Path to document ID map (one ID per line)")
-	// queryEmbed := flag.String("query-embed", "", "Path to query embeddings (npy float32 file)")
+	queryEmbedFlag := flag.String("query-embed", "", "Path to Stage3 query embeddings (npy float32 file), defaults to the dataset query vectors")
 	embedDim := flag.Int("embed-dim", 192, "Embedding dimensionality for Stage3 reranker")
 	queryWords := flag.Int("query-words", 8, "Fixed number of words in query (pad with dummy if needed)")
 
@@ -178,12 +178,41 @@ func main() {
 	saveStage2Hits := flag.String("save-stage2-hits", "", "If set, save computed Stage2 hitSubs to this JSON file")
 	skipStage2 := flag.Bool("skip-stage2", false, "If set, do not initialize Stage2 DB (use --load-stage2-hits to provide hits)")
 
+	// Extra flags for the updated tree method (collaborator's main-updated, runs on pir-old)
+	stage2DataBin := flag.String("stage2-data-bin", "", "Path to Stage-2 data.bin (defaults to <dataset>/tree/stage2/data.bin)")
+	stage2IdmapBin := flag.String("stage2-idmap-bin", "", "Path to Stage-2 idmap.bin (defaults to <dataset>/tree/stage2/idmap.bin)")
+	layoutPath := flag.String("layout-path", "", "Path to layout_with_stats.json (defaults to <dataset>/tree/layout_with_stats.json)")
+	blockPerm := flag.String("block-permutation", "", "Path to block permutation JSON (must match this corpus's block count)")
+	disablePIR := flag.Bool("disable-pir", false, "Load precomputed tree artifacts but use direct row access (diagnostic only)")
+	strictPIR := flag.Bool("strict-pir", true, "Verify tree PIR responses against the local plaintext database (diagnostic)")
+	pirConstantWork := flag.Bool("pir-constant-work", false, "Use public fixed BatchPIR padding and dummy work for cache hits (tree)")
+	pirThreads := flag.Int("pir-threads", 15, "Maximum number of BatchPIR partitions processed concurrently (tree)")
+	cuckooLoadFactor := flag.Float64("cuckoo-load-factor", 0.4, "Cuckoo table load factor (must be below 0.5 for two hashes)")
+	cuckooMaxKicks := flag.Int("cuckoo-max-kicks", 1000, "Maximum displacement steps per Cuckoo insertion")
+	cuckooBuildAttempts := flag.Int("cuckoo-build-attempts", 8, "Maximum full-table Cuckoo rehash attempts")
+	cuckooCacheDir := flag.String("cuckoo-cache-dir", "", "Optional directory for persistent physical Cuckoo tables")
+
 	flag.Parse()
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
 
 	docEmbed := meta.Vectors.CorpusVec
 	queryEmbed := meta.Vectors.QueryVec
+	if *docEmbedFlag != "" {
+		docEmbed = *docEmbedFlag
+	}
+	if *queryEmbedFlag != "" {
+		queryEmbed = *queryEmbedFlag
+	}
+	if *stage2DataBin == "" {
+		*stage2DataBin = *datasetsDirectory + "/tree/stage2/data.bin"
+	}
+	if *stage2IdmapBin == "" {
+		*stage2IdmapBin = *datasetsDirectory + "/tree/stage2/idmap.bin"
+	}
+	if *layoutPath == "" {
+		*layoutPath = *datasetsDirectory + "/tree/layout_with_stats.json"
+	}
 
 	IDLookup := make(map[[32]byte]string) // empty lookup
 
@@ -251,6 +280,19 @@ func main() {
 			SaveStage2Hits: *saveStage2Hits,
 			SkipStage2:     *skipStage2,
 			SearchType:     *searchType,
+
+			Stage2DataBin:       *stage2DataBin,
+			Stage2IdmapBin:      *stage2IdmapBin,
+			LayoutPath:          *layoutPath,
+			BlockPerm:           *blockPerm,
+			DisablePIR:          *disablePIR,
+			StrictPIR:           *strictPIR,
+			PIRConstantWork:     *pirConstantWork,
+			PIRThreads:          *pirThreads,
+			CuckooLoadFactor:    *cuckooLoadFactor,
+			CuckooMaxKicks:      *cuckooMaxKicks,
+			CuckooBuildAttempts: *cuckooBuildAttempts,
+			CuckooCacheDir:      *cuckooCacheDir,
 		},
 	}
 
@@ -302,6 +344,12 @@ func main() {
 		return
 	}
 	config.DocIDMapPacmann, _ = bins.MakeDocIDAndQueryIDMap(config.DatasetMeta)
+
+	// Some methods (tree) only answer a subset of the queries, e.g. the ones in their analyzed-queries file
+	if f, ok := PIRImplemented.(interface{ FilterQIDs([]string) []string }); ok {
+		qids = f.FilterQIDs(qids)
+		logrus.Infof("%s answers %d of %d queries", *searchType, len(qids), config.QueryNum)
+	}
 	start_pre := time.Now()
 	PIRImplemented.Preprocess()
 	end_pre := time.Now()
@@ -330,7 +378,7 @@ func main() {
 	}
 
 	config.Metadata["PreprocessingTime"] = end_pre.Sub(start_pre).String()
-	config.Metadata["NumQueries"] = strconv.Itoa(int(config.QueryNum))
+	config.Metadata["NumQueries"] = strconv.Itoa(len(qids))
 
 	logrus.Infof("Answers finished in %s seconds", end.Sub(start))
 	config.Metadata["TotalAnswerTime"] = end.Sub(start).String()
@@ -432,9 +480,9 @@ func getQIDS(config globals.Args) []string {
 
 func doPIRSearch(PIRImplemented PIRImplement, qids []string, k int, config *globals.Args) map[string]globals.Decodable {
 
-	logrus.Infof("Starting PIR search on %d queries", config.QueryNum)
+	logrus.Infof("Starting PIR search on %d queries", len(qids))
 
-	numQueries := config.QueryNum
+	numQueries := len(qids)
 	//numQueries := 30
 
 	decodables := make(map[string]globals.Decodable)

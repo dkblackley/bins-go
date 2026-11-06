@@ -80,6 +80,20 @@ type BinsConf struct {
 	SkipStage2     bool
 
 	SearchType string
+
+	// Extra flags for the updated tree method (uses pir-old + Cuckoo tables)
+	Stage2DataBin       string
+	Stage2IdmapBin      string
+	LayoutPath          string
+	BlockPerm           string
+	DisablePIR          bool
+	StrictPIR           bool
+	PIRConstantWork     bool
+	PIRThreads          int
+	CuckooLoadFactor    float64
+	CuckooMaxKicks      int
+	CuckooBuildAttempts int
+	CuckooCacheDir      string
 }
 
 // strconv.Itoa(docID)
