@@ -136,6 +136,9 @@ func main() {
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
 	binSize := flag.Uint("binSize", 1000000, "How many total bins to use, it's vocab size times this number")
 	docsPerBin := flag.Uint("docsPerBin", 100, "How many documents to put into each bin.")
+	idBatch := flag.Uint("idBatch", 0, "bins vec0: batch size of the ID DB, partitions = batch/2 (0 = 24)")
+	vecBatch := flag.Uint("vecBatch", 0, "bins vec0: embeddings fetched per embedding-DB round; partitions = batch/2, so smaller = less client storage (0 = automatic)")
+	vecRounds := flag.Uint("vecRounds", 0, "bins vec0: embedding-DB rounds per query (0 = automatic: enough rounds to cover as many docs as the automatic setting)")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
 	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
@@ -233,6 +236,9 @@ func main() {
 		DChoice:           *dChoice,
 		BinSize:           *binSize,
 		DocsPerBin:        *docsPerBin,
+		IDBatch:           *idBatch,
+		VecBatch:          *vecBatch,
+		VecRounds:         *vecRounds,
 		DBSize:            *DBSize,
 		Save:              *save,
 		Load:              *load,

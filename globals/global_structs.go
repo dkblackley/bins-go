@@ -16,6 +16,9 @@ type Args struct {
 	DBSize            uint
 	BinSize           uint
 	DocsPerBin        uint
+	IDBatch           uint // bins vec0: batch size of the ID DB (0 = 24)
+	VecBatch          uint // bins vec0: batch size of each embedding-DB round (0 = automatic)
+	VecRounds         uint // bins vec0: embedding-DB rounds per query (0 = automatic)
 	Threshold         uint
 	DChoice           uint
 	Save              bool
