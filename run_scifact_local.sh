@@ -1,7 +1,9 @@
 #!/bin/bash
-# Run bins, pacmann and tree on scifact locally. Run from the bins-go repo root.
+# Run bins, pacmann, tree, tiptoe and coeus on scifact locally. Run from the bins-go repo root.
 # Needs: Go + the NGT/hnsw libs you already build with (see build.sh), Java 21, and
-#   pip install pyserini numpy   (only for the one-off tree artifact build)
+#   pip install pyserini numpy   (only for the one-off tree artifact build; tiptoe/coeus need numpy)
+# Tiptoe runs the real protocol if ./pir_app_tiptoe exists (./baselines/setup_baselines.sh tiptoe), otherwise the
+# SEAL-free simulator. Coeus uses opt2 for server time if it's built (./baselines/setup_baselines.sh coeus).
 set -euo pipefail
 
 DATASETS=../../../datasets          # contains scifact/, index_scifact/ (bluge index for bins)
@@ -13,7 +15,7 @@ OUT=results_local
 
 source $HOME/opt/pacmann_env.sh
 go build -o pir_app ./main.go
-mkdir -p $OUT/bins $OUT/pacmann $OUT/tree
+mkdir -p $OUT/bins $OUT/pacmann $OUT/tree $OUT/tiptoe $OUT/coeus
 
 # ---------- bins ----------
 ./pir_app -n 5183 -t bins -name scifact -k 10 -binSize 1000 -docsPerBin 100 -vectors=true -dim 192 \
@@ -50,4 +52,33 @@ fi
   -doc-embed $T/stage3_doc.npy -doc-id-map $T/stage3_doc.npy.ids
 # -query-embed defaults to $D/scifact_query_embed_f32.npy (rows matched to queries.jsonl order automatically)
 
-echo "Done: see $OUT/{bins,pacmann,tree}/metadata.json and results*.json"
+# ---------- tiptoe ----------
+TT_DPC=${TT_DPC:-1000}              # docs per k-means cluster (Tiptoe used ~2500 on MS MARCO; 1000 = 6 clusters here)
+TT=$DATASETS/tiptoe/scifact_dpc${TT_DPC}_m2_b160
+if [ ! -f "$TT/tiptoe_meta.json" ]; then
+  python3 baselines/tiptoe/preprocess_tiptoe.py --dataset $DATASETS --name scifact --docs-per-cluster $TT_DPC \
+    --multi-assign 2 --bundle-size 160 --out $TT
+fi
+if [ -x ./pir_app_tiptoe ]; then
+  C=$(python3 -c "import json;print(json.load(open('$TT/tiptoe_meta.json'))['num_clusters'])")
+  TT_OUT=$OUT/tiptoe/tiptoe_scifact_c${C}_m2_b160_h500_k10
+  mkdir -p $TT_OUT
+  ./pir_app_tiptoe -n 5183 -t tiptoe -name scifact -k 10 -dim 192 -dataset $DATASETS -tiptoe-dir $TT \
+    -tiptoe-emb-hint-mb 500 -outDir $TT_OUT -outFile results -debug 0
+else
+  echo "no ./pir_app_tiptoe, running the Tiptoe simulator instead"
+  go build -o simplepir_bench ./cmd/simplepir_bench
+  python3 baselines/tiptoe/simulate_tiptoe.py --dataset $DATASETS --name scifact --tiptoe-dir $TT --k 10 \
+    --emb-hint-mb 500 --results-root $OUT/tiptoe --bench-bin ./simplepir_bench --parallelism "$(nproc)"
+fi
+
+# ---------- coeus ----------
+OPT2=$HOME/opt/src/Coeus_artifact/matmult/bin/opt2
+OPT2_ARG=(); [ -x "$OPT2" ] && OPT2_ARG=(--opt2-bin "$OPT2" --parallelism "$(nproc)")
+# F values past scifact's vocabulary are skipped by the script (they'd only add empty ciphertexts)
+for F in 8192 16384 32768 65536; do
+  python3 baselines/coeus/run_coeus.py --dataset $DATASETS --name scifact --k 10 --features $F --tf raw \
+    --results-root $OUT/coeus ${OPT2_ARG[@]+"${OPT2_ARG[@]}"}
+done
+
+echo "Done: see $OUT/{bins,pacmann,tree}/metadata.json, $OUT/{tiptoe,coeus}/*/metadata.json and results*.json"
