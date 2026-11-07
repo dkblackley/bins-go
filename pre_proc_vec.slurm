@@ -15,7 +15,7 @@
 
 set -e
 
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
+source datasets/env.sh   # conda env + HF cache (override CONDA_BASE / CONDA_ENV / HF_HOME)
 
 #export CONDA_ENVS_PATH=/scratch/dblackle/conda/envs
 #export CONDA_PKGS_DIRS=/scratch/dblackle/conda/pkgs
@@ -55,14 +55,6 @@ source /home/dblackle/miniconda3/etc/profile.d/conda.sh
 
 # conda install -c conda-forge sentencepiece -y
 
-conda activate main
-echo "CONDA DONE"
-
-# Optional but recommended: keep HF/transformers cache off $HOME
-export HF_HOME=/scratch/dblackle/hf
-export TRANSFORMERS_CACHE=/scratch/dblackle/hf/transformers
-export HF_DATASETS_CACHE=/scratch/dblackle/hf/datasets
-mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE" "$HF_DATASETS_CACHE"
 
 
 

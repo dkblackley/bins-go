@@ -17,6 +17,9 @@ T="${TREE_OUT:-data/${name}_tree}"
 WORKERS="${WORKERS:-${SLURM_CPUS_PER_TASK:-8}}"
 mkdir -p "$T"
 
+jv="$(java -version 2>&1 | grep -oE 'version "[0-9]+' | grep -oE '[0-9]+$' || echo 0)"
+[[ "$jv" -ge 21 ]] || { echo "pyserini needs Java 21+, found '$jv' ($(command -v java)). In the conda env: conda install -c conda-forge openjdk=21" >&2; exit 1; }
+
 if [[ ! -d "$T/index_${name}" ]]; then
   mkdir -p "$T/coll"
   # pyserini JsonCollection input, title + text like the e5 embeddings

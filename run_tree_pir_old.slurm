@@ -20,7 +20,6 @@ cd "$ROOT_DIR"
 #module --quiet purge
 #module load hosts/hopper
 #module load gnu9/9.3.0
-export PATH=$PATH:/usr/local/go/bin
 
 
 DATA_ARR=(); L_ARR=(); KCAND_ARR=(); QWORDS_ARR=(); B_ARR=(); R_ARR=(); S_ARR=(); MAX_Q_ARR=()
@@ -73,7 +72,7 @@ max_q_val=${MAX_Q_ARR[$task_id]}
 embed_val=192
 
 BINARY="${ROOT_DIR}/pir_app"
-OUT_DIR="/scratch/dblackle/results/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_k10"
+OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_k10"
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
