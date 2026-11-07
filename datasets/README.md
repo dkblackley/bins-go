@@ -15,7 +15,20 @@ benchmarks with qrels, so MRR and Recall work exactly like MS MARCO and SciFact:
 With SciFact (5K) and MS MARCO v1 (8.8M) that gives sizes from 5K to 138M. Subsamples keep every doc that is
 relevant to some query and fill the rest at random (seed 42), so the scores stay comparable across sizes.
 
-## Pipeline (run from the repo root)
+## One command
+
+```bash
+bash build.sh                                   # pir_app
+bash datasets/run_all.sh nq hotpotqa fever      # prep -> embed -> tree artifacts -> bins/pacmann/tree grids
+bash datasets/run_all.sh msmarco-v2-all         # 138M, then the 25m/50m/100m subsamples after it's embedded
+DRY_RUN=1 bash datasets/run_all.sh nq           # show the sbatch commands without submitting
+STAGES="bins pacmann" bash datasets/run_all.sh nq   # only some stages
+```
+
+Every job is queued straight away with `--dependency=afterok` on the jobs it needs. `DATASETS_ROOT` (default
+`../../datasets`, which is what the run scripts already use) is used for every stage.
+
+## Pipeline step by step (run from the repo root)
 
 ```bash
 # 1. download + convert -> ../datasets/<name>/{corpus.jsonl, queries.jsonl, qrels/test.tsv, num_docs.txt}
@@ -34,8 +47,8 @@ BINS_DATASETS="nq hotpotqa fever" bash run_bins_high.slurm --count
 BINS_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_bins_high.slurm      # and run_bins_low.slurm
 PACMANN_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_pacmann.slurm
 
-# 5. tree: build artifacts per (B, r, s), then run the grid
-bash datasets/prep_tree.sh nq 32 8 4
+# 5. tree: Lucene index + every (B, r, s) of the grid in one pass (tree/build_tree_artifacts.py), then run the grid
+DATASET=nq sbatch datasets/tree_artifacts.slurm
 DATASET=nq bash run_tree_pir_old.slurm --count
 DATASET=nq sbatch --array=0-<N-1> run_tree_pir_old.slurm
 ```
@@ -52,5 +65,9 @@ DATASET=nq sbatch --array=0-<N-1> run_tree_pir_old.slurm
 - MS MARCO v2 at 192 float32 dims is ~106 GB of vectors. `LoadFloat32MatrixFromNpy` no longer copies every row, and
   the ID maps no longer load the whole corpus text, so peak memory per copy roughly halved.
 - `fever` and `trec-covid` are wired in too, but are optional.
-- The tree's `build_small_test_artifacts.py` is plain Python. Expect hours for the 5M sets. For msmarco-v2 use the
-  collaborator's optimised `tree/prepare_data.py` / `tree/prepare_data_stage2.py`.
+- Tree artifacts come from `tree/build_tree_artifacts.py`. It gives byte-identical output to
+  `build_small_test_artifacts.py`, but reads each term's postings once for every (B, r, s), splits terms over
+  processes, and never allocates a per-term array of size N/B. The collaborator's `prepare_data.py` /
+  `prepare_data_stage2.py` can't be used as they are: the `--vocab` path crashes (`getTerm` on a str), the vocab
+  JSON write is commented out, and stage 2 reads a hard-coded `data/layout_with_stats.json` from a missing
+  `gen_layout.py`.
