@@ -21,9 +21,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# One dataset folder for every stage. The prep/embed scripts default to ../datasets but the run scripts to
-# ../../datasets, so pin both to the same place here (override with DATASETS_ROOT=...).
-export DATASETS_ROOT="${DATASETS_ROOT:-../../datasets}"
+# One dataset folder for every stage (default ../datasets, i.e. run from the scratch copy of the repo). The run
+# scripts on their own default to ../../datasets, so pin both here (override with DATASETS_ROOT=...).
+export DATASETS_ROOT="${DATASETS_ROOT:-../datasets}"
 export DATASET_DIR="$DATASETS_ROOT"
 
 STAGES="${STAGES:-prep embed tree-db bins pacmann tree}"
@@ -47,7 +47,7 @@ count_of() {   # count_of <env assignment> <script> -> number of array tasks
     env "$1" SLURM_SUBMIT_DIR="$PWD" bash "$2" --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0
 }
 
-is_big() { [[ "$1" == msmarco-v2* ]]; }
+is_big() { [[ "$1" == msmarco-v2* || "$1" == miracl-en ]]; }
 
 # submit_dataset <name> [extra dependency] ; sets EMBED_JOB to the job the dataset's embeddings come from
 submit_dataset() {
@@ -61,8 +61,8 @@ submit_dataset() {
 
     embed="$prep $extra"
     if has embed && [[ ! "$d" =~ ^msmarco-v2-[0-9]+m$ ]]; then   # subsamples copy the full set's embeddings
-        if [[ "$d" == "msmarco-v2" ]]; then
-            local n=${NUM_SHARDS:-24} pca shards
+        if [[ "$d" == "msmarco-v2" || "$d" == "miracl-en" ]]; then
+            local n=${NUM_SHARDS:-$([[ "$d" == miracl-en ]] && echo 8 || echo 24)} pca shards
             pca=$(submit "$prep $extra" --export=ALL,DATASET="$d",MODE=pca,NUM_SHARDS=$n --time=0-02:00:00 \
                   --job-name="pca_$d" datasets/embed.slurm)
             shards=$(submit "$pca" --export=ALL,DATASET="$d",MODE=shard,NUM_SHARDS=$n --array=0-$((n - 1)) \

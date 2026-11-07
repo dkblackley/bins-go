@@ -42,13 +42,13 @@ add_tree_ablations() {
     done
 }
 
-DATASET="${DATASET:?set DATASET to msmarco, scifact, nq, hotpotqa, fever or msmarco-v2[-25m|-50m|-100m]}"
+DATASET="${DATASET:?set DATASET to msmarco, scifact, nq, dbpedia-entity, fever, hotpotqa, miracl-en or msmarco-v2[-25m|-50m|-100m]}"
 #                                    k_cand max_q  B              r               s        q*          W
 if [[ "$DATASET" == "msmarco" ]]; then
     add_tree_ablations "msmarco" 128 6980 "16 32 64"   "8 32 128"   "4 8 16" "2 4 6 8"   "50 100 200 400"
 elif [[ "$DATASET" == "scifact" ]]; then
     add_tree_ablations "scifact" 20  300  "8 16 32 64" "4 8 32 128" "2 4 8"  "4 8 12 16" "5 10 20 40 80"
-elif [[ "$DATASET" =~ ^(nq|hotpotqa|fever|msmarco-v2.*)$ ]]; then
+elif [[ "$DATASET" =~ ^(nq|hotpotqa|fever|dbpedia-entity|miracl-en|msmarco-v2.*)$ ]]; then
     # 2.7M-138M docs, same grid as msmarco. Build every (B, r, s) first in one go:
     #   DATASET=$DATASET sbatch datasets/tree_artifacts.slurm     (or let datasets/run_all.sh chain it)
     add_tree_ablations "$DATASET" 128 10000 "16 32 64"   "8 32 128"   "4 8 16" "2 4 6 8"   "50 100 200 400"
@@ -139,7 +139,7 @@ elif [ "$dataset" == "scifact" ]; then
 
     CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
 
-elif [[ "$dataset" =~ ^(nq|hotpotqa|fever|msmarco-v2.*)$ ]]; then
+elif [[ "$dataset" =~ ^(nq|hotpotqa|fever|dbpedia-entity|miracl-en|msmarco-v2.*)$ ]]; then
     # Layout written by datasets/prep_tree.sh
     DATASET_ROOT="${DATASET_DIR:-../../datasets}"
     DB_SIZE=$(cat "${DATASET_ROOT}/${dataset}/num_docs.txt")

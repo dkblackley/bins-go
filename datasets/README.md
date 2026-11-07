@@ -3,14 +3,20 @@
 Reviewers asked for more, and larger, datasets. These are the ones wired in, all standard RAG / open-domain QA
 benchmarks with qrels, so MRR and Recall work exactly like MS MARCO and SciFact:
 
-| `-name`            | Docs        | Test queries | Why                                                           |
-|--------------------|-------------|--------------|---------------------------------------------------------------|
-| `nq`               | 2,681,468   | 3,452        | Natural Questions (BEIR): *the* open-domain QA / RAG benchmark |
-| `hotpotqa`         | 5,233,329   | 7,405        | Multi-hop QA over Wikipedia (BEIR), common RAG eval            |
-| `fever`            | 5,416,568   | 6,666        | Fact verification over Wikipedia (BEIR), optional 4th          |
-| `msmarco-v2`       | 138,364,198 | 3,903 (dev1) | MS MARCO v2 passages: bigger than PACMANN's SIFT100M           |
-| `msmarco-v2-100m`  | 100,000,000 | 3,903        | Subsample of the above, matches SIFT100M exactly               |
-| `msmarco-v2-25m/50m` | 25M / 50M | 3,903        | Subsamples for a scaling plot                                  |
+Average words per query / per doc are from the BEIR paper (Thakur et al. 2021, Table 1). For reference, MS MARCO is
+5.96 / 55.98 and SciFact is 12.37 / 213.63. Run `python datasets/query_stats.py <dataset dir>` for the full
+distribution (% of queries with at most 10/15/20 words); `prepare_dataset.py` also writes it to `stats.json`.
+
+| `-name`            | Docs        | Queries      | Words/query | Words/doc | Use?                                         |
+|--------------------|-------------|--------------|-------------|-----------|----------------------------------------------|
+| `dbpedia-entity`   | 4,635,922   | 400          | 5.39        | 49.68     | Yes: shortest queries and docs of the lot    |
+| `nq`               | 2,681,468   | 3,452        | 9.16        | 78.88     | Yes: *the* open-domain QA / RAG benchmark    |
+| `fever`            | 5,416,568   | 6,666        | 8.13        | 84.76     | Optional                                     |
+| `hotpotqa`         | 5,233,329   | 7,405        | 17.61       | 46.30     | No: multi-hop queries are too long           |
+| `miracl-en`        | 32,893,221  | 799 (dev)    | short questions (not measured) | Wikipedia passages | Optional: the only judged set between 8.8M and 138M |
+| `msmarco-v2`       | 138,364,198 | 3,903 (dev1) | same style as MS MARCO v1 | ~same | Yes: bigger than PACMANN's SIFT100M |
+| `msmarco-v2-100m`  | 100,000,000 | 3,903        |             |           | Subsample, matches SIFT100M exactly          |
+| `msmarco-v2-25m/50m` | 25M / 50M | 3,903        |             |           | Subsamples for a scaling plot                |
 
 With SciFact (5K) and MS MARCO v1 (8.8M) that gives sizes from 5K to 138M. Subsamples keep every doc that is
 relevant to some query and fill the rest at random (seed 42), so the scores stay comparable across sizes.
@@ -26,7 +32,14 @@ STAGES="bins pacmann" bash datasets/run_all.sh nq   # only some stages
 ```
 
 Every job is queued straight away with `--dependency=afterok` on the jobs it needs. `DATASETS_ROOT` (default
-`../../datasets`, which is what the run scripts already use) is used for every stage.
+`../datasets`, i.e. running from the scratch copy of the repo) is used for every stage.
+
+## Locally (no SLURM)
+
+```bash
+bash datasets/run_local.sh nq dbpedia-entity     # prep -> embed on your GPU -> tree artifacts -> one config per method
+```
+Uses `../../../datasets` by default (`DATASETS_ROOT=...` to change). See the header of the script for options.
 
 ## Pipeline step by step (run from the repo root)
 

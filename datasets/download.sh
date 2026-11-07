@@ -5,7 +5,9 @@
 #   bash datasets/download.sh hotpotqa   ../datasets/raw
 #   bash datasets/download.sh fever      ../datasets/raw
 #   bash datasets/download.sh trec-covid ../datasets/raw
+#   bash datasets/download.sh dbpedia-entity ../datasets/raw
 #   bash datasets/download.sh msmarco-v2 ../datasets/raw     # ~20 GB tar (138,364,198 passages)
+#   bash datasets/download.sh miracl-en  ../datasets/raw     # 32.9M Wikipedia passages, needs huggingface-cli
 #
 # Then convert with datasets/prepare_dataset.py (datasets/prep_datasets.slurm does both).
 set -euo pipefail
@@ -32,6 +34,13 @@ case "$name" in
     for f in passv2_dev_queries.tsv passv2_dev_qrels.tsv passv2_dev2_queries.tsv passv2_dev2_qrels.tsv; do
       wget -c -O "$f" "${MARCO_URL}/$f"
     done
+    ;;
+  miracl-en)
+    # English MIRACL: Wikipedia passages + human-judged dev queries (https://huggingface.co/datasets/miracl/miracl)
+    huggingface-cli download miracl/miracl-corpus --repo-type dataset --include "miracl-corpus-v1.0-en/*" \
+        --local-dir miracl-en
+    huggingface-cli download miracl/miracl --repo-type dataset \
+        --include "miracl-v1.0-en/topics/*" "miracl-v1.0-en/qrels/*" --local-dir miracl-en
     ;;
   *)
     echo "Unknown dataset $name"; exit 1 ;;
