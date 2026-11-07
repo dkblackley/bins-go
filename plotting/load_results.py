@@ -344,8 +344,9 @@ def tree_pir_rounds(folder, meta, n):
     return math.nan if math.isnan(total) else math.ceil(total / n)
 
 
-TIPTOE_NAME = re.compile(r'^tiptoe_(?P<dataset>[a-z0-9-]+)_c(?P<c>\d+)_k(?P<k>10)$')
-COEUS_NAME = re.compile(r'^coeus_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_f(?P<f>\d+)$')
+# m = multi-assign, b = bundle size, h = embedding hint MB (optional, older runs don't have them)
+TIPTOE_NAME = re.compile(r'^tiptoe_(?P<dataset>[a-z0-9-]+)_c(?P<c>\d+)(?:_m(?P<m>\d+))?(?:_b(?P<b>\d+))?(?:_h(?P<h>\d+))?_k(?P<k>10)$')
+COEUS_NAME = re.compile(r'^coeus_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_f(?P<f>\d+)(?:_tf(?P<tf>raw|log))?$')
 
 
 def parse_tiptoe(folder, meta):
@@ -358,7 +359,9 @@ def parse_tiptoe(folder, meta):
     if run is None:
         return None
     c = int(name['c'])
-    run.update(method='tiptoe', dataset=name['dataset'], k=int(name['k']), c=c, config=f'c{c}',
+    m, b, h = int(name['m'] or 2), int(name['b'] or 160), int(name['h'] or 500)
+    run.update(method='tiptoe', dataset=name['dataset'], k=int(name['k']), c=c, multi_assign=m, bundle=b,
+               emb_hint_mb=h, config=f'c{c}_m{m}_b{b}_h{h}',
                pir_rounds=2,   # ranking round + URL round (the token is fetched offline)
                token_kb=read_float(meta, 'TiptoeTokenKBPerQuery'),
                offline_wan_time=read_seconds(meta, 'TiptoeOfflineWANTime') / run['num_queries'])
@@ -374,8 +377,8 @@ def parse_coeus(folder, meta):
     run = parse_common(folder, meta)
     if run is None:
         return None
-    f = int(name['f'])
-    run.update(method='coeus', dataset=name['dataset'], k=int(name['k']), f=f, config=f'f{f}',
+    f, tf = int(name['f']), name['tf'] or 'raw'
+    run.update(method='coeus', dataset=name['dataset'], k=int(name['k']), f=f, tf=tf, config=f'f{f}_tf{tf}',
                pir_rounds=2)   # encrypted scoring, then metadata PIR
     return run
 

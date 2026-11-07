@@ -151,7 +151,7 @@ def main():
     ap.add_argument("--max-queries", type=int, default=0, help="0 = all")
     ap.add_argument("--emb-hint-mb", type=int, default=500, help="Tiptoe DEFAULT_EMBEDDINGS_HINT_SZ (text)")
     ap.add_argument("--url-hint-mb", type=int, default=100, help="Tiptoe DEFAULT_URL_HINT_SZ")
-    ap.add_argument("--results-root", default="", help="write <root>/tiptoe_<name>_c<C>_k<K>/metadata.json")
+    ap.add_argument("--results-root", default="", help="write <root>/tiptoe_<name>_c<C>_m<MA>_b<B>_h<H>_k<K>/metadata.json")
     ap.add_argument("--bench-bin", default="", help="cmd/simplepir_bench binary, to measure online server time")
     ap.add_argument("--bench-max-gb", type=float, default=8)
     ap.add_argument("--parallelism", type=int, default=1, help="divide server time by this (Tiptoe shards freely)")
@@ -249,6 +249,7 @@ def main():
         "TiptoeRounds": 2 * nq,
         "TiptoeNumClusters": C, "TiptoeMaxClusterSize": max(cluster_docs),
         "TiptoeMultiAssign": meta.get("multi_assign"), "TiptoeBundleSize": meta.get("bundle_size"),
+        "TiptoeEmbHintMB": args.emb_hint_mb, "TiptoeURLHintMB": args.url_hint_mb,
         "TiptoeNumBundles": n_bundles,
         "TiptoeEmbL": L_emb, "TiptoeEmbM": M_emb, "TiptoeURLL": L_url, "TiptoeURLM": M_url,
         "TiptoeMeanDocsReturned": f"{np.mean(returned):.2f}",
@@ -265,7 +266,8 @@ def main():
 
     print(json.dumps(out, indent=2))
     if args.results_root:
-        d = os.path.join(args.results_root, f"tiptoe_{args.name}_c{C}_k{args.k}")
+        tag = f"c{C}_m{meta.get('multi_assign', 2)}_b{meta.get('bundle_size', 160)}_h{args.emb_hint_mb}"
+        d = os.path.join(args.results_root, f"tiptoe_{args.name}_{tag}_k{args.k}")
         common.write_run(d, out, results, reranked)
         print(f"wrote {d}")
 

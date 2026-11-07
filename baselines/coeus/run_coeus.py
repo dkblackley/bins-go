@@ -17,22 +17,24 @@ Coeus' numbers:
    MRR/Recall are exactly those of plaintext top-k TF-IDF over the same
    keyword dictionary, which is what this script computes on the real corpus.
 
-2. COST, from Coeus' own code. Communication comes from the encryption
-   parameters hard-coded in the artifact (step 1 = matmult/opt2.cpp:
-   N=8192, 3x60-bit primes; step 2 = step2/common/globals.h: SealPIR with
-   N=2048, logt=15, d=2, 1.5k cuckoo buckets). Server time comes from running
-   the artifact's own single-machine benchmark `matmult/bin/opt2 -r R -c C`
-   on a few small (R, C) grids on YOUR machine (--opt2-bin) and fitting
-   T(R, C) = a*R*C + b*R + c*C + d, then evaluating it at the real
-   R = ceil(N_docs/8192), C = ceil(F/8192). (One 8192x8192 block is ~1.6 GB of
-   NTT plaintexts, so MS MARCO's full matrix would need terabytes of RAM; the
-   paper spreads it over many machines for the same reason.)
+2. COST, from Coeus' own code. Communication is what the artifact's code sends
+   and counts (step 1: seeded query ciphertexts, raw 2-prime response
+   ciphertexts; step 2: SealPIR with N=2048, logt=15, d=2, 1.5k cuckoo
+   buckets, CIPHER_SIZE-byte ciphertexts). Server time is the artifact's own
+   single-machine kernel `matmult/bin/opt2 -r R -c C` (R = ceil(N_docs/8192)
+   response ciphertexts, C = ceil(F/8192) query ciphertexts):
+     * run DIRECTLY at the real (R, C) when the encoded matrix fits in
+       --opt2-direct-max-gb (one 8192x8192 block is 1 GiB of NTT plaintexts),
+       e.g. SciFact; otherwise
+     * fitted as T(R, C) = a*R*C + b*R + c*C + d on small grids and evaluated
+       at the real (R, C). MS MARCO's matrix is ~8.4 TiB, which is why the
+       paper spreads it over many machines.
    Without --opt2-bin the time keys are left out (NaN in the plots), never guessed.
 
 Step 3 of Coeus (fetching the documents themselves) is not counted, because
 none of the other methods in this repo count document download either.
 
-Outputs <results-root>/coeus_<dataset>_k<K>_f<F>/{metadata.json,results.json,results_reRank.json}
+Outputs <results-root>/coeus_<dataset>_k<K>_f<F>_tf<raw|log>/{metadata.json,results.json,results_reRank.json}
 
 Usage
 -----
@@ -57,25 +59,34 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import common  # noqa: E402
 
 # ---------------- Coeus parameters, copied from the artifact ----------------
-# step 1 (matmult/opt2.cpp): BFV, N=8192, coeff modulus {60,60,60}, batching
+# Sizes follow what the artifact's own code sends and counts (its client tallies total_upload/total_download).
+# Where its prototype re-sends something per query that a deployment would only send once (the Galois keys,
+# in both steps), we count it once, as a setup cost: the best case for Coeus that is still accurate.
+#
+# step 1 (step1/common: N=8192, coeff modulus {60,60,60}, PLAIN_BIT 46). The last 60-bit prime is SEAL's
+# special prime, so ciphertexts and NTT plaintexts live at the 2-prime data level.
 S1_N = 8192
-S1_PRIMES = 3
-# All sizes below are LOWER bounds (payload only, 60-bit coefficients bit-packed, no headers), so the
-# model can only flatter Coeus, never overstate its cost.
-S1_POLY_BYTES = S1_N * S1_PRIMES * 60 // 8      # one polynomial: 184,320 B
-S1_CT_BYTES = 2 * S1_POLY_BYTES                 # response ciphertext: 368,640 B
-S1_QUERY_CT_BYTES = S1_POLY_BYTES + 64          # query ciphertext if sent seeded (symmetric): half
-S1_PT_NTT_BYTES = S1_N * S1_PRIMES * 8          # one NTT plaintext (server memory, 64-bit words)
-S1_GALOIS_STEPS = 1 + int(math.log2(S1_N // 2))  # steps 0,1,2,...,2048 -> 13 keys
-# one key-switching ciphertext per decomposed prime, sent seeded (step1/client uses Serializable<GaloisKeys>)
-S1_GALOIS_BYTES = S1_GALOIS_STEPS * (S1_PRIMES - 1) * S1_QUERY_CT_BYTES
-S1_SK_BYTES = S1_POLY_BYTES
-# step 2 (step2/common/globals.h + pir.cpp): SealPIR, N=2048, logt=15, d=2, one 60-bit prime
+S1_DATA_PRIMES = 2
+# query: step1/client/merge.cpp encrypts with encrypt_symmetric -> Serializable (seeded): only c0 is sent,
+# plus a 64 B seed. Saved with SEAL's default compression, which shrinks uniformly random 60-bit
+# coefficients stored in 64-bit words to ~60/64 of the raw size.
+S1_QUERY_CT_BYTES = S1_N * S1_DATA_PRIMES * 60 // 8 + 64        # 122,944 B
+# response: step1/server/worker SEND_TO_CLIENT ships raw uint64 vectors of N*2*2 words per ciphertext, and the
+# client counts total_download += N*2*2*8 per ciphertext.
+S1_RESP_CT_BYTES = S1_N * 2 * 2 * 8                              # 262,144 B
+S1_PT_NTT_BYTES = S1_N * S1_DATA_PRIMES * 8                      # one NTT plaintext in server memory
+# Galois keys (Serializable, deflate): steps {0, 1, 2, ..., 4096/2} = 13 keys, each holding one seeded
+# key-switching ciphertext (1 poly at all 3 primes) per data prime.
+S1_GALOIS_STEPS = 1 + int(math.log2(S1_N // 2))
+S1_GALOIS_BYTES = S1_GALOIS_STEPS * S1_DATA_PRIMES * (S1_N * 3 * 60 // 8 + 64)
+S1_SK_BYTES = S1_N * 3 * 8                                       # secret key (all 3 primes)
+# step 2 (step2/common/globals.h + pir.cpp): SealPIR over SEAL 3.2, N=2048, logt=15, d=2, one 60-bit prime,
+# 1.5k cuckoo buckets, every ciphertext serialised to CIPHER_SIZE bytes.
 S2_CT_BYTES = 32841                              # CIPHER_SIZE
 S2_D = 2
-S2_EXPANSION = 2 * math.ceil(60 / 15)            # pir_params.expansion_ratio = 8
+S2_EXPANSION = 2 * math.ceil(60 / 15)            # pir_params.expansion_ratio = 8 -> reply = 8^(d-1) cts per bucket
 S2_BUCKET_FACTOR = 1.5                           # FACTOR
-S2_GALOIS_BYTES = int(math.log2(2048)) * S2_CT_BYTES  # SealPIR query-expansion keys, one-time
+S2_GALOIS_BYTES = int(math.log2(2048)) * math.ceil(60 / 6) * S2_CT_BYTES  # 11 keys x (60/dbc=6) parts, one-time
 
 STOPWORDS = set("""a an and are as at be but by for if in into is it no not of on or such that the their then there
 these they this to was will with""".split())   # Lucene's default English stop set
@@ -149,27 +160,46 @@ def coeus_topk(query, k, n_docs, tokenize, term_id, ptr, rows, w):
 
 # ---------------- cost model ----------------
 
+def run_opt2(binary, r, c):
+    out = subprocess.run([binary, "-r", str(r), "-c", str(c)], capture_output=True, text=True, check=True).stdout
+    m = re.search(r"Total time:\s*\n?\s*(\d+)", out)
+    if not m:
+        raise SystemExit(f"could not parse opt2 output:\n{out}")
+    return int(m.group(1)) / 1e6
+
+
+def opt2_direct(binary, cache, r, c):
+    """Runs opt2 at the real (R, C) once and caches it (keyed by R,C) next to the calibration."""
+    data = json.load(open(cache)) if cache and os.path.exists(cache) else {}
+    key = f"{r}x{c}"
+    if key not in data.get("direct", {}):
+        t = run_opt2(binary, r, c)
+        print(f"  opt2 -r {r} -c {c} (direct): {t:.2f}s", flush=True)
+        if cache:
+            data = json.load(open(cache)) if os.path.exists(cache) else {}
+            data.setdefault("direct", {})[key] = t
+            with open(cache, "w") as f:
+                json.dump(data, f, indent=2)
+        return t
+    return data["direct"][key]
+
+
 def calibrate_opt2(binary, cache, grid=((1, 1), (1, 2), (2, 1), (2, 2)), reps=1):
     """Runs Coeus' own single-machine benchmark and fits T(R,C) = a*R*C + b*R + c*C + d (seconds)."""
-    if cache and os.path.exists(cache):
-        with open(cache) as f:
-            cal = json.load(f)
-        print(f"opt2 calibration from {cache}: {cal['coef']}")
-        return cal
+    old = json.load(open(cache)) if cache and os.path.exists(cache) else {}
+    if "coef" in old:
+        print(f"opt2 calibration from {cache}: {old['coef']}")
+        return old
     pts = []
     for r, c in grid:
         for _ in range(reps):
-            out = subprocess.run([binary, "-r", str(r), "-c", str(c)], capture_output=True, text=True, check=True).stdout
-            m = re.search(r"Total time:\s*\n?\s*(\d+)", out)
-            if not m:
-                raise SystemExit(f"could not parse opt2 output:\n{out}")
-            us = int(m.group(1))
-            pts.append((r, c, us / 1e6))
-            print(f"  opt2 -r {r} -c {c}: {us / 1e6:.2f}s", flush=True)
+            t = run_opt2(binary, r, c)
+            pts.append((r, c, t))
+            print(f"  opt2 -r {r} -c {c}: {t:.2f}s", flush=True)
     A = np.array([[r * c, r, c, 1.0] for r, c, _ in pts])
     y = np.array([t for _, _, t in pts])
     coef = np.linalg.lstsq(A, y, rcond=None)[0].tolist()
-    cal = {"binary": binary, "points": pts, "coef": coef, "model": "a*R*C + b*R + c*C + d"}
+    cal = {**old, "binary": binary, "points": pts, "coef": coef, "model": "a*R*C + b*R + c*C + d"}
     if cache:
         with open(cache, "w") as f:
             json.dump(cal, f, indent=2)
@@ -180,17 +210,17 @@ def coeus_cost(n_docs, features, k):
     R = math.ceil(n_docs / S1_N)        # response ciphertexts (8192 scores each)
     C = math.ceil(features / S1_N)      # query ciphertexts (8192 keywords each)
     buckets = math.ceil(S2_BUCKET_FACTOR * k)
-    s1_up, s1_down = C * S1_QUERY_CT_BYTES, R * S1_CT_BYTES
+    s1_up, s1_down = C * S1_QUERY_CT_BYTES, R * S1_RESP_CT_BYTES
     s2_up = buckets * S2_D * S2_CT_BYTES
     s2_down = buckets * (S2_EXPANSION ** (S2_D - 1)) * S2_CT_BYTES
     return {
         "R": R, "C": C, "buckets": buckets,
         "s1_up": s1_up, "s1_down": s1_down, "s2_up": s2_up, "s2_down": s2_down,
         "per_query": s1_up + s1_down + s2_up + s2_down,
-        # The artifact actually re-sends the Galois keys with EVERY query (step1/server/master: sendQuery(gal_key, query));
-        # we count them once, as a setup cost, in Coeus' favour.
+        # The artifact re-sends the Galois keys with EVERY query in both steps; we count them once (setup).
         "setup_upload": S1_GALOIS_BYTES + S2_GALOIS_BYTES,
-        # Keys can be regenerated from the secret key, so the minimum the client must keep is the secret key.
+        # Keys can be regenerated from the secret key, so the minimum the client must keep is the secret key
+        # (step 2's SealPIR key is generated fresh per query in the artifact).
         "client_state": S1_SK_BYTES,
         "server_db": R * C * S1_N * S1_PT_NTT_BYTES,
     }
@@ -210,6 +240,8 @@ def main():
     ap.add_argument("--results-root", default="../results")
     ap.add_argument("--opt2-bin", default="", help="Coeus_artifact/matmult/bin/opt2, to measure server time")
     ap.add_argument("--opt2-cache", default="", help="JSON cache for the opt2 calibration (default next to the binary)")
+    ap.add_argument("--opt2-direct-max-gb", type=float, default=48,
+                    help="run opt2 at the real (R, C) when the encoded matrix is at most this big, instead of fitting")
     ap.add_argument("--parallelism", type=int, default=1,
                     help="divide step-1 server time by this many workers (Coeus scales ~linearly, paper Fig. 9)")
     args = ap.parse_args()
@@ -228,6 +260,12 @@ def main():
     term_id, ptr, rows, w = build_tfidf(docs, args.features, tokenize, args.tf)
     pre_time = time.time() - t0
     print(f"tf-idf built over {len(term_id)} keywords in {pre_time:.1f}s", flush=True)
+    # A dictionary padded past the vocabulary only adds empty query ciphertexts: same results, more bytes.
+    # Coeus would never be configured like that, so skip it instead of plotting a needlessly worse point.
+    if len(term_id) <= args.features - S1_N:
+        print(f"F={args.features} is over the vocabulary ({len(term_id)} terms, i.e. "
+              f"F={math.ceil(len(term_id) / S1_N) * S1_N}); this config would duplicate that one with more upload. Skipping.")
+        return
 
     results = {}
     for qid, text in queries:
@@ -262,7 +300,7 @@ def main():
         "CoeusStep2UpBytes": cost["s2_up"], "CoeusStep2DownBytes": cost["s2_down"],
         "CoeusSetupUploadMB": cost["setup_upload"] / 2**20,
         "CoeusGaloisKeysResentPerQueryInArtifactMB": cost["setup_upload"] / 2**20,
-        "CoeusCostNote": "lower bounds: payload only; Galois keys counted once not per query; step-2 server time not included",
+        "CoeusCostNote": "sizes as sent by the artifact; Galois keys counted once not per query; step-2 server time not included",
         "CoeusTokenizer": tok_name, "CoeusTF": args.tf,
         "CoeusTfidfBuildTime": f"{pre_time:.3f}",
         "CoeusParallelism": args.parallelism,
@@ -270,17 +308,21 @@ def main():
     }
     if args.opt2_bin:
         cache = args.opt2_cache or os.path.join(os.path.dirname(os.path.abspath(args.opt2_bin)), "opt2_calibration.json")
-        cal = calibrate_opt2(args.opt2_bin, cache)
-        a, b, c, d = cal["coef"]
-        t_s1 = max(0.0, a * cost["R"] * cost["C"] + b * cost["R"] + c * cost["C"] + d) / args.parallelism
+        if cost["server_db"] / 2**30 <= args.opt2_direct_max_gb:
+            t_s1 = opt2_direct(args.opt2_bin, cache, cost["R"], cost["C"]) / args.parallelism
+            meta["CoeusTimeSource"] = f"opt2 run directly at R={cost['R']} C={cost['C']}"
+        else:
+            cal = calibrate_opt2(args.opt2_bin, cache)
+            a, b, c, d = cal["coef"]
+            t_s1 = max(0.0, a * cost["R"] * cost["C"] + b * cost["R"] + c * cost["C"] + d) / args.parallelism
+            meta["CoeusTimeSource"] = f"opt2 fit {cal['model']} coef={cal['coef']}"
         meta["TotalAnswerTime"] = f"{t_s1 * n_q:.6f}"
         meta["CoeusStep1SecondsPerQuery"] = f"{t_s1:.6f}"
-        meta["CoeusTimeSource"] = f"opt2 fit {cal['model']} coef={cal['coef']}"
         meta["CoeusStep2TimeIncluded"] = "false"
     else:
         print("no --opt2-bin: leaving TotalAnswerTime out (plots show NaN for Coeus time)")
 
-    out = os.path.join(args.results_root, f"coeus_{args.name}_k{args.k}_f{args.features}")
+    out = os.path.join(args.results_root, f"coeus_{args.name}_k{args.k}_f{args.features}_tf{args.tf}")
     common.write_run(out, meta, results, reranked)
     print(json.dumps(meta, indent=2))
     print(f"wrote {out}")

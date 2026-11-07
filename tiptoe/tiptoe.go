@@ -65,6 +65,8 @@ type preprocMeta struct {
 
 type TiptoeSearch struct {
 	maxQueries int
+	embHintMB  int
+	urlHintMB  int
 	meta       preprocMeta
 	dir        string
 	conf       *config.Config
@@ -140,6 +142,7 @@ func MakeTiptoe(cfg *globals.Args) *TiptoeSearch {
 	bins.Must(err)
 
 	t.conf = config.MakeConfig(dir, false /* text search */)
+	t.embHintMB, t.urlHintMB = cfg.BinsConf.TiptoeEmbHintMB, cfg.BinsConf.TiptoeURLHintMB
 	if uint64(t.meta.Dim) != t.conf.EMBEDDINGS_DIM() {
 		logrus.Fatalf("embedding dim %d != Tiptoe text dim %d", t.meta.Dim, t.conf.EMBEDDINGS_DIM())
 	}
@@ -419,5 +422,7 @@ func (t *TiptoeSearch) GetMetaData() map[string]string {
 	m["TiptoeURLM"] = strconv.FormatUint(t.hint.UrlsHint.Info.M, 10)
 	m["TiptoeURLL"] = strconv.FormatUint(t.hint.UrlsHint.Info.L, 10)
 	m["TiptoeDir"] = t.dir
+	m["TiptoeEmbHintMB"] = strconv.Itoa(t.embHintMB)
+	m["TiptoeURLHintMB"] = strconv.Itoa(t.urlHintMB)
 	return m
 }

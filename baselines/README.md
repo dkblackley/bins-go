@@ -7,15 +7,15 @@ methods `tiptoe` and `coeus` and every existing plot picks them up.
 
 | | Code | How it runs here | What's real, what's modelled |
 |---|---|---|---|
-| **Tiptoe** (SOSP'23) | [ahenzinger/tiptoe](https://github.com/ahenzinger/tiptoe) (Go + SEAL, MIT) | **Default, simulated:** `baselines/tiptoe/simulate_tiptoe.py` (no SEAL). **Optional, real:** `pir_app_tiptoe -t tiptoe` runs the upstream code in-process via `tiptoe/tiptoe.go`. | Simulated: **quality and returned docs are exact** (the crypto decrypts to the true values, so we replay the client's logic in plaintext). **DB shapes are exact** (Tiptoe's own packing code, ported). **Bytes and client storage are lower bounds** taken from the message formats in the code. **Online server time is measured** by running SimplePIR's real answer computation at the real dimensions (`cmd/simplepir_bench`). The token's server time is not counted. |
-| **Coeus** (SOSP'21) | [ishtiyaque/Coeus_artifact](https://github.com/ishtiyaque/Coeus_artifact) (C++ + SEAL 3.x) | `baselines/coeus/run_coeus.py` | **Quality is exact**: Coeus ranks by `q · tfidf(d)` under BFV, which has no approximation error, so its top-k equals plaintext TF-IDF top-k. **Communication** is a lower bound computed from the encryption parameters hard-coded in the artifact. **Server time** comes from running the artifact's own `opt2` benchmark on a few small matrices on your machine and extrapolating linearly. The artifact only benchmarks random matrices on a 96-machine AWS cluster, so it can't be run end to end on our data. |
+| **Tiptoe** (SOSP'23) | [ahenzinger/tiptoe](https://github.com/ahenzinger/tiptoe) (Go + SEAL, MIT) | **Default, real:** `pir_app_tiptoe -t tiptoe` runs the upstream code in-process via `tiptoe/tiptoe.go`, so every byte, round and time is measured. **Fallback / cross-check, simulated:** `baselines/tiptoe/simulate_tiptoe.py` (no SEAL). | Real: everything measured. Simulated: **quality and returned docs are exact** (the crypto decrypts to the true values, so we replay the client's logic in plaintext). **DB shapes are exact** (Tiptoe's own packing code, ported). **Bytes and client storage are lower bounds** taken from the message formats in the code. **Online server time is measured** by running SimplePIR's real answer computation at the real dimensions (`cmd/simplepir_bench`). The token's server time is not counted. |
+| **Coeus** (SOSP'21) | [ishtiyaque/Coeus_artifact](https://github.com/ishtiyaque/Coeus_artifact) (C++ + SEAL 3.x) | `baselines/coeus/run_coeus.py` | **Quality is exact**: Coeus ranks by `q · tfidf(d)` under BFV, which has no approximation error, so its top-k equals plaintext TF-IDF top-k. **Communication is exact**: the sizes of the ciphertexts the artifact's client and server actually serialise (seeded query ciphertexts, 2-prime response ciphertexts of 256 KiB each), from its hard-coded parameters. **Server time** comes from the artifact's own `opt2` kernel: run directly at the real matrix size when it fits in `--opt2-direct-max-gb` (e.g. scifact), otherwise fitted on small runs and extrapolated linearly (MS MARCO's encoded matrix is about 8.4 TiB). |
 
 Both use the same 192-dim embeddings as PILLAR and PACMANN. For Tiptoe they are the search embeddings; for Coeus
 they are only used in the shared cosine rerank that every method gets in `main.go`. Tiptoe's own text embeddings
 are also 192-dim, so no PCA step is needed.
 
 **Rule used everywhere: when a cost can't be known exactly, the simulation takes the number that is best for
-the baseline** (payload-only sizes without headers, server work left out rather than guessed, keys counted once).
+the baseline** (Tiptoe sim: payload-only sizes without headers; both: server work left out rather than guessed, keys counted once).
 So in any plot, Tiptoe's and Coeus' costs are at most what they really are, and their quality is exact. Every run
 writes a `TiptoeCostNote` / `CoeusCostNote` key that lists what was left out.
 
@@ -35,13 +35,14 @@ installed (it is much faster on MS MARCO), otherwise sklearn, otherwise plain nu
 ## 2. Run
 
 ```bash
-sbatch run_tiptoe.slurm                   # simulated; 2 datasets x 7 cluster sizes x k in {10,100}
-MODE=real sbatch run_tiptoe.slurm         # same sweep with the real protocol (needs pir_app_tiptoe)
+sbatch run_tiptoe.slurm                   # real protocol (needs pir_app_tiptoe), 448 configs, see section 3
+MODE=sim sbatch run_tiptoe.slurm          # same sweep, simulated (no SEAL); e.g. for MS MARCO if the queue is tight
 sbatch --array=0 run_coeus.slurm          # first task calibrates opt2 and caches the fit
-sbatch --array=1-7 run_coeus.slurm        # the other tasks reuse the cached fit
+sbatch --array=1-47 run_coeus.slurm       # the other tasks reuse the cached fit
 ```
 
-Result folders: `tiptoe_<dataset>_c<clusters>_k<K>` and `coeus_<dataset>_k<K>_f<features>`.
+Result folders: `tiptoe_<dataset>_c<clusters>_m<multi-assign>_b<bundle>_h<hint MB>_k<K>` and
+`coeus_<dataset>_k<K>_f<features>_tf<raw|log>`. The plot loader also still reads the older names without the extra parts.
 
 Both modes write the same folder and keys, and the simulated runs also have `TiptoeSimulated: "true"`. If you ever
 run both, `MRRPreReRank` should agree (apart from the order of exactly tied scores).
@@ -61,15 +62,27 @@ pay it.
 
 ## 3. The knobs we sweep, and why
 
-**Tiptoe: number of clusters.** This is the main trade-off in the Tiptoe paper. The client scores only the cluster
-whose centroid is nearest to the query, then fetches one URL bundle (up to 160 docs) holding its best doc. Bigger
-clusters give better recall and a bigger download; more clusters give a bigger upload (`clusters x 192`). The
-slurm sweeps 250 to 40,000 docs per cluster (Tiptoe itself used about 2,500). Everything else matches Tiptoe's
-code: 5-bit embeddings, boundary docs assigned to 2 clusters (the 20th-percentile rule), and bundles of 160.
+The paper argues with Pareto frontiers, so both baselines are swept over every knob that genuinely changes a cost
+or the quality, at values around their papers' defaults.
 
-**Coeus: dictionary size F.** Upload is `ceil(F/8192)` ciphertexts. Download is `ceil(N/8192)` ciphertexts of
-at least 360 KiB each, because Coeus returns an encrypted score for every document. That download term is what makes
-Coeus expensive on MS MARCO: 1,080 ciphertexts, at least 380 MiB per query. The paper used F = 65,536.
+**Tiptoe (448 slurm tasks, before duplicates on scifact):**
+
+| Knob | Values | Tiptoe default | Effect |
+|---|---|---|---|
+| Docs per cluster | 250 ... 40,000 (7 values) | ~2,500 | Bigger clusters: better recall, bigger round-1 download. More clusters: bigger upload (`clusters x 192`). The main trade-off in their paper. |
+| Multi-assign | 1, 2 | 2 | Boundary docs copied into 2 clusters: better recall, bigger DB. |
+| Bundle size | 40, 80, 160, 320 | 160 | Docs returned per query and the round-2 download. |
+| Embedding hint MB | 125, 500 | 500 | Reshapes the ranking DB: moves bytes between upload (width) and download (height) and changes token size. |
+| k | 10, 100 | | |
+
+Fixed on purpose: Tiptoe probes exactly 1 cluster (that's the protocol), and embeddings are 5-bit (6+ bits overflow
+SimplePIR's plaintext modulus at dim 192; fewer bits only hurt quality and don't change any cost). Several settings
+give the same cluster count on scifact; those tasks skip instead of writing duplicates.
+
+**Coeus (48 slurm tasks):** dictionary size F in {8192, ..., 262144} x tf weighting {raw, log} x k. Upload is
+`ceil(F/8192)` query ciphertexts. Download is `ceil(N/8192)` response ciphertexts of 256 KiB each, because Coeus
+returns an encrypted score for every document: 1,080 ciphertexts, about 270 MiB per query on MS MARCO, whatever F is.
+So Coeus has few real cost knobs. An F past the vocabulary only adds empty ciphertexts, so those configs are skipped.
 
 ## 4. What lands in metadata.json
 
@@ -98,3 +111,9 @@ The same keys as the Go methods are used (`MRR`, `Recall`, `MRRPreReRank`, `Clie
   up to roughly 60M docs. For a 100M corpus, use `--docs-per-cluster 4000` or more.
 * The real-mode Tiptoe wrapper has been compile-checked against the upstream packages but not run, because SEAL
   couldn't be built in the development sandbox. The simulator and `simplepir_bench` were run there on synthetic data.
+  Run one small real config first (e.g. scifact, task 0) and compare its `MRRPreReRank` with the simulated run.
+* Real mode on MS MARCO is slow: SimplePIR hint generation over 8.8M docs per config, plus a 32 MiB token per query.
+  That's why it runs 1,000 queries there.
+* Why Coeus isn't run end to end: it would only change the server time, which already comes from their own kernel
+  (at full size where it fits). Bytes and client storage are fixed by the parameters and quality is exact. MS MARCO's
+  encoded matrix (about 8.4 TiB) doesn't fit on one machine anyway; their paper used 96 machines.
