@@ -24,15 +24,15 @@ case "$name" in
   nq|hotpotqa|fever|trec-covid|dbpedia-entity|climate-fever|fiqa|nfcorpus|scifact)
     # BEIR zip -> <name>/corpus.jsonl, queries.jsonl, qrels/{train,dev,test}.tsv
     # If the TU Darmstadt mirror is down, the same files are on HF: huggingface-cli download BeIR/<name> (and BeIR/<name>-qrels)
-    wget -c -O "${name}.zip" "${BEIR_URL}/${name}.zip"
+    wget -c --progress=dot:giga -O "${name}.zip" "${BEIR_URL}/${name}.zip"
     unzip -n -q "${name}.zip"
     ;;
   msmarco-v2)
     mkdir -p msmarco-v2 && cd msmarco-v2
-    wget -c -O msmarco_v2_passage.tar "${MARCO_URL}/msmarco_v2_passage.tar"
+    wget -c --progress=dot:giga -O msmarco_v2_passage.tar "${MARCO_URL}/msmarco_v2_passage.tar"
     tar -xf msmarco_v2_passage.tar          # -> msmarco_v2_passage/msmarco_passage_{00..69}.gz (keep them gzipped)
     for f in passv2_dev_queries.tsv passv2_dev_qrels.tsv passv2_dev2_queries.tsv passv2_dev2_qrels.tsv; do
-      wget -c -O "$f" "${MARCO_URL}/$f"
+      wget -c --progress=dot:giga -O "$f" "${MARCO_URL}/$f"
     done
     ;;
   miracl-en)
