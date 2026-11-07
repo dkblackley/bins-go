@@ -1,6 +1,7 @@
 #!/bin/bash
 # One-off setup for the Tiptoe and Coeus baselines. Run on a login node (needs internet + a C++ compiler).
 #
+#   ./baselines/setup_baselines.sh sim      # only ./simplepir_bench, for the simulated Tiptoe runs (no SEAL)
 #   ./baselines/setup_baselines.sh tiptoe   # SEAL 4.1.1 + pir_app_tiptoe (pir_app with -tags tiptoe)
 #   ./baselines/setup_baselines.sh coeus    # SEAL 3.5.6 + Coeus' matmult/bin/opt2 benchmark
 #   ./baselines/setup_baselines.sh all
@@ -36,6 +37,11 @@ seal41_env() {
     export CGO_CXXFLAGS="-I$p/include/SEAL-4.1 ${CGO_CXXFLAGS:-}"
     export CGO_LDFLAGS="-L$lib -Wl,-rpath,$lib ${CGO_LDFLAGS:-}"
 }
+
+if [[ "$WHAT" == "sim" || "$WHAT" == "all" ]]; then
+    go build -o simplepir_bench ./cmd/simplepir_bench
+    echo "simplepir_bench built"
+fi
 
 if [[ "$WHAT" == "tiptoe" || "$WHAT" == "all" ]]; then
     gcc_major=$(g++ -dumpversion | cut -d. -f1)

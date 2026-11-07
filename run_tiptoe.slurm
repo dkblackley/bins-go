@@ -14,8 +14,10 @@
 #SBATCH --signal=B:TERM@120
 #SBATCH --constraint=amd
 
-# Tiptoe baseline (real upstream protocol, see baselines/README.md).
-# Needs ./pir_app_tiptoe from `baselines/setup_baselines.sh tiptoe`.
+# Tiptoe baseline (see baselines/README.md).
+#   MODE=sim  (default) baselines/tiptoe/simulate_tiptoe.py: exact quality + exact DB shapes + lower-bound bytes,
+#             server time from ./simplepir_bench (go build -o simplepir_bench ./cmd/simplepir_bench). No SEAL needed.
+#   MODE=real ./pir_app_tiptoe -t tiptoe, the real upstream protocol (needs `baselines/setup_baselines.sh tiptoe`).
 #
 # The sweep is over the number of k-means clusters, which is Tiptoe's one real knob: fewer, bigger clusters
 # = better recall but a bigger ranking answer (download grows with cluster size, upload with #clusters x 192).
@@ -27,7 +29,12 @@ cd "$SLURM_SUBMIT_DIR"
 
 module --quiet purge
 module load hosts/hopper
-module load gnu12 2>/dev/null || module load gnu9/9.3.0   # pir_app_tiptoe was built with a C++20 compiler
+MODE="${MODE:-sim}"
+if [[ "$MODE" == "real" ]]; then
+    module load gnu12 2>/dev/null || module load gnu9/9.3.0   # pir_app_tiptoe was built with a C++20 compiler
+else
+    module load gnu9/9.3.0
+fi
 
 export NGT_PREFIX="$HOME/opt/ngt-amd"
 export HNSW_PREFIX="$HOME/opt/hnsw"
@@ -95,6 +102,20 @@ Output Dir:        $OUT_DIR
 EOF
 
 # 2) Run
+if [[ "$MODE" == "sim" ]]; then
+    srun python baselines/tiptoe/simulate_tiptoe.py \
+        --dataset "$DATASET_DIR" --name "$dataset" --tiptoe-dir "$TT_DIR" --k "$k_val" \
+        --results-root "$RESULTS_ROOT" --bench-bin ./simplepir_bench --bench-max-gb 32 \
+        --parallelism "${SLURM_CPUS_PER_TASK:-1}" &
+    srun_pid=$!
+    wait "$srun_pid"
+    mv "logs/Tiptoe_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
+    mv "logs/Tiptoe_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err" "${OUT_DIR}/error.log" || true
+    finished=1
+    echo "All done for this node."
+    exit 0
+fi
+
 srun ./pir_app_tiptoe \
     -n "$DB_SIZE" \
     -t "$method" \

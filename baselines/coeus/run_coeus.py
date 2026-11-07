@@ -60,11 +60,16 @@ import common  # noqa: E402
 # step 1 (matmult/opt2.cpp): BFV, N=8192, coeff modulus {60,60,60}, batching
 S1_N = 8192
 S1_PRIMES = 3
-S1_CT_BYTES = 2 * S1_N * S1_PRIMES * 8          # 2 polys, 64-bit words: 393,216 B
-S1_PT_NTT_BYTES = S1_N * S1_PRIMES * 8          # one NTT plaintext (server memory)
+# All sizes below are LOWER bounds (payload only, 60-bit coefficients bit-packed, no headers), so the
+# model can only flatter Coeus, never overstate its cost.
+S1_POLY_BYTES = S1_N * S1_PRIMES * 60 // 8      # one polynomial: 184,320 B
+S1_CT_BYTES = 2 * S1_POLY_BYTES                 # response ciphertext: 368,640 B
+S1_QUERY_CT_BYTES = S1_POLY_BYTES + 64          # query ciphertext if sent seeded (symmetric): half
+S1_PT_NTT_BYTES = S1_N * S1_PRIMES * 8          # one NTT plaintext (server memory, 64-bit words)
 S1_GALOIS_STEPS = 1 + int(math.log2(S1_N // 2))  # steps 0,1,2,...,2048 -> 13 keys
-S1_GALOIS_BYTES = S1_GALOIS_STEPS * (S1_PRIMES - 1) * S1_CT_BYTES  # one key-switch ct per decomposed prime
-S1_SK_BYTES = S1_N * S1_PRIMES * 8
+# one key-switching ciphertext per decomposed prime, sent seeded (step1/client uses Serializable<GaloisKeys>)
+S1_GALOIS_BYTES = S1_GALOIS_STEPS * (S1_PRIMES - 1) * S1_QUERY_CT_BYTES
+S1_SK_BYTES = S1_POLY_BYTES
 # step 2 (step2/common/globals.h + pir.cpp): SealPIR, N=2048, logt=15, d=2, one 60-bit prime
 S2_CT_BYTES = 32841                              # CIPHER_SIZE
 S2_D = 2
@@ -175,15 +180,18 @@ def coeus_cost(n_docs, features, k):
     R = math.ceil(n_docs / S1_N)        # response ciphertexts (8192 scores each)
     C = math.ceil(features / S1_N)      # query ciphertexts (8192 keywords each)
     buckets = math.ceil(S2_BUCKET_FACTOR * k)
-    s1_up, s1_down = C * S1_CT_BYTES, R * S1_CT_BYTES
+    s1_up, s1_down = C * S1_QUERY_CT_BYTES, R * S1_CT_BYTES
     s2_up = buckets * S2_D * S2_CT_BYTES
     s2_down = buckets * (S2_EXPANSION ** (S2_D - 1)) * S2_CT_BYTES
     return {
         "R": R, "C": C, "buckets": buckets,
         "s1_up": s1_up, "s1_down": s1_down, "s2_up": s2_up, "s2_down": s2_down,
         "per_query": s1_up + s1_down + s2_up + s2_down,
+        # The artifact actually re-sends the Galois keys with EVERY query (step1/server/master: sendQuery(gal_key, query));
+        # we count them once, as a setup cost, in Coeus' favour.
         "setup_upload": S1_GALOIS_BYTES + S2_GALOIS_BYTES,
-        "client_state": S1_SK_BYTES + S1_GALOIS_BYTES + S2_GALOIS_BYTES,
+        # Keys can be regenerated from the secret key, so the minimum the client must keep is the secret key.
+        "client_state": S1_SK_BYTES,
         "server_db": R * C * S1_N * S1_PT_NTT_BYTES,
     }
 
@@ -253,6 +261,8 @@ def main():
         "CoeusStep1UpBytes": cost["s1_up"], "CoeusStep1DownBytes": cost["s1_down"],
         "CoeusStep2UpBytes": cost["s2_up"], "CoeusStep2DownBytes": cost["s2_down"],
         "CoeusSetupUploadMB": cost["setup_upload"] / 2**20,
+        "CoeusGaloisKeysResentPerQueryInArtifactMB": cost["setup_upload"] / 2**20,
+        "CoeusCostNote": "lower bounds: payload only; Galois keys counted once not per query; step-2 server time not included",
         "CoeusTokenizer": tok_name, "CoeusTF": args.tf,
         "CoeusTfidfBuildTime": f"{pre_time:.3f}",
         "CoeusParallelism": args.parallelism,
