@@ -165,6 +165,12 @@ func main() {
 	datasetsDirectory := flag.String("dataset", "../datasets", "Where to look for the dataset/data")
 	topK := flag.Uint("k", 5, "K many items to return in search")
 	vectors := flag.Bool("vectors", true, "Use npy vectors for retrieval or raw text")
+	// Text retrieval mode for the bins: bins hold compressed doc text, the client re-ranks with BM25 (no embeddings)
+	text := flag.Bool("text", false, "bins: store compressed document text in the bins instead of embeddings and re-rank with BM25 on the client")
+	textFormat := flag.String("text-format", "bow", "bins -text: 'bow' = sorted stems + tf (smallest, all BM25 needs) or 'seq' = stems in document order")
+	textOrder := flag.Int("text-order", 3, "bins -text: characters of context in the arithmetic coder's model (0-3); 3 is smallest, model ~1.3 MB")
+	textIDFBits := flag.Uint("text-idf-bits", 20, "bins -text: client IDF sketch has 2 x 2^bits one-byte cells (0 = no idf)")
+	textTrainDocs := flag.Int("text-train-docs", 200000, "bins -text: docs used to train the coder's model")
 	dimensions := flag.Uint("dim", 4, "Dimension of vectors (if being used)")
 	thresh := flag.Uint("thresh", 0, "Threshold to start dropping items from bins")
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
@@ -276,6 +282,15 @@ func main() {
 		StepN:         *stepN,
 		NeighbhourNum: *neighbhourNum,
 		Metadata:      make(map[string]string),
+		Text: globals.TextConf{
+			Enabled:   *text,
+			Format:    *textFormat,
+			Order:     *textOrder,
+			IDFBits:   *textIDFBits,
+			TrainDocs: *textTrainDocs,
+			K1:        *k1,
+			B:         *bParam,
+		},
 
 		BinsConf: globals.BinsConf{
 			Index:   *index,
@@ -362,7 +377,9 @@ func main() {
 	// TODO: is it sensible to start the 'pre-processing' timer here? If so replace if with switch case!
 
 	if *searchType == "bins" {
-		if config.Vectors {
+		if config.Text.Enabled {
+			PIRImplemented = bins.MakeTextDb(&config)
+		} else if config.Vectors {
 			// Directly store the embeddings
 			PIRImplemented = bins.MakeVecDbOld(&config)
 		} else {
@@ -421,8 +438,10 @@ func main() {
 	//answers := make(map[string][][]uint64, config.QueryNum)
 	answers := make(map[string][]string, config.QueryNum)
 
-	IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
-	config.IDLookup = IDLookup
+	if !config.Text.Enabled { // text mode decodes doc indices directly, no embedding hash lookup needed
+		IDLookup = bins.MakeLookup(meta, int(*DBSize), int(*dimensions))
+		config.IDLookup = IDLookup
+	}
 
 	bar := progressbar.NewOptions64(
 		int64(len(encodedAnswers)),
@@ -437,7 +456,12 @@ func main() {
 	bar.Finish()
 
 	start = time.Now()
-	reRanked := CosineReRank(answers, &config)
+	var reRanked map[string][]string
+	if config.Text.Enabled {
+		reRanked = TextBM25ReRank(encodedAnswers, answers, &config)
+	} else {
+		reRanked = CosineReRank(answers, &config)
+	}
 	end = time.Now()
 
 	config.Metadata["ReRankTime"] = end.Sub(start).String()
@@ -705,6 +729,32 @@ func CosineReRank(results map[string][]string, config *globals.Args) map[string]
 
 	return new_results
 
+}
+
+// TextBM25ReRank is the client-side re-rank of the bins text mode: BM25 over the decoded text of every retrieved doc.
+func TextBM25ReRank(encoded map[string]globals.Decodable, results map[string][]string, config *globals.Args) map[string][]string {
+	qrels, err := bins.LoadQrels(config.DatasetMeta.Qrels)
+	if err != nil {
+		logrus.Errorf("Error loading qrels from %s: %v", config.DatasetMeta.Qrels, err)
+	}
+	config.Metadata["MRRPreReRank"] = fmt.Sprintf("%.4f", calcMRR(results, qrels))
+	config.Metadata["RecallPreReRank"] = fmt.Sprintf("%.4f", calcRecall(results, qrels))
+
+	reRanked := make(map[string][]string, len(encoded))
+	for qid, e := range encoded {
+		te, ok := e.(*bins.TextEntry)
+		if !ok {
+			logrus.Errorf("TextBM25ReRank: answer for %s is %T, not a text entry", qid, e)
+			continue
+		}
+		reRanked[qid] = te.Rank(config, int(config.K))
+	}
+
+	config.Metadata["MRR"] = fmt.Sprintf("%.4f", calcMRR(reRanked, qrels))
+	config.Metadata["Recall"] = fmt.Sprintf("%.4f", calcRecall(reRanked, qrels))
+	logrus.Infof("MRR Pre re-rank: %s, Post BM25 re-rank: %s", config.Metadata["MRRPreReRank"], config.Metadata["MRR"])
+	logrus.Infof("Recall Pre re-rank: %s, Post BM25 re-rank: %s", config.Metadata["RecallPreReRank"], config.Metadata["Recall"])
+	return reRanked
 }
 
 func CosineSimilarity(a, b []float32) float32 {
