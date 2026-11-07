@@ -27,6 +27,7 @@ relevant to some query and fill the rest at random (seed 42), so the scores stay
 bash build.sh                                   # pir_app
 bash datasets/run_all.sh nq hotpotqa fever      # prep -> embed -> tree artifacts -> bins/pacmann/tree grids
 bash datasets/run_all.sh msmarco-v2-all         # 138M, then the 25m/50m/100m subsamples after it's embedded
+bash datasets/build_all.sh nq fever             # only prep -> embed -> tree artifacts, no grids (no pir_app needed)
 DRY_RUN=1 bash datasets/run_all.sh nq           # show the sbatch commands without submitting
 STAGES="bins pacmann" bash datasets/run_all.sh nq   # only some stages
 ```

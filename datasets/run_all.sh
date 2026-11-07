@@ -114,7 +114,8 @@ submit_dataset() {
 }
 
 [[ $# -gt 0 ]] || { sed -n 2,22p "$0"; exit 1; }
-[[ -x ./pir_app || -n "${DRY_RUN:-}" ]] || echo "WARNING: ./pir_app not found, run build.sh before the run jobs start" >&2
+needs_app() { has bins || has pacmann || has tree; }
+[[ -x ./pir_app || -n "${DRY_RUN:-}" ]] || ! needs_app || echo "WARNING: ./pir_app not found, run build.sh before the run jobs start" >&2
 
 for d in "$@"; do
     if [[ "$d" == "msmarco-v2-all" ]]; then
