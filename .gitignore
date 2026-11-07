@@ -54,3 +54,4 @@ data/
 figures/
 *.pdfsimplepir_bench
 pir_app_tiptoe
+__pycache__/
