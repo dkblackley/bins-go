@@ -151,6 +151,8 @@ var datasetDisplayNames = map[string]string{
 	"nq":              "NQ",
 	"hotpotqa":        "HotpotQA",
 	"fever":           "FEVER",
+	"dbpedia-entity":  "DBPedia",
+	"miracl-en":       "MIRACL-en",
 	"msmarco-v2":      "MSMARCO-v2",
 	"msmarco-v2-25m":  "MSMARCO-v2-25M",
 	"msmarco-v2-50m":  "MSMARCO-v2-50M",

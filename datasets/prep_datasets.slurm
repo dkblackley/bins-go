@@ -14,6 +14,8 @@
 #   DATASET=nq          sbatch datasets/prep_datasets.slurm
 #   DATASET=hotpotqa    sbatch datasets/prep_datasets.slurm
 #   DATASET=fever       sbatch datasets/prep_datasets.slurm
+#   DATASET=dbpedia-entity sbatch datasets/prep_datasets.slurm
+#   DATASET=miracl-en   sbatch datasets/prep_datasets.slurm          # 32.9M Wikipedia passages
 #   DATASET=msmarco-v2  sbatch datasets/prep_datasets.slurm          # ~2-4h, two passes over 138M passages
 # Subsamples of MS MARCO v2 (run AFTER msmarco-v2 is prepared AND embedded, they copy its embedding rows):
 #   DATASET=msmarco-v2-100m sbatch datasets/prep_datasets.slurm   (also -25m, -50m)
@@ -28,11 +30,10 @@ ROOT="${DATASETS_ROOT:-../datasets}"   # same folder you pass to pir_app -datase
 RAW="${RAW_ROOT:-$ROOT/raw}"
 MAX_QUERIES="${MAX_QUERIES:-0}"        # 0 = keep every query that has qrels
 
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-conda activate main
+source datasets/env.sh   # conda env + HF cache (override CONDA_BASE / CONDA_ENV / HF_HOME)
 
 case "$DATASET" in
-  nq|hotpotqa|fever|trec-covid)
+  nq|hotpotqa|fever|trec-covid|dbpedia-entity)
     [[ -d "$RAW/$DATASET" ]] || bash datasets/download.sh "$DATASET" "$RAW"
     python3 datasets/prepare_dataset.py --format beir --src "$RAW/$DATASET" --out "$ROOT/$DATASET" \
         --split test --max-queries "$MAX_QUERIES"
@@ -41,6 +42,11 @@ case "$DATASET" in
     [[ -d "$RAW/msmarco-v2/msmarco_v2_passage" ]] || bash datasets/download.sh msmarco-v2 "$RAW"
     # dev = passv2 dev1 (3,903 queries). Use SPLIT=dev2 for the other dev set.
     python3 datasets/prepare_dataset.py --format msmarco-v2 --src "$RAW/msmarco-v2" --out "$ROOT/msmarco-v2" \
+        --split "${SPLIT:-dev}" --max-queries "$MAX_QUERIES"
+    ;;
+  miracl-en)
+    [[ -d "$RAW/miracl-en" ]] || bash datasets/download.sh miracl-en "$RAW"
+    python3 datasets/prepare_dataset.py --format miracl --src "$RAW/miracl-en" --out "$ROOT/miracl-en" \
         --split "${SPLIT:-dev}" --max-queries "$MAX_QUERIES"
     ;;
   msmarco-v2-25m|msmarco-v2-50m|msmarco-v2-100m)

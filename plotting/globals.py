@@ -22,7 +22,7 @@ from matplotlib.patches import Circle, Polygon
 # PATHS
 # ==========================================
 
-RESULTS_DIR = os.environ.get('RESULTS_DIR', '/scratch/dblackle/results')
+RESULTS_DIR = os.environ.get('RESULTS_DIR', os.path.expandvars('/scratch/$USER/results'))
 FIGURE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 LOG_LEVEL = logging.INFO   # logging.DEBUG also prints every folder as it is parsed

@@ -57,9 +57,9 @@ TIER="${TIER:?set TIER to low or high}"
 
 tier_of() {
         local d=$1 k=$2 bs=$3 dpb=$4 vec=$5
-    if [[ "$d" == msmarco-v2* ]]; then
+    if [[ "$d" == msmarco-v2* || "$d" == miracl-en ]]; then
         echo "high"   # 25M-138M docs: everything needs bigmem
-    elif [[ "$d" =~ ^(msmarco|nq|hotpotqa|fever)$ && "$dpb" -ge 1000 ]]; then
+    elif [[ "$d" =~ ^(msmarco|nq|hotpotqa|fever|dbpedia-entity)$ && "$dpb" -ge 1000 ]]; then
         echo "high"
     elif [[ "$vec" == "true" && "$dpb" -ge 250 ]]; then
         echo "high"
@@ -78,7 +78,7 @@ add_bins_ablations() {
                 for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
                     [[ "$(tier_of "$d" "$k" "$bs" "$dpb" "$vec")" == "$TIER" ]] || continue
                     # 25M-138M docs: fewer than 100k bins can only hold a tiny fraction of the corpus, skip them
-                    [[ "$d" == msmarco-v2* && "$bs" -lt 100000 ]] && continue
+                    [[ ( "$d" == msmarco-v2* || "$d" == miracl-en ) && "$bs" -lt 100000 ]] && continue
                     DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$dpb"); VEC_ARR+=("$vec")
                 done
             done
@@ -129,7 +129,7 @@ if [[ "$vec_val" == "true" ]]; then
 else
     VEC_TAG="_vec0"
 fi
-OUT_DIR="/scratch/dblackle/results/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
+OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
 # OUT_DIR="../results/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
 mkdir -p "$OUT_DIR"
 

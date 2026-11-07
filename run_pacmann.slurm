@@ -97,7 +97,7 @@ on_exit() {
 trap on_exit EXIT
 trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT
 
-OUT_DIR="/scratch/dblackle/results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
+OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 # OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 mkdir -p "$OUT_DIR"
 
