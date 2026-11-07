@@ -30,8 +30,7 @@ ROOT="${DATASETS_ROOT:-../datasets}"   # same folder you pass to pir_app -datase
 RAW="${RAW_ROOT:-$ROOT/raw}"
 MAX_QUERIES="${MAX_QUERIES:-0}"        # 0 = keep every query that has qrels
 
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-conda activate main
+source datasets/env.sh   # conda env + HF cache (override CONDA_BASE / CONDA_ENV / HF_HOME)
 
 case "$DATASET" in
   nq|hotpotqa|fever|trec-covid|dbpedia-entity)

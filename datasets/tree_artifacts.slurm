@@ -18,7 +18,6 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 mkdir -p logs
 
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-conda activate main
+source datasets/env.sh   # conda env + HF cache (override CONDA_BASE / CONDA_ENV / HF_HOME)
 
 bash datasets/prep_tree.sh "${DATASET:?set DATASET}"
