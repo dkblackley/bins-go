@@ -27,6 +27,21 @@ export HNSW_PREFIX="$HOME/opt/hnsw"
 export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
+DATASET_DIR="${DATASET_DIR:-../../datasets}"
+# -n for each dataset: hardcoded for the originals, read from num_docs.txt (written by datasets/prepare_dataset.py)
+# for everything else (nq, hotpotqa, fever, msmarco-v2, msmarco-v2-100m, ...)
+db_size_of() {
+    case "$1" in
+        msmarco)    echo 8841823 ;;
+        scifact)    echo 5183 ;;
+        trec-covid) echo 171332 ;;
+        *)
+            local f="${DATASET_DIR}/$1/num_docs.txt"
+            [[ -f "$f" ]] || { echo "No $f, run datasets/prep_datasets.slurm for $1 first" >&2; exit 1; }
+            cat "$f" ;;
+    esac
+}
+
 BS_LIST=(100 500 1000 5000 10000 50000 100000 500000 1000000 5000000 10000000)
 # BS_LIST=(100 500 1000 5000 10000 50000 100000 500000 1000000)
 
@@ -34,6 +49,7 @@ DATA_ARR=()
 K_ARR=()
 BS_ARR=()
 DPB_ARR=()
+VEC_ARR=()
 
 TIER="low"
 
@@ -41,7 +57,9 @@ TIER="${TIER:?set TIER to low or high}"
 
 tier_of() {
         local d=$1 k=$2 bs=$3 dpb=$4 vec=$5
-    if [[ "$d" == "msmarco" && "$dpb" -ge 1000 ]]; then
+    if [[ "$d" == msmarco-v2* ]]; then
+        echo "high"   # 25M-138M docs: everything needs bigmem
+    elif [[ "$d" =~ ^(msmarco|nq|hotpotqa|fever)$ && "$dpb" -ge 1000 ]]; then
         echo "high"
     elif [[ "$vec" == "true" && "$dpb" -ge 250 ]]; then
         echo "high"
@@ -59,6 +77,8 @@ add_bins_ablations() {
             for bs in "${BS_LIST[@]}"; do
                 for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
                     [[ "$(tier_of "$d" "$k" "$bs" "$dpb" "$vec")" == "$TIER" ]] || continue
+                    # 25M-138M docs: fewer than 100k bins can only hold a tiny fraction of the corpus, skip them
+                    [[ "$d" == msmarco-v2* && "$bs" -lt 100000 ]] && continue
                     DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$dpb"); VEC_ARR+=("$vec")
                 done
             done
@@ -67,10 +87,14 @@ add_bins_ablations() {
 
 }
 
-# Build the setups for all datasets
-add_bins_ablations "msmarco"
-add_bins_ablations "scifact"
-# add_bins_ablations "trec-covid"
+# Build the setups for all datasets. Override to add the new ones, e.g.
+#   BINS_DATASETS="nq hotpotqa fever" bash run_bins_high.slurm --count     # prints the --array range to use
+#   BINS_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_bins_high.slurm
+# Big corpora: BINS_DATASETS="msmarco-v2-25m msmarco-v2-50m msmarco-v2-100m msmarco-v2"
+BINS_DATASETS="${BINS_DATASETS:-msmarco scifact}"
+for d in $BINS_DATASETS; do
+    add_bins_ablations "$d"
+done
 
 if [[ "${1:-}" == "--count" ]]; then
     echo "${#DATA_ARR[@]} configs in tier ${TIER} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
@@ -98,16 +122,7 @@ docs_val=${DPB_ARR[$task_id]}
 vec_val=${VEC_ARR[$task_id]}
 method="bins"
 
-if [ "$dataset" == "msmarco" ]; then
-    DB_SIZE=8841823
-elif [ "$dataset" == "scifact" ]; then
-    DB_SIZE=5183
-elif [ "$dataset" == "trec-covid" ]; then
-    DB_SIZE=171332
-else
-    echo "Unknown dataset: $dataset"
-    exit 1
-fi
+DB_SIZE=$(db_size_of "$dataset")
 
 if [[ "$vec_val" == "true" ]]; then
     VEC_TAG="_vec1"
@@ -149,7 +164,7 @@ srun ./pir_app \
     -docsPerBin "$docs_val" \
     -outDir "$OUT_DIR" \
     -outFile "results" \
-    -dataset "../../datasets" \
+    -dataset "$DATASET_DIR" \
     -debug 1 \
     -vectors="$vec_val" \
     -dim 192 &

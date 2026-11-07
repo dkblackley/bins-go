@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-# Usage: python build_small_test_artifacts.py <dataset dir with corpus.jsonl/queries.jsonl/qrels/test.tsv/*_corpus_embed_f32.npy(.ids)> <out dir> [B r s]
-# Needs a single-threaded pyserini index at <out dir>/index_scifact (so internal docids follow corpus order):
+# Usage: python build_small_test_artifacts.py <dataset dir with corpus.jsonl/queries.jsonl/qrels/test.tsv/*_corpus_embed_f32.npy(.ids)> <out dir> [B r s [name]]
+# name defaults to scifact; doc IDs must be integers (datasets/prepare_dataset.py renumbers them 0..N-1).
+# For a whole new dataset use datasets/prep_tree.sh, which builds the index and calls this.
+# Needs a single-threaded pyserini index at <out dir>/index_<name> (so internal docids follow corpus order):
 #   python -m pyserini.index.lucene --collection JsonCollection --input <coll dir> --index <out dir>/index_scifact --generator DefaultLuceneDocumentGenerator --threads 1 --storeDocvectors
 # Small-scale port of the collaborator's prep scripts (prepare_data.py, prepare_data_stage2.py,
 # gen_layout.py, tools/create_docmap.py and opt3.py's query analysis) for a scifact smoke test.
@@ -9,7 +11,8 @@ from pyserini.index.lucene import LuceneIndexReader
 from pyserini.analysis import Analyzer, get_lucene_analyzer
 D, T, B, r, s, scale, k1, b = sys.argv[1], sys.argv[2], 8, 4, 4, 10.0, 0.9, 0.4
 if len(sys.argv) > 3: B, r, s = map(int, sys.argv[3:6])
-idx = f"{T}/index_scifact"
+name = sys.argv[6] if len(sys.argv) > 6 else "scifact"
+idx = f"{T}/index_{name}"
 rd = LuceneIndexReader(idx)
 st = rd.stats(); N = int(st["documents"]); avgdl = st["total_terms"] / N
 num_leaves = math.ceil(N / B); height = math.ceil(math.log(num_leaves, r)) if num_leaves > 1 else 0
@@ -53,11 +56,12 @@ print(f"N={N} height={height} vocab={len(terms)} stage1 rows={row1} stage2 rows=
 ext = [rd.convert_internal_docid_to_collection_docid(i) for i in range(N)]
 with open(f"{idx}/docmap.bin", "wb") as f:
     for e in ext: f.write(struct.pack("<Q", int(e)))
-# ---- stage3 doc embeddings in index order + ids ----
-ids = [l.strip() for l in open(f"{D}/scifact_corpus_embed_f32.npy.ids")]; pos = {x: i for i, x in enumerate(ids)}
-Y = np.load(f"{D}/scifact_corpus_embed_f32.npy")
-np.save(f"{T}/stage3_doc.npy", Y[[pos[e] for e in ext]].astype(np.float32))
-open(f"{T}/stage3_doc.npy.ids", "w").write("\n".join(ext) + "\n")
+# ---- stage3 doc embeddings in index order + ids (only written once per dataset, shared by every B/r/s) ----
+if not os.path.exists(f"{T}/stage3_doc.npy.ids"):
+    ids = [l.strip() for l in open(f"{D}/{name}_corpus_embed_f32.npy.ids")]; pos = {x: i for i, x in enumerate(ids)}
+    Y = np.load(f"{D}/{name}_corpus_embed_f32.npy", mmap_mode="r")
+    np.save(f"{T}/stage3_doc.npy", Y[[pos[e] for e in ext]].astype(np.float32))
+    open(f"{T}/stage3_doc.npy.ids", "w").write("\n".join(ext) + "\n")
 # ---- queries.tsv + analyzed json (opt3.py), only queries that have test qrels ----
 qrels = [l.split("\t") for l in open(f"{D}/qrels/test.tsv").read().splitlines()[1:]]
 want = {q[0] for q in qrels}
