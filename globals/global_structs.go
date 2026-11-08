@@ -94,6 +94,12 @@ type BinsConf struct {
 	CuckooMaxKicks      int
 	CuckooBuildAttempts int
 	CuckooCacheDir      string
+
+	// Tiptoe baseline (-t tiptoe, build with -tags tiptoe)
+	TiptoeDir        string // output of baselines/tiptoe/preprocess_tiptoe.py
+	TiptoeEmbHintMB  int    // SimplePIR hint size target for the ranking service (Tiptoe default: 500)
+	TiptoeURLHintMB  int    // same for the URL service (Tiptoe default: 100)
+	TiptoeMaxQueries int    // answer only the first N queries (0 = all)
 }
 
 // strconv.Itoa(docID)

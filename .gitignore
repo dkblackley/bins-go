@@ -52,4 +52,6 @@ go.work.sum
 app
 data/
 figures/
-*.pdf
+*.pdfsimplepir_bench
+pir_app_tiptoe
+__pycache__/
