@@ -16,6 +16,7 @@ import plot_bins_ablation_stacked
 import plot_bins_comm_vs_bs
 import plot_bins_stages
 import plot_bins_vec_db
+import fixed_recall
 import plot_db_size
 import plot_metric_vs_latency
 import plot_bins_client_storage
@@ -53,5 +54,7 @@ if __name__ == '__main__':
     # plot_bins_client_storage_split.make_plots(nested_data)  # bins: client storage, vec1 vs vec0 and vec0's ID / embedding DB hints
     # plot_tree_stages.make_plots(nested_data)          # tree: latency split by PIR stage
     # plot_quality_vs_cost.make_plots(nested_data)      # all: quality vs preproc/storage cost
+
+    fixed_recall.fixed_recall(nested_data)              # tables: each method's cost at one shared recall
 
     print(f"Done, figures in {g.FIGURE_DIR}")
