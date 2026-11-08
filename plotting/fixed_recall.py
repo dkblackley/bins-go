@@ -5,6 +5,7 @@ compare what each method pays to get there.
     python fixed_recall.py                  # k = g.K_MAIN, cost = wan_time
     python fixed_recall.py --k 100 --cost comm_kb
     python fixed_recall.py --dp 2           # only try 2 decimal places
+    python fixed_recall.py --methods bins tree pacmann coeus --datasets msmarco nq
 
 Writes figures/fixed_recall_k<K>.json and prints a table per dataset.
 
@@ -42,6 +43,7 @@ log = logging.getLogger('fixed_recall')
 RECALL_KEY = 'recall'
 COST_KEY = 'wan_time'
 DECIMALS = [3, 2]   # tried in order, the first with a common level wins
+METHODS = ['bins', 'tree', 'pacmann']   # only these are compared, other methods would lower the shared level
 REPORT_KEYS = ['recall', 'mrr', 'wan_time', 'lan_time', 'total_time', 'comm_kb',
                'client_storage_mb', 'db_size_mb', 'pir_rounds', 'maintenance_time']
 
@@ -79,7 +81,7 @@ def _pick_at_least(runs_by_method, target, cost_key):
 
 def fixed_recall_dataset(nested_data, dataset, k, cost_key=COST_KEY, decimals=DECIMALS, methods=None):
     runs_by_method = {}
-    for method in methods or g.METHOD_ORDER:
+    for method in methods or METHODS:
         runs = _usable(pu.get_runs(nested_data, method, dataset, k=k), cost_key)
         if runs:
             runs_by_method[method] = runs
@@ -114,10 +116,11 @@ def fixed_recall_dataset(nested_data, dataset, k, cost_key=COST_KEY, decimals=DE
     return out
 
 
-def fixed_recall(nested_data, k=g.K_MAIN, cost_key=COST_KEY, decimals=DECIMALS, write=True):
+def fixed_recall(nested_data, k=g.K_MAIN, cost_key=COST_KEY, decimals=DECIMALS, write=True,
+                 methods=None, datasets=None):
     results = {}
-    for dataset in g.DATASETS:
-        res = fixed_recall_dataset(nested_data, dataset, k, cost_key, decimals)
+    for dataset in datasets or g.DATASETS:
+        res = fixed_recall_dataset(nested_data, dataset, k, cost_key, decimals, methods)
         if res:
             results[dataset] = res
             print_table(res)
@@ -162,8 +165,11 @@ if __name__ == '__main__':
     ap.add_argument('--k', type=int, default=g.K_MAIN)
     ap.add_argument('--cost', default=COST_KEY, help='run key used to pick the cheapest config')
     ap.add_argument('--dp', type=int, nargs='+', default=DECIMALS, help='decimal places to try, in order')
+    ap.add_argument('--methods', nargs='+', default=METHODS)
+    ap.add_argument('--datasets', nargs='+', default=g.DATASETS)
     args = ap.parse_args()
 
     g.setup_logging()
     nested = load_results.load_results(g.RESULTS_DIR)
-    fixed_recall(nested, k=args.k, cost_key=args.cost, decimals=args.dp)
+    fixed_recall(nested, k=args.k, cost_key=args.cost, decimals=args.dp,
+                 methods=args.methods, datasets=args.datasets)
