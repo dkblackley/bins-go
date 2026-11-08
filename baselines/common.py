@@ -26,12 +26,21 @@ DATASETS = {
 }
 
 
+def generic_layout(name):
+    """Layout written by datasets/prepare_dataset.py + embed.slurm (nq, fever, msmarco-v2, msmarco-v2-50m, ...),
+    the same fallback as GetDatasets in main.go."""
+    return (f"{name}/corpus.jsonl", f"{name}/queries.jsonl", f"{name}/qrels/test.tsv",
+            f"{name}/{name}_corpus_embed_f32.npy", f"{name}/{name}_query_embed_f32.npy")
+
+
 def dataset_paths(root, name):
-    if name not in DATASETS:
-        raise SystemExit(f"unknown dataset {name!r}; add it to DATASETS in baselines/common.py "
-                         f"(and GetDatasets in main.go)")
-    return {k: os.path.join(root, v) for k, v in
-            zip(("corpus", "queries", "qrels", "corpus_vec", "query_vec"), DATASETS[name])}
+    layout = DATASETS.get(name) or generic_layout(name)
+    paths = {k: os.path.join(root, v) for k, v in
+             zip(("corpus", "queries", "qrels", "corpus_vec", "query_vec"), layout)}
+    if not os.path.exists(paths["corpus"]):
+        raise SystemExit(f"dataset {name!r}: {paths['corpus']} not found (prepare it with datasets/prepare_dataset.py, "
+                         f"or add a custom layout to DATASETS in baselines/common.py)")
+    return paths
 
 
 def load_corpus(path):
