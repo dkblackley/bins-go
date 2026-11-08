@@ -20,7 +20,6 @@ cd "$ROOT_DIR"
 #module --quiet purge
 #module load hosts/hopper
 #module load gnu9/9.3.0
-export PATH=$PATH:/usr/local/go/bin
 
 
 DATA_ARR=(); L_ARR=(); KCAND_ARR=(); QWORDS_ARR=(); B_ARR=(); R_ARR=(); S_ARR=(); MAX_Q_ARR=()
@@ -42,12 +41,16 @@ add_tree_ablations() {
     done
 }
 
-DATASET="${DATASET:?set DATASET to msmarco or scifact}"
+DATASET="${DATASET:?set DATASET to msmarco, scifact, nq, dbpedia-entity, fever, hotpotqa, miracl-en or msmarco-v2[-25m|-50m|-100m]}"
 #                                    k_cand max_q  B              r               s        q*          W
 if [[ "$DATASET" == "msmarco" ]]; then
     add_tree_ablations "msmarco" 128 6980 "16 32 64"   "8 32 128"   "4 8 16" "2 4 6 8"   "50 100 200 400"
 elif [[ "$DATASET" == "scifact" ]]; then
     add_tree_ablations "scifact" 20  300  "8 16 32 64" "4 8 32 128" "2 4 8"  "4 8 12 16" "5 10 20 40 80"
+elif [[ "$DATASET" =~ ^(nq|hotpotqa|fever|dbpedia-entity|miracl-en|msmarco-v2.*)$ ]]; then
+    # 2.7M-138M docs, same grid as msmarco. Build every (B, r, s) first in one go:
+    #   DATASET=$DATASET sbatch datasets/tree_artifacts.slurm     (or let datasets/run_all.sh chain it)
+    add_tree_ablations "$DATASET" 128 10000 "16 32 64"   "8 32 128"   "4 8 16" "2 4 6 8"   "50 100 200 400"
 else
     echo "Unknown DATASET: $DATASET"; exit 1
 fi
@@ -69,7 +72,7 @@ max_q_val=${MAX_Q_ARR[$task_id]}
 embed_val=192
 
 BINARY="${ROOT_DIR}/pir_app"
-OUT_DIR="/scratch/dblackle/results/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_k10"
+OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_k10"
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
@@ -135,6 +138,32 @@ elif [ "$dataset" == "scifact" ]; then
 
     CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
 
+elif [[ "$dataset" =~ ^(nq|hotpotqa|fever|dbpedia-entity|miracl-en|msmarco-v2.*)$ ]]; then
+    # Layout written by datasets/prep_tree.sh
+    DATASET_ROOT="${DATASET_DIR:-../../datasets}"
+    DB_SIZE=$(cat "${DATASET_ROOT}/${dataset}/num_docs.txt")
+    DATA_ROOT="${ROOT_DIR}/data/${dataset}_tree"
+    ARTIFACT_DIR="${DATA_ROOT}/B${B_val}_r${r_val}_s${s_val}"
+    BLOCK_PERMS=""
+
+    CACHE_DIR="${ROOT_DIR}/cuckoo_cache/${dataset}/B${B_val}_r${r_val}_s${s_val}/task_${SLURM_ARRAY_TASK_ID}"
+    mkdir -p "$CACHE_DIR"
+
+    LAYOUT_PATH="${ARTIFACT_DIR}/layout.json"
+    INDEX="${DATA_ROOT}/index_${dataset}"
+    QUERIES="${DATA_ROOT}/queries.qrels.tsv"
+    QRELS="${DATA_ROOT}/qrels.trec"
+    VOCAB="${ARTIFACT_DIR}/stage1_vocab.json"
+    STAGE1_DATA="${ARTIFACT_DIR}/stage1_data.bin"
+    STAGE1_IDMAP="${ARTIFACT_DIR}/stage1_idmap.bin"
+    STAGE2_DATA="${ARTIFACT_DIR}/stage2/data.bin"
+    STAGE2_IDMAP="${ARTIFACT_DIR}/stage2/idmap.bin"
+    DOC_EMBED="${DATA_ROOT}/stage3_doc.npy"
+    DOC_ID_MAP="${DATA_ROOT}/stage3_doc.npy.ids"
+    # rows follow queries.jsonl order; tree_main matches them to the analyzed queries by ID
+    QUERY_EMBED="${DATASET_ROOT}/${dataset}/${dataset}_query_embed_f32.npy"
+
+    CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
 
 else
     echo "Unknown dataset: $dataset"

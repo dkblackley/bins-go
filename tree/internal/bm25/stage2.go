@@ -116,7 +116,7 @@ func NewStage2PrecomputedWithCuckoo(
 		pre.Close()
 		return nil, fmt.Errorf("fingerprinting Stage2 artifacts: %w", err)
 	}
-	cacheName := fmt.Sprintf("stage2_B%d_s%d_alpha_%0.4f.cuckoo", B, s, config.LoadFactor)
+	cacheName := fmt.Sprintf("stage2_B%d_s%d_alpha_%0.4f%s.cuckoo", B, s, config.LoadFactor, config.CacheSuffix())
 	pre.Table, err = buildOrLoadCuckooTable(
 		"Stage2",
 		itemCount,
@@ -235,7 +235,7 @@ func (pre *Stage2Precomputed) SumBoundsForTerms(terms []string, leafNodes []int)
 	return pre.sumBoundsDirectUnlocked(terms, leafNodes)
 }
 
-// SumBoundsForTermsWithPIR issues exactly two physical PIR queries for every
+// SumBoundsForTermsWithPIR issues exactly Hashes (2 or 3) physical PIR queries for every
 // padded (term,leaf) key, validates returned keys, and sums only matching rows.
 func (pre *Stage2Precomputed) SumBoundsForTermsWithPIR(terms []string, leafNodes []int) map[int][]int {
 	pre.mu.RLock()
@@ -254,16 +254,15 @@ func (pre *Stage2Precomputed) SumBoundsForTermsWithPIR(terms []string, leafNodes
 	termKeys := termKeysForQuery(terms, pre.Vocab)
 	logicalCount := len(termKeys) * len(leafNodes)
 	keys := make([]uint64, 0, logicalCount)
-	rowIndices := make([]uint64, 0, logicalCount*2)
+	rowIndices := make([]uint64, 0, logicalCount*max(pre.Table.Hashes, 2))
 	for _, termKey := range termKeys {
 		for _, leaf := range leafNodes {
 			if leaf <= 0 || uint64(leaf) > math.MaxUint32 {
 				panic(fmt.Sprintf("Stage2 leaf ID %d does not fit the Cuckoo key", leaf))
 			}
 			key := packedCuckooKey(termKey, uint32(leaf))
-			first, second := pre.Table.positions(key)
 			keys = append(keys, key)
-			rowIndices = append(rowIndices, first, second)
+			rowIndices = append(rowIndices, pre.Table.probes(key)...)
 		}
 	}
 	Debugf("Stage2: %d logical keys, %d Cuckoo PIR probes, %d physical slots, %d-byte entries\n",
@@ -275,22 +274,20 @@ func (pre *Stage2Precomputed) SumBoundsForTermsWithPIR(terms []string, leafNodes
 	if len(responses) != len(rowIndices) {
 		panic(fmt.Sprintf("Stage2 returned %d PIR rows; want %d", len(responses), len(rowIndices)))
 	}
+	probeCount := len(rowIndices) / max(len(keys), 1)
 	for logical, key := range keys {
-		firstResponse := responses[2*logical]
-		secondResponse := responses[2*logical+1]
-		if StrictPIR {
-			if err := pre.Table.verifyResponse(rowIndices[2*logical], firstResponse); err != nil {
-				panic(err)
+		var value []byte
+		for j := logical * probeCount; j < (logical+1)*probeCount; j++ {
+			if StrictPIR {
+				if err := pre.Table.verifyResponse(rowIndices[j], responses[j]); err != nil {
+					panic(err)
+				}
 			}
-			if err := pre.Table.verifyResponse(rowIndices[2*logical+1], secondResponse); err != nil {
-				panic(err)
+			if decoded, ok := pre.Table.decodeValue(responses[j], key); ok {
+				value = maxValue(value, decoded)
 			}
 		}
-		value, ok := cuckooResponseValue(firstResponse, key, pre.R)
-		if !ok {
-			value, ok = cuckooResponseValue(secondResponse, key, pre.R)
-		}
-		if !ok {
+		if value == nil {
 			continue
 		}
 		leaf := leafNodes[logical%len(leafNodes)]

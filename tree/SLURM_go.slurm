@@ -23,7 +23,7 @@ module load gnu9/9.3.0
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
 # Use cached toolchain via symlink created in $HOME/opt/go1.24
-export GOROOT="/home/dblackle/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.5.linux-amd64"
+export GOROOT="${GOROOT:-$(ls -d "$HOME"/go/pkg/mod/golang.org/toolchain@*go1.2[4-9]*.linux-amd64 2>/dev/null | sort -rV | head -1)}"
 export PATH="$GOROOT/bin:$PATH"
 
 # Fail fast with a clear error if it's missing

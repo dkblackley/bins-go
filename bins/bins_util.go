@@ -21,12 +21,12 @@ import (
 )
 
 func MakeDocIDAndQueryIDMap(meta globals.DatasetMetadata) (map[int]string, map[int]string) {
-	docs, err := LoadCorpus(meta.OriginalDir)
+	docIDs, err := LoadCorpusIDs(meta.OriginalDir)
 	Must(err)
 
-	docIDMap := make(map[int]string, len(docs))
-	for i, doc := range docs {
-		docIDMap[i] = doc.ID
+	docIDMap := make(map[int]string, len(docIDs))
+	for i, id := range docIDs {
+		docIDMap[i] = id
 	}
 
 	qs, err := LoadQueries(meta.Queries)
@@ -326,6 +326,30 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 	return nil
 }
 
+// OpenBinsIndex opens the Bluge index the bins use to pick each word's top docs. It used to ignore the error, so a
+// missing index only showed up later as a nil-pointer panic inside MakeUnigramDB.
+func OpenBinsIndex(meta globals.DatasetMetadata) *bluge.Reader {
+	reader, err := bluge.OpenReader(bluge.DefaultConfig(meta.IndexDir))
+	if err != nil {
+		logrus.Fatalf("Can't open the bins index %s (%v). Build it once with: pir_app -t index -name <name> -dataset <dir>",
+			meta.IndexDir, err)
+	}
+	return reader
+}
+
+// BuildBinsIndex builds the Bluge index for a dataset from its corpus.jsonl. It writes to <IndexDir>.tmp and renames,
+// so a half-built index is never picked up.
+func BuildBinsIndex(meta globals.DatasetMetadata) error {
+	tmp := meta.IndexDir + ".tmp"
+	if err := BuildBlugeIndexFromJSONL(meta.OriginalDir, tmp); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(meta.IndexDir); err != nil {
+		return err
+	}
+	return os.Rename(tmp, meta.IndexDir)
+}
+
 func ReadCSV(path string) ([][]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -370,10 +394,10 @@ func WriteCSV(path string, data [][]string) error {
 func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[[32]byte]string {
 
 	// Thankfull scifact embeddings are in the same order as vec... TODO: for marco
-	docs, er := LoadCorpus(meta.OriginalDir)
+	docIDs, er := LoadCorpusIDs(meta.OriginalDir)
 	Must(er)
 
-	IDLookup := make(map[[32]byte]string)
+	IDLookup := make(map[[32]byte]string, len(docIDs))
 	vectors, err := globals.LoadFloat32MatrixFromNpy(meta.Vectors.CorpusVec, dbsize, dimensions)
 
 	bar := progressbar.NewOptions64(
@@ -382,8 +406,8 @@ func MakeLookup(meta globals.DatasetMetadata, dbsize, dimensions int) map[[32]by
 		progressbar.OptionShowElapsedTimeOnFinish(),
 	)
 	Must(err)
-	for i := 0; i < len(docs); i++ {
-		docID := docs[i].ID
+	for i := 0; i < len(docIDs) && i < len(vectors); i++ {
+		docID := docIDs[i]
 		ID := HashFloat32s(vectors[i])
 		IDLookup[ID] = docID
 		bar.Add(1)

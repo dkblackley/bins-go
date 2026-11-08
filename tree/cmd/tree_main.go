@@ -19,6 +19,7 @@ import (
 
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
+	pianopir "github.com/dkblackley/bins-go/pir-old"
 	"github.com/dkblackley/bins-go/tree/internal/bm25"
 	"github.com/sirupsen/logrus"
 )
@@ -59,7 +60,15 @@ type AnalyzedQuery struct {
 // The collaborator's PIR does its own re-preprocessing inside Query() (it is
 // counted in MaintainenceTime), so main.go never needs to trigger it.
 func (P *PIRTree) GetBatchNums() (uint64, uint64, uint64) { return 0, 0, 1 }
-func (P *PIRTree) PIRPreprocess() time.Duration           { return 0 }
+
+// stage3BatchSize is -stage3-batch-size, or the original 32 when unset.
+func (P *PIRTree) stage3BatchSize() uint64 {
+	if P.config.BinsConf.Stage3BatchSize > 0 {
+		return uint64(P.config.BinsConf.Stage3BatchSize)
+	}
+	return 32
+}
+func (P *PIRTree) PIRPreprocess() time.Duration { return 0 }
 
 // Preprocess builds the Cuckoo tables and runs the PIR offline phase for all
 // three stages, so main.go's PreprocessingTime covers it.
@@ -67,6 +76,9 @@ func (P *PIRTree) Preprocess() {
 	bc := P.config.BinsConf
 	cuckooConfig := bm25.CuckooBuildConfig{
 		LoadFactor:    bc.CuckooLoadFactor,
+		Hashes:        bc.CuckooHashes,
+		KeyBytes:      bc.CuckooKeyBytes,
+		ValueBits:     bc.CuckooUBBits,
 		MaxKicks:      bc.CuckooMaxKicks,
 		BuildAttempts: bc.CuckooBuildAttempts,
 		CacheDir:      bc.CuckooCacheDir,
@@ -86,7 +98,7 @@ func (P *PIRTree) Preprocess() {
 	}
 
 	if bc.DocEmbed != "" && bc.DocIDMap != "" && bc.QueryEmbed != "" {
-		sr, err := bm25.NewStage3Reranker(bc.DocEmbed, bc.DocIDMap, bc.QueryEmbed, bc.BlockPerm, bc.EmbedDim, P.enablePIR, uint64(32))
+		sr, err := bm25.NewStage3Reranker(bc.DocEmbed, bc.DocIDMap, bc.QueryEmbed, bc.BlockPerm, bc.EmbedDim, P.enablePIR, P.stage3BatchSize())
 		if err != nil {
 			logrus.Warnf("failed to initialize Stage3 reranker: %v", err)
 		} else {
@@ -200,11 +212,19 @@ func (P *PIRTree) GetMetaData() map[string]string {
 	meta["strict_pir"] = strconv.FormatBool(bm25.StrictPIR)
 	meta["pir_constant_work"] = strconv.FormatBool(bm25.PIRConstantWork)
 	meta["pir_threads"] = strconv.Itoa(bm25.PIRThreads)
+	meta["pir_download_small"] = strconv.FormatBool(pianopir.DownloadIfCheaper)
+	meta["pir_chunk_factor"] = ff(pianopir.ChunkSizeFactor)
+	meta["pir_query_budget"] = ff(pianopir.QueryBudgetScale)
+	meta["Stage3BatchSize"] = strconv.FormatUint(P.stage3BatchSize(), 10)
 	meta["stage1_level_databases"] = strconv.Itoa(len(P.stage1DB.Levels))
 	meta["physical_cuckoo"] = strconv.FormatBool(len(P.stage1DB.Levels) > 0)
 	meta["cuckoo_hash_functions"] = "2"
 	if len(P.stage1DB.Levels) > 0 && P.stage1DB.Levels[0] != nil {
 		t := P.stage1DB.Levels[0].Table
+		meta["cuckoo_hash_functions"] = strconv.Itoa(max(t.Hashes, 2))
+		meta["cuckoo_key_bytes"] = strconv.Itoa(t.KeyBytes)
+		meta["ub_bits"] = strconv.Itoa(t.ValueBits)
+		meta["stage1_entry_bytes"] = strconv.FormatUint(t.EntryWords*8, 10)
 		meta["cuckoo_load_factor"] = ff(float64(t.ItemCount) / float64(t.SlotCount))
 	}
 
@@ -316,6 +336,16 @@ func Runtree(config *globals.Args) *PIRTree {
 	}
 	bm25.PIRThreads = bc.PIRThreads
 
+	// client-storage knobs, all package-level in pir-old (zero values from callers
+	// that predate the flags keep the original parameters)
+	pianopir.DownloadIfCheaper = bc.PIRDownloadSmall
+	if bc.PIRChunkFactor > 0 {
+		pianopir.ChunkSizeFactor = bc.PIRChunkFactor
+	}
+	if bc.PIRQueryBudget > 0 {
+		pianopir.QueryBudgetScale = bc.PIRQueryBudget
+	}
+
 	if bc.Index == "" || bc.Queries == "" {
 		logrus.Fatalf("tree needs -index and -queries")
 	}
@@ -381,7 +411,7 @@ func Runtree(config *globals.Args) *PIRTree {
 }
 
 // normalizeQueryTerms pads or truncates the query terms to a fixed length.
-// Padding uses OOV tokens: they still cost two Cuckoo probes but score zero.
+// Padding uses OOV tokens: they still cost the same Cuckoo probes but score zero.
 func normalizeQueryTerms(terms []string, targetLength int) ([]string, int) {
 	originalLen := len(terms)
 	if targetLength <= 0 {
