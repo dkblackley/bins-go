@@ -136,6 +136,33 @@ func LoadCorpus(path string) ([]beirDoc, error) {
 	return ds, sc.Err()
 }
 
+// LoadCorpusIDs returns only the "_id" of every document, in file order. Use this instead of LoadCorpus when the
+// text isn't needed: for big corpora (e.g. MS MARCO v2, 138M passages) holding all the text just to build an
+// index -> ID map costs tens of GB.
+func LoadCorpusIDs(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	type idOnly struct {
+		ID string `json:"_id"`
+	}
+
+	ids := make([]string, 0, 1<<16)
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024), 10*1024*1024)
+	for sc.Scan() {
+		var d idOnly
+		if err := json.Unmarshal(sc.Bytes(), &d); err != nil {
+			logrus.Errorf("Corpus JSON parse error: %v", err)
+		}
+		ids = append(ids, d.ID)
+	}
+	return ids, sc.Err()
+}
+
 func LoadQueries(query_path string) ([]globals.Query, error) {
 
 	f, err := os.Open(query_path)

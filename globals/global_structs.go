@@ -161,14 +161,12 @@ func LoadFloat32MatrixFromNpy(filename string, n int, dim int) ([][]float32, err
 
 	//bar := progressbar.Default(int64(n), "Loading BM25 vectors")
 
-	// we now convert the data to a 2D slice
+	// Convert to a 2D slice by re-slicing the flat buffer instead of copying it. The old version copied every
+	// row, so for a 100M+ corpus (~77 GB at 192 dims) the vectors briefly lived in memory twice. Each row is
+	// capped (full slice expression) so an append on one row can never spill into the next.
 	ret := make([][]float32, n)
 	for i := 0; i < n; i++ {
-		ret[i] = make([]float32, dim)
-		for j := 0; j < dim; j++ {
-			ret[i][j] = float32(data[i*dim+j])
-		}
-		//bar.Add64(int64(1))
+		ret[i] = data[i*dim : (i+1)*dim : (i+1)*dim]
 	}
 
 	//bar.Finish()

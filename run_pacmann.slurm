@@ -26,6 +26,21 @@ export HNSW_PREFIX="$HOME/opt/hnsw"
 export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
+DATASET_DIR="${DATASET_DIR:-../../datasets}"
+# -n for each dataset: hardcoded for the originals, read from num_docs.txt (written by datasets/prepare_dataset.py)
+# for everything else (nq, hotpotqa, fever, msmarco-v2, msmarco-v2-100m, ...)
+db_size_of() {
+    case "$1" in
+        msmarco)    echo 8841823 ;;
+        scifact)    echo 5183 ;;
+        trec-covid) echo 171332 ;;
+        *)
+            local f="${DATASET_DIR}/$1/num_docs.txt"
+            [[ -f "$f" ]] || { echo "No $f, run datasets/prep_datasets.slurm for $1 first" >&2; exit 1; }
+            cat "$f" ;;
+    esac
+}
+
 DATA_ARR=()
 K_ARR=()
 STEPS_ARR=()
@@ -44,10 +59,20 @@ add_pacmann_ablations() {
     done
 }
 
-# Build the setups for all datasets
-add_pacmann_ablations "msmarco"
-add_pacmann_ablations "scifact"
-# add_pacmann_ablations "trec-covid"
+# Build the setups for all datasets. Override to add the new ones, e.g.
+#   PACMANN_DATASETS="nq hotpotqa fever" bash run_pacmann.slurm --count
+#   PACMANN_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_pacmann.slurm
+# Big corpora (graph + vectors of 100M+ docs need bigmem, e.g. --partition=bigmem --mem=1500G):
+#   PACMANN_DATASETS="msmarco-v2-100m msmarco-v2" sbatch --partition=bigmem --mem=1500G --array=... run_pacmann.slurm
+PACMANN_DATASETS="${PACMANN_DATASETS:-msmarco scifact}"
+for d in $PACMANN_DATASETS; do
+    add_pacmann_ablations "$d"
+done
+
+if [[ "${1:-}" == "--count" ]]; then
+    echo "${#DATA_ARR[@]} configs (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
+    exit 0
+fi
 
 task_id=$SLURM_ARRAY_TASK_ID
 
@@ -57,17 +82,7 @@ steps_val=${STEPS_ARR[$task_id]}
 neighb_val=${NEIGHB_ARR[$task_id]}
 method="pacmann"
 
-# Set specific variables based on chosen dataset
-if [ "$dataset" == "msmarco" ]; then
-    DB_SIZE=8841823
-elif [ "$dataset" == "scifact" ]; then
-    DB_SIZE=5183
-elif [ "$dataset" == "trec-covid" ]; then
-    DB_SIZE=171332
-else
-    echo "Unknown dataset: $dataset"
-    exit 1
-fi
+DB_SIZE=$(db_size_of "$dataset")
 
 FAIL_FILE="${SLURM_SUBMIT_DIR:-$PWD}/pacman_fails"
 finished=0
@@ -82,7 +97,7 @@ on_exit() {
 trap on_exit EXIT
 trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT
 
-OUT_DIR="/scratch/dblackle/results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
+OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 # OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 mkdir -p "$OUT_DIR"
 
@@ -107,8 +122,6 @@ echo "Steps:         $steps_val"
 echo "Neighbours:    $neighb_val"
 echo "Output Dir:    $OUT_DIR"
 echo "========================================"
-
-DATASET_DIR="../../datasets"
 
 cleanup() {
     local prefix="${DATASET_DIR}/${dataset}/${dataset}_corpus_embed_f32_${DB_SIZE}_192_${neighb_val}_neigh${neighb_val}_step${steps_val}_k${k_val}"

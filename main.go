@@ -106,7 +106,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 			root + "/msmarco/qrels/qrels.dev.tsv",
 			vectors,
 		}
-	} else {
+	} else if name == "trec-covid" {
 		vectors := globals.Vectors{
 
 			root + "/trec-covid/trec_corpus_embed_f32.npy",
@@ -121,6 +121,43 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 			vectors,
 		}
 	}
+
+	// Generic layout written by datasets/prepare_dataset.py + datasets/embed.slurm. Covers nq, hotpotqa, fever,
+	// msmarco-v2 and its subsamples (e.g. msmarco-v2-100m), or any other name you prepare the same way:
+	//   <root>/<name>/corpus.jsonl, queries.jsonl, qrels/test.tsv,
+	//   <root>/<name>/<name>_corpus_embed_f32.npy, <name>_query_embed_f32.npy
+	pretty, ok := datasetDisplayNames[name]
+	if !ok {
+		pretty = name
+	}
+	if _, err := os.Stat(root + "/" + name + "/corpus.jsonl"); err != nil {
+		logrus.Warnf("Dataset %q: %s/%s/corpus.jsonl not found (%v)", name, root, name, err)
+	}
+	vectors := globals.Vectors{
+		root + "/" + name + "/" + name + "_corpus_embed_f32.npy",
+		root + "/" + name + "/" + name + "_query_embed_f32.npy",
+		root + "/" + name + "/" + name + "_graph.npy"}
+	return globals.DatasetMetadata{
+		pretty,
+		root + "/index_" + name,
+		root + "/" + name + "/corpus.jsonl",
+		root + "/" + name + "/queries.jsonl",
+		root + "/" + name + "/qrels/test.tsv",
+		vectors,
+	}
+}
+
+// Display names for the datasets that use the generic layout (unknown names just use the -name flag as-is)
+var datasetDisplayNames = map[string]string{
+	"nq":              "NQ",
+	"hotpotqa":        "HotpotQA",
+	"fever":           "FEVER",
+	"dbpedia-entity":  "DBPedia",
+	"miracl-en":       "MIRACL-en",
+	"msmarco-v2":      "MSMARCO-v2",
+	"msmarco-v2-25m":  "MSMARCO-v2-25M",
+	"msmarco-v2-50m":  "MSMARCO-v2-50M",
+	"msmarco-v2-100m": "MSMARCO-v2-100M",
 }
 
 func main() {
