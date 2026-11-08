@@ -11,7 +11,8 @@
 # Each stage is skipped automatically if its output already exists (FORCE=1 redoes it).
 #
 # Needs: python with requirements.txt (+ faiss, pyserini), Java 21, Go + the NGT/hnsw libs (see run_scifact_local.sh).
-# A 16 GB GPU is plenty for e5-base; FP16=1 roughly halves embedding time (the server runs fp32 for these sets).
+# A 16 GB GPU is plenty for e5-base; FP16=1 roughly halves embedding time. To embed for the server (fp16 files,
+# msmarco-v2 too) use datasets/embed_local.sh instead.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -52,7 +53,7 @@ for d in "$@"; do
   PCA="$D/pca_e5_768_to_192.faiss"
   if has embed && { [[ -n "${FORCE:-}" ]] || [[ ! -f "$D/${d}_query_embed_f32.npy" ]]; }; then
     python3 collection_preproc.py --documents "$D/corpus.jsonl" --output "$D/${d}_corpus_embed_f32.npy" --pca "$PCA" \
-        --num-docs "$N" --encode-batch "${ENCODE_BATCH:-128}" ${FP16:+--fp16}
+        --num-docs "$N" --encode-batch "${ENCODE_BATCH:-128}" ${FP16:+--fp16} --skip-if-done ${FORCE:+--overwrite}
     python3 query_preproc.py --queries "$D/queries.jsonl" --output "$D/${d}_query_embed_f32.npy" --pca "$PCA"
   fi
 
