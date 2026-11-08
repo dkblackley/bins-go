@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
@@ -63,6 +62,9 @@ func (v VecBins) GetMetaData() map[string]string {
 	for k, val := range v.vecPIR.PrintInfo() {
 		meta["Vec"+k] = val
 	}
+	meta["IDBatchSize"] = strconv.FormatUint(v.idPIR.Config().BatchSize, 10)
+	meta["VecBatchSize"] = strconv.FormatUint(v.vecPIR.Config().BatchSize, 10)
+	meta["VecRounds"] = strconv.Itoa(v.maxQueryTerms)
 	return meta
 }
 
@@ -198,7 +200,7 @@ func MakeVecDb(config *globals.Args) VecBins {
 
 	} else {
 		logrus.Debugf("About to laod data from %s", metaData.IndexDir)
-		reader, _ := bluge.OpenReader(bluge.DefaultConfig(metaData.IndexDir))
+		reader := OpenBinsIndex(metaData)
 		defer reader.Close()
 		DB = MakeUnigramDB(reader, metaData, config)
 		Must(err)
@@ -247,6 +249,9 @@ func MakeVecDb(config *globals.Args) VecBins {
 
 	T := maxRowSize
 	BatchSize := 24
+	if config.IDBatch > 0 {
+		BatchSize = int(config.IDBatch)
+	}
 
 	PartitionNum := BatchSize / 2
 	PartitionSize := (len(idRaw) + PartitionNum - 1) / PartitionNum
@@ -279,7 +284,9 @@ func MakeVecDb(config *globals.Args) VecBins {
 		}
 	}
 
-	PartitionNum = stage2Batch / 2
+	stage2Batch, maxQuery = vecBatchAndRounds(stage2Batch, maxQuery, int(config.VecBatch), int(config.VecRounds))
+
+	PartitionNum = max(stage2Batch/2, 1)
 	PartitionSize = (len(vecRaw) + PartitionNum - 1) / PartitionNum
 	PartitionNum = (len(vecRaw) + PartitionSize - 1) / PartitionSize // drop partitions that would start past DBSize
 	if maxQ := uint64(math.Sqrt(float64(PartitionSize)) * math.Log(float64(PartitionSize))); maxQ < 4*2 {
@@ -327,6 +334,28 @@ func MakeVecDb(config *globals.Args) VecBins {
 
 	return binPir
 
+}
+
+// vecBatchAndRounds applies -vecBatch / -vecRounds over the automatic Stage2
+// setting. Each query makes `rounds` sequential embedding-DB rounds of exactly
+// `batch` lookups, so it can fetch batch*rounds candidate embeddings; the rest
+// are dropped. The client hint grows with sqrt(batch/2 partitions), so a
+// smaller batch saves storage and, to keep the same coverage, costs rounds.
+// With only -vecBatch set, rounds are chosen to cover what the automatic
+// setting covered.
+func vecBatchAndRounds(autoBatch, autoRounds, batch, rounds int) (int, int) {
+	if batch <= 0 && rounds <= 0 {
+		return autoBatch, autoRounds
+	}
+	coverage := autoBatch * autoRounds
+	if batch <= 0 {
+		batch = (coverage + rounds - 1) / rounds
+	}
+	batch = max(batch, 2) // one partition at least
+	if rounds <= 0 {
+		rounds = (coverage + batch - 1) / batch
+	}
+	return batch, max(rounds, 1)
 }
 
 // two uint32 per uint64; ids stored as idx+1, 0 means empty

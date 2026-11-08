@@ -2,7 +2,21 @@
 
 `pir_app -t bins -text ...` puts the compressed text of each bin's documents in the PIR DB instead of their
 embeddings, and the client re-ranks what it retrieves with BM25. No embedding files are read. Every dataset that
-`GetDatasets` knows works (msmarco, scifact, nq, hotpotqa, fever, msmarco-v2*, ...). Slurm: `run_bins_text.slurm`.
+`GetDatasets` knows works (msmarco, scifact, trec-covid, nq, hotpotqa, fever, dbpedia-entity, miracl-en,
+msmarco-v2*, ...); it needs the corpus, queries, qrels and the bins' Bluge index (`pir_app -t index`).
+
+Running it:
+
+- `run_bins_low.slurm` / `run_bins_high.slurm` / `datasets/run_all.sh`: text is a third bins layout next to
+  vec1 and vec0. `BINS_VECS` picks the layouts (default `true false text`, e.g. `BINS_VECS=text` for text only).
+  Results go to `bins_text_<dataset>_k<K>_bs<BS>_dpb<DPB>`, the usage log key is `text_k.._bs.._dpb..`, and the
+  memory model / input check in `slurm_common.sh` know text needs no embeddings. `TEXT_FORMAT` / `TEXT_ORDER`
+  change the coder (non-default settings get a `_<format>o<order>` folder suffix, which the plots skip).
+- `datasets/run_local.sh` runs one text config next to the vec1 one.
+- Plots: `load_results.py` loads `bins_text_*` as its own method, `bins-text` ("PILLAR-Bin (text)"), so it never
+  mixes into the embedding bins. Set `TEXT_BINS = []` in `plotting/globals.py` to leave it out.
+- `-pir-download-small` works here too (the decision uses the real, unpadded DB size).
+- `-idBatch` / `-vecBatch` / `-vecRounds` are for the two-DB vec0 layout only; text is one DB like vec1.
 
 | flag | default | |
 |---|---|---|

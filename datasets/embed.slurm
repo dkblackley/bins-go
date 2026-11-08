@@ -38,12 +38,7 @@ QUERY_OUT="$D/${PREFIX}_query_embed_f32.npy"
 PCA="$D/pca_e5_768_to_192.faiss"
 NUM_DOCS="$(cat "$D/num_docs.txt")"
 
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-conda activate main
-export HF_HOME=/scratch/dblackle/hf
-export TRANSFORMERS_CACHE=/scratch/dblackle/hf/transformers
-export HF_DATASETS_CACHE=/scratch/dblackle/hf/datasets
-mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE" "$HF_DATASETS_CACHE"
+source datasets/env.sh   # conda env + HF cache (override CONDA_BASE / CONDA_ENV / HF_HOME)
 
 # fp16 only for the 100M+ corpus: halves encode time, the PCA'd vectors are essentially unchanged
 FP16=""

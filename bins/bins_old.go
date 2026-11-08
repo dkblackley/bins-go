@@ -20,7 +20,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
@@ -163,7 +162,7 @@ func MakeVecDbOld(config *globals.Args) VecBinsOld {
 
 	} else {
 		logrus.Debugf("About to laod data from %s", metaData.IndexDir)
-		reader, _ := bluge.OpenReader(bluge.DefaultConfig(metaData.IndexDir))
+		reader := OpenBinsIndex(metaData)
 		defer reader.Close()
 		DB = MakeUnigramDB(reader, metaData, config)
 		Must(err)

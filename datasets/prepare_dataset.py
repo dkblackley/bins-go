@@ -15,6 +15,7 @@ By default doc IDs are renumbered 0..N-1 in output order. That keeps the PIR ID 
 Formats
   --format beir        <src>/corpus.jsonl[.gz], queries.jsonl[.gz], qrels/<split>.tsv   (NQ, HotpotQA, FEVER, ...)
   --format msmarco-v2  <src>/msmarco_v2_passage/msmarco_passage_*.gz, passv2_<split>_queries.tsv, passv2_<split>_qrels.tsv
+  --format miracl      <src>/miracl-corpus-v1.0-en/*.jsonl.gz, miracl-v1.0-en/{topics,qrels}/*-<split>.tsv
 
 Subsampling (e.g. MS MARCO v2 down to 100M, to match PACMANN's SIFT100M)
   --max-docs N keeps every doc that is relevant to some kept query, then fills up to N with a uniform random sample
@@ -87,6 +88,39 @@ def msmarco_v2_qrels(src, split):
     return read_qrels(first_existing(f"{src}/passv2_{split}_qrels.tsv"))
 
 
+def miracl_corpus(src):
+    files = sorted(glob.glob(f"{src}/miracl-corpus-v1.0-en/*.jsonl.gz")) or \
+        sorted(glob.glob(f"{src}/miracl-corpus-v1.0-en/*.jsonl"))
+    if not files:
+        sys.exit(f"No miracl-corpus-v1.0-en/*.jsonl(.gz) under {src}")
+    for fp in files:
+        with zopen(fp) as f:
+            for line in f:
+                d = json.loads(line)
+                yield d["docid"], d.get("title", "") or "", d.get("text", "") or ""
+
+
+def miracl_queries(src, split):
+    with open(first_existing(f"{src}/miracl-v1.0-en/topics/topics.miracl-v1.0-en-{split}.tsv")) as f:
+        for line in f:
+            qid, text = line.rstrip("\n").split("\t", 1)
+            yield qid, text
+
+
+def miracl_qrels(src, split):
+    return read_qrels(first_existing(f"{src}/miracl-v1.0-en/qrels/qrels.miracl-v1.0-en-{split}.tsv"))
+
+
+def query_length_stats(texts):
+    """Whitespace word counts. The lexical side sees fewer terms (stopwords removed), so this is an upper bound."""
+    if not texts:
+        return {}
+    n = np.array([len(t.split()) for t in texts])
+    return {"mean": round(float(n.mean()), 2), "median": float(np.median(n)), "p90": float(np.percentile(n, 90)),
+            "max": int(n.max()), "frac_le_10": round(float((n <= 10).mean()), 3),
+            "frac_le_15": round(float((n <= 15).mean()), 3), "frac_le_20": round(float((n <= 20).mean()), 3)}
+
+
 def read_qrels(path):
     """qid -> {docid: score} for score > 0. Handles BEIR (qid docid score, with header) and TREC (qid 0 docid score)."""
     rels = {}
@@ -110,12 +144,14 @@ def read_qrels(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--format", choices=["beir", "msmarco-v2"], required=True)
+    ap.add_argument("--format", choices=["beir", "msmarco-v2", "miracl"], required=True)
     ap.add_argument("--src", required=True, help="Downloaded dataset folder")
     ap.add_argument("--out", required=True, help="Output folder, e.g. ../datasets/nq")
     ap.add_argument("--split", default=None, help="qrels split (beir default: test, msmarco-v2 default: dev)")
     ap.add_argument("--max-docs", type=int, default=0, help="Subsample the corpus to this many docs (0 = keep all)")
     ap.add_argument("--max-queries", type=int, default=0, help="Subsample queries (0 = keep all with qrels)")
+    ap.add_argument("--max-query-words", type=int, default=0,
+                    help="Drop queries longer than this many words (0 = keep all). Changes the benchmark, so say so.")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--no-remap-ids", dest="remap_ids", action="store_false", help="Keep the original doc IDs")
     ap.add_argument("--src-embed", default=None, help="Corpus embeddings (.npy) row-aligned with <src>/corpus.jsonl")
@@ -132,13 +168,21 @@ def main():
         corpus = lambda: beir_corpus(args.src)
         queries = list(beir_queries(args.src))
         qrels = beir_qrels(args.src, split)
-    else:
+    elif args.format == "msmarco-v2":
         corpus = lambda: msmarco_v2_corpus(args.src)
         queries = list(msmarco_v2_queries(args.src, split))
         qrels = msmarco_v2_qrels(args.src, split)
+    else:
+        corpus = lambda: miracl_corpus(args.src)
+        queries = list(miracl_queries(args.src, split))
+        qrels = miracl_qrels(args.src, split)
 
     # ---- queries: keep the ones that have qrels (and optionally subsample them)
     q_order = [i for i, (qid, _) in enumerate(queries) if qid in qrels]
+    print("query words (all with qrels):", query_length_stats([queries[i][1] for i in q_order]))
+    if args.max_query_words:
+        q_order = [i for i in q_order if len(queries[i][1].split()) <= args.max_query_words]
+        print(f"--max-query-words {args.max_query_words}: {len(q_order):,} queries left")
     if args.max_queries and len(q_order) > args.max_queries:
         q_order = sorted(rng.choice(q_order, size=args.max_queries, replace=False).tolist())
     kept_qids = {queries[i][0] for i in q_order}
@@ -232,7 +276,8 @@ def main():
         f.write(f"{n_out}\n")
     stats = {"name": name, "format": args.format, "src": os.path.abspath(args.src), "split": split,
              "num_docs": n_out, "num_queries": len(final_q), "num_qrels": n_rels,
-             "max_docs": args.max_docs, "max_queries": args.max_queries, "seed": args.seed,
+             "max_docs": args.max_docs, "max_queries": args.max_queries, "max_query_words": args.max_query_words,
+             "seed": args.seed, "query_words": query_length_stats([queries[i][1] for i in final_q]),
              "remapped_ids": args.remap_ids}
     with open(f"{args.out}/stats.json", "w") as f:
         json.dump(stats, f, indent=2)

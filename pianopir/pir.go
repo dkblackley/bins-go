@@ -237,6 +237,19 @@ func NewPianoPIRClient(config *PianoPIRConfig) *PianoPIRClient {
 	}
 }
 
+// hintStorageBytes is LocalStorageSize for a client of this config, computed
+// without allocating one (same counts as NewPianoPIRClient).
+func hintStorageBytes(config *PianoPIRConfig) float64 {
+	maxQueryNum := uint64(math.Sqrt(float64(config.DBSize)) * math.Log(float64(config.DBSize)))
+	primaryHintNum := primaryNumParam(float64(maxQueryNum), float64(config.ChunkSize), config.FailureProbLog2+1)
+	primaryHintNum = (primaryHintNum + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
+	maxQueryPerChunk := 3 * uint64(float64(maxQueryNum)/float64(config.SetSize))
+	maxQueryPerChunk = (maxQueryPerChunk + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
+	backups := float64(config.SetSize) * float64(maxQueryPerChunk)
+	e := float64(config.DBEntryByteNum)
+	return float64(primaryHintNum)*(16+e) + backups*(16+2*e)
+}
+
 // return the local storage in bytes
 func (c *PianoPIRClient) LocalStorageSize() float64 {
 	localStorageSize := float64(0)
@@ -273,63 +286,75 @@ func (c *PianoPIRClient) Initialization() {
 	c.masterKey = RandKey(rng)
 	c.longKey = GetLongKey((*PrfKey128)(&c.masterKey))
 
-	c.QueryHistogram = make([]uint64, c.config.SetSize) // how many queries in each set (setsize is the number of chunks)
-	for i := 0; i < int(c.config.SetSize); i++ {
-		c.QueryHistogram[i] = 0
-	}
-
-	// first initialize everything to be zero
+	// The hint tables are hundreds of MB per partition. They are allocated on
+	// the first preprocessing and zeroed in place after that. Reallocating them
+	// on every re-preprocess left the old tables as garbage, so the heap grew
+	// to roughly twice the live size and Go was slow to hand the memory back.
+	c.QueryHistogram = resetUint64s(c.QueryHistogram, c.config.SetSize)
 
 	shortTagCount := uint64(0)
 
-	c.primaryShortTag = make([]uint64, c.primaryHintNum)
-	// TODO: Check this is still fine. I think it should be as it'll just be padded with 0s?
-	c.primaryParity = make([][]uint64, c.primaryHintNum)
-	c.primaryProgramPoint = make([]uint64, c.primaryHintNum)
+	c.primaryShortTag = resetUint64s(c.primaryShortTag, c.primaryHintNum)
+	c.primaryProgramPoint = resetUint64s(c.primaryProgramPoint, c.primaryHintNum)
+	c.primaryParity = resetRows(c.primaryParity, c.primaryHintNum, c.config.MaxDBEntrySize)
 
-	for i := 0; i < int(c.primaryHintNum); i++ {
+	for i := uint64(0); i < c.primaryHintNum; i++ {
 		c.primaryShortTag[i] = shortTagCount
-		c.primaryParity[i] = make([]uint64, c.config.MaxDBEntrySize)
-		c.primaryParity[i][0] = 0
 		c.primaryProgramPoint[i] = DefaultProgramPoint
 		shortTagCount += 1
 	}
 
-	// TODO: BE CAREFUL WITH REPLACEMENT/BACKUP VALS!! I might accidentally writing 0s over good data I think the parity
-	// will be fine to pad out, even for running time as it should just be done in pre-processing. I could perhaps do it
-	// dynamically instead of what I'm doing below for faster speed.
-	c.replacementIdx = make([][]uint64, c.config.SetSize)
-	c.replacementVal = make([][][]uint64, c.config.SetSize)
-	c.backupShortTag = make([][]uint64, c.config.SetSize)
-	c.backupParity = make([][][]uint64, c.config.SetSize)
+	if uint64(len(c.backupParity)) != c.config.SetSize {
+		c.replacementIdx = make([][]uint64, c.config.SetSize)
+		c.replacementVal = make([][][]uint64, c.config.SetSize)
+		c.backupShortTag = make([][]uint64, c.config.SetSize)
+		c.backupParity = make([][][]uint64, c.config.SetSize)
+	}
 
-	for i := 0; i < int(c.config.SetSize); i++ { // for each chunk we have
-		c.replacementIdx[i] = make([]uint64, c.maxQueryPerChunk)
-		c.backupShortTag[i] = make([]uint64, c.maxQueryPerChunk)
+	for i := uint64(0); i < c.config.SetSize; i++ { // for each chunk we have
+		c.replacementIdx[i] = resetUint64s(c.replacementIdx[i], c.maxQueryPerChunk)
+		c.backupShortTag[i] = resetUint64s(c.backupShortTag[i], c.maxQueryPerChunk)
+		c.backupParity[i] = resetRows(c.backupParity[i], c.maxQueryPerChunk, c.config.MaxDBEntrySize)
 
-		c.replacementVal[i] = make([][]uint64, c.maxQueryPerChunk)
-		c.backupParity[i] = make([][]uint64, c.maxQueryPerChunk)
+		// replacementVal rows point straight at DB rows (set in
+		// UpdatePreprocessing) and are only ever read, so they own no memory.
+		// Never clear() them: that would zero the database.
+		if uint64(len(c.replacementVal[i])) != c.maxQueryPerChunk {
+			c.replacementVal[i] = make([][]uint64, c.maxQueryPerChunk)
+		} else {
+			clear(c.replacementVal[i]) // drops the references, not the rows
+		}
 
-		for j := 0; j < int(c.maxQueryPerChunk); j++ {
-
-			c.backupParity[i][j] = make([]uint64, c.config.MaxDBEntrySize)
-			c.replacementVal[i][j] = make([]uint64, c.config.MaxDBEntrySize)
-
+		for j := uint64(0); j < c.maxQueryPerChunk; j++ {
 			c.replacementIdx[i][j] = DefaultProgramPoint
 			c.backupShortTag[i][j] = shortTagCount
 			shortTagCount += 1
-
-			//TODO: this dynamically?
-			for k := 0; uint64(k) < c.config.MaxDBEntrySize; k++ {
-				// i is the chunk, j is the many hints for a single chunk and k is the actual value/size of entry
-				c.backupParity[i][j][k] = 0   // partiy of this chunk
-				c.replacementVal[i][j][k] = 0 // plaintext value to 'slip out' of the request
-			}
 		}
 	}
 
 	// clean the cache
 	c.localCache = make(map[uint64][][]uint64)
+}
+
+// resetUint64s returns s zeroed, reallocating only if it has the wrong length.
+func resetUint64s(s []uint64, n uint64) []uint64 {
+	if uint64(len(s)) != n {
+		return make([]uint64, n)
+	}
+	clear(s)
+	return s
+}
+
+// resetRows returns an n x width table of zeros, reusing rows that are
+// already the right width. Rows must not be shared with anything else.
+func resetRows(rows [][]uint64, n, width uint64) [][]uint64 {
+	if uint64(len(rows)) != n {
+		rows = make([][]uint64, n)
+	}
+	for i := range rows {
+		rows[i] = resetUint64s(rows[i], width)
+	}
+	return rows
 }
 
 //// Use native XOR instead of ASM. I think the ASM version has hardware acceleration though, so I'll leave the other
@@ -513,7 +538,8 @@ func (c *PianoPIRClient) UpdatePreprocessing(chunkId uint64, chunk [][]uint64) {
 	for j := uint64(0); j < c.maxQueryPerChunk; j++ {
 		offset := rng.Uint64() & (c.config.ChunkSize - 1)
 		c.replacementIdx[chunkId][j] = offset + chunkId*c.config.ChunkSize
-		copy(c.replacementVal[chunkId][j:(j+1)], chunk[offset:(offset+1)])
+		// Points at the DB row; Query only reads it.
+		c.replacementVal[chunkId][j] = chunk[offset]
 	}
 
 	//fmt.Println("finished replacement")
@@ -637,7 +663,9 @@ func (c *PianoPIRClient) Query(idx uint64, server *PianoPIRServer, realQuery boo
 
 	// now we need to refresh
 	c.primaryShortTag[hitId] = c.backupShortTag[chunkId][inGroupIdx]
-	copy(c.primaryParity[hitId:(hitId+1)], c.backupParity[chunkId][inGroupIdx:(inGroupIdx+1)])
+	// Copy the values, not the row header. Copying the header made the primary
+	// row and the backup row share memory, which breaks in-place reuse.
+	copy(c.primaryParity[hitId], c.backupParity[chunkId][inGroupIdx])
 	c.primaryProgramPoint[hitId] = idx                   // program the original index
 	EntryXor(c.primaryParity[hitId:(hitId+1)], response) // also need to add the current response to the parity
 

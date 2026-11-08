@@ -28,6 +28,11 @@ type CuckooBuildConfig struct {
 	MaxKicks      int
 	BuildAttempts int
 	CacheDir      string
+
+	// Client-storage layout options, see cuckoo_compact.go. Zero = original.
+	Hashes    int // 2 or 3 locations per key
+	KeyBytes  int // key bytes kept per row (8 = full key)
+	ValueBits int // bits per upper bound (8 = as built)
 }
 
 func DefaultCuckooBuildConfig() CuckooBuildConfig {
@@ -51,6 +56,12 @@ type CuckooTable struct {
 	Seed2      uint64
 	Data       []uint64
 
+	// layout (cuckoo_compact.go); 2 / 8 / 8 is the original one
+	Hashes    int
+	KeyBytes  int
+	ValueBits int
+	Seed3     uint64
+
 	cacheFile *os.File
 	cacheMmap []byte
 }
@@ -67,8 +78,11 @@ func normalizeCuckooConfig(config CuckooBuildConfig) (CuckooBuildConfig, error) 
 	if config.BuildAttempts == 0 {
 		config.BuildAttempts = 8
 	}
-	if config.LoadFactor <= 0 || config.LoadFactor >= 0.5 {
-		return config, fmt.Errorf("Cuckoo load factor must be in (0, 0.5), got %g", config.LoadFactor)
+	if config.LoadFactor <= 0 {
+		return config, fmt.Errorf("Cuckoo load factor must be positive, got %g", config.LoadFactor)
+	}
+	if err := validateCompactConfig(config); err != nil {
+		return config, err
 	}
 	if config.MaxKicks < 1 || config.BuildAttempts < 1 {
 		return config, fmt.Errorf("Cuckoo max kicks and build attempts must be positive")
@@ -200,11 +214,15 @@ func buildOrLoadCuckooTable(
 	}
 	slotCount := cuckooSlotCount(itemCount, config.LoadFactor)
 	entryWords := cuckooEntryWords(valueBytes)
+	compact := !config.IsDefaultLayout()
+	if compact {
+		entryWords = compactEntryWords(config.keyBytes(), config.valueBits(), valueBytes)
+	}
 
 	var cachePath string
 	if config.CacheDir != "" {
 		cachePath = filepath.Join(config.CacheDir, cacheName)
-		if table, loadErr := loadCuckooTable(cachePath, name, itemCount, slotCount, entryWords, valueBytes, sourceTag, config.LoadFactor); loadErr == nil {
+		if table, loadErr := loadCuckooTable(cachePath, name, itemCount, slotCount, entryWords, valueBytes, sourceTag, config); loadErr == nil {
 			fmt.Printf("%s Cuckoo: loaded %d items in %d slots from %s\n", name, itemCount, slotCount, cachePath)
 			return table, nil
 		} else if !errors.Is(loadErr, os.ErrNotExist) {
@@ -221,12 +239,26 @@ func buildOrLoadCuckooTable(
 			ValueBytes: valueBytes,
 			Seed1:      cuckooBuildSeed(name, attempt, 1),
 			Seed2:      cuckooBuildSeed(name, attempt, 2),
+			Seed3:      cuckooBuildSeed(name, attempt, 3),
 			Data:       make([]uint64, slotCount*entryWords),
+			Hashes:     config.hashes(),
+			KeyBytes:   config.keyBytes(),
+			ValueBits:  config.valueBits(),
 		}
 		scratch := make([]uint64, entryWords)
+		var keys []uint64 // full keys while building a compact table
+		if compact {
+			keys = make([]uint64, slotCount)
+		}
 		inserted := uint64(0)
 		buildErr := source(func(key uint64, value []byte) error {
-			if err := table.insert(key, value, scratch, config.MaxKicks); err != nil {
+			var err error
+			if compact {
+				err = table.insertCompact(key, value, keys, scratch, config.MaxKicks)
+			} else {
+				err = table.insert(key, value, scratch, config.MaxKicks)
+			}
+			if err != nil {
 				return err
 			}
 			inserted++
@@ -238,6 +270,7 @@ func buildOrLoadCuckooTable(
 		if buildErr == nil && inserted != itemCount {
 			buildErr = fmt.Errorf("source yielded %d rows; want %d", inserted, itemCount)
 		}
+		keys = nil
 		if buildErr == nil {
 			fmt.Printf("%s Cuckoo: built %d items in %d slots (load %.4f, entry %d bytes)\n",
 				name, itemCount, slotCount, float64(itemCount)/float64(slotCount), entryWords*8)
@@ -259,13 +292,29 @@ func buildOrLoadCuckooTable(
 	return nil, fmt.Errorf("building %s Cuckoo table failed after %d hash seeds", name, config.BuildAttempts)
 }
 
+// headerBytes is the cache header size: the original 80 bytes, plus 32 for a
+// non-default layout (hashes, key bytes, value bits, third seed).
+func headerBytes(compact bool) int {
+	if compact {
+		return cuckooHeaderBytes + 32
+	}
+	return cuckooHeaderBytes
+}
+
+func (table *CuckooTable) compact() bool {
+	return !(table.Hashes <= 2 && table.KeyBytes >= 8 && table.ValueBits >= 8)
+}
+
 func cacheHeader(table *CuckooTable, sourceTag uint64, loadFactor float64) []byte {
-	header := make([]byte, cuckooHeaderBytes)
+	header := make([]byte, headerBytes(table.compact()))
 	copy(header[:8], cuckooCacheMagic)
 	values := []uint64{
 		cuckooCacheVersion, table.SlotCount, table.ItemCount, table.EntryWords,
 		uint64(table.ValueBytes), table.Seed1, table.Seed2, sourceTag,
 		math.Float64bits(loadFactor),
+	}
+	if table.compact() {
+		values = append(values, uint64(table.Hashes), uint64(table.KeyBytes), uint64(table.ValueBits), table.Seed3)
 	}
 	for i, value := range values {
 		binary.LittleEndian.PutUint64(header[8+i*8:16+i*8], value)
@@ -329,8 +378,11 @@ func loadCuckooTable(
 	itemCount, slotCount, entryWords uint64,
 	valueBytes int,
 	sourceTag uint64,
-	loadFactor float64,
+	config CuckooBuildConfig,
 ) (*CuckooTable, error) {
+	loadFactor := config.LoadFactor
+	compact := !config.IsDefaultLayout()
+	header := headerBytes(compact)
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -345,7 +397,7 @@ func loadCuckooTable(
 	if err != nil {
 		return nil, err
 	}
-	expectedSize := int64(cuckooHeaderBytes) + int64(slotCount*entryWords*8)
+	expectedSize := int64(header) + int64(slotCount*entryWords*8)
 	if stat.Size() != expectedSize {
 		return nil, fmt.Errorf("cache size is %d; want %d", stat.Size(), expectedSize)
 	}
@@ -370,8 +422,12 @@ func loadCuckooTable(
 		read(8) != math.Float64bits(loadFactor) {
 		return nil, fmt.Errorf("Cuckoo cache metadata does not match source/configuration")
 	}
+	if compact && (read(9) != uint64(config.hashes()) || read(10) != uint64(config.keyBytes()) ||
+		read(11) != uint64(config.valueBits())) {
+		return nil, fmt.Errorf("Cuckoo cache layout does not match the configuration")
+	}
 	wordCount := int(slotCount * entryWords)
-	data := unsafe.Slice((*uint64)(unsafe.Pointer(&mapped[cuckooHeaderBytes])), wordCount)
+	data := unsafe.Slice((*uint64)(unsafe.Pointer(&mapped[header])), wordCount)
 	table := &CuckooTable{
 		Name:       name,
 		SlotCount:  slotCount,
@@ -381,8 +437,14 @@ func loadCuckooTable(
 		Seed1:      read(5),
 		Seed2:      read(6),
 		Data:       data,
+		Hashes:     config.hashes(),
+		KeyBytes:   config.keyBytes(),
+		ValueBits:  config.valueBits(),
 		cacheFile:  file,
 		cacheMmap:  mapped,
+	}
+	if compact {
+		table.Seed3 = read(12)
 	}
 	closeOnError = false
 	unmapOnError = false

@@ -25,7 +25,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
 	"github.com/dkblackley/bins-go/bins/textcodec"
 	"github.com/dkblackley/bins-go/globals"
@@ -310,7 +309,7 @@ func MakeTextDb(config *globals.Args) *TextBins {
 		DB, err = ReadCSV(config.DataName + "_unigram_DB.csv")
 		Must(err)
 	} else {
-		reader, _ := bluge.OpenReader(bluge.DefaultConfig(meta.IndexDir))
+		reader := OpenBinsIndex(meta)
 		defer reader.Close()
 		DB = MakeUnigramDB(reader, meta, config)
 		if config.Save {

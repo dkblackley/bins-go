@@ -1,5 +1,5 @@
 """
-Loads every run under RESULTS_DIR into
+Loads every run under g.RESULTS_DIRS (RESULTS_DIR, ':'-separated) into
 
     nested_data[method][dataset] = [run, run, ...]
 
@@ -18,7 +18,8 @@ finishes, so a folder without metadata.json is skipped (counted in the log).
         vec0     two DBs: BM25 bins DB, then a separate embedding (Vec) DB  -> "2-stage"
         vec1     one single DB holding everything                           -> "1-stage"
     bins_text_{dataset}_k{K}_bs{BS}_dpb{DPB}
-        text     one DB of compressed doc text, client BM25 re-rank (-text)  -> vec=2
+        text     one DB of compressed doc text, client BM25 re-rank (-text)  -> vec=2,
+                 loaded as its own method 'bins-text' so it never mixes into the embedding bins
         dataset  msmarco | scifact
         k        documents returned per query in the final list (10 or 100)
         bs       bin size: number of entries in the DB (same as RealBinSize)
@@ -32,6 +33,16 @@ finishes, so a folder without metadata.json is skipped (counted in the log).
     tree_{dataset}_..._k{K}
         Layout not fixed yet, see parse_tree().
 
+    tiptoe_{dataset}_c{C}[_m{M}][_b{B}][_h{H}]_k{K}
+        C        number of k-means clusters (baselines/tiptoe/preprocess_tiptoe.py)
+        M        clusters each doc is assigned to (default 2)
+        B        bundle size (default 160)
+        H        embedding hint MB (default 500)
+
+    coeus_{dataset}_k{K}_f{F}[_tf{raw|log}]
+        F        keyword dictionary size (baselines/coeus/run_coeus.py)
+        tf       term-frequency weighting (default raw)
+
 METADATA.JSON (all values are strings)
 -------------
 Common to every method:
@@ -39,7 +50,9 @@ Common to every method:
     CommCostPerBatchKB  KB sent for one batched PIR query
     DBSizeInBytesMB     server DB size (MB, despite the name)
     FailureProbLog2     PIR failure probability, log2
-    MRR / Recall        of the final list output by the method
+    MRR / Recall        of the final list output by the method. For the
+                        methods in g.MRR_FROM_PRE_RERANK (Coeus, Tiptoe) the
+                        loaded 'mrr' is MRRPreReRank instead, see parse_common()
     MRRPreReRank / RecallPreReRank
                         before the local rerank (cosine similarity against the
                         query embedding, keep top-k)
@@ -66,6 +79,14 @@ Bins only:
 Pacmann only:
     GraphGenerationTime graph building, a pacmann-only preprocessing step
 
+Tiptoe only (Tiptoe* keys, see tiptoe/tiptoe.go):
+    TiptoeTokenKBPerQuery   offline per-query token (counted in TotalByteSent,
+                            not in LAN/WAN time, like PIR preprocessing)
+    TiptoeOfflineLANTime / TiptoeOfflineWANTime   network time of those tokens
+
+Coeus only (Coeus* keys, see baselines/coeus/run_coeus.py):
+    TotalAnswerTime is only present when Coeus' opt2 benchmark was calibrated.
+
 RUN KEYS
 --------
 Per query (divided by NumQueries):
@@ -75,7 +96,9 @@ Per query (divided by NumQueries):
     wan_time     TotalWANTime (+ VecTotalWANTime) (s)
     comm_kb      TotalByteSent (+ VecTotalByteSent) in KB
 Not per query:
-    mrr, mrr_pre_rerank, recall, recall_pre_rerank, faithfulness,
+    mrr          MRR, or MRRPreReRank for g.MRR_FROM_PRE_RERANK methods
+    mrr_reranked MRR as written in metadata.json, whatever the method
+    mrr_pre_rerank, recall, recall_pre_rerank, faithfulness,
     answer_relevancy, db_size_mb, client_storage_mb, comm_per_batch_kb,
     failure_prob_log2, preprocessing_time (s, one-off),
     graph_generation_time (s, pacmann only), empty_bins, vocab_size,
@@ -99,17 +122,15 @@ import re
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 
 import globals as g
-from client_estimate import estimate_client
 
 log = logging.getLogger('load')
 
 # bins_text_* = the -text mode (compressed doc text in one DB, client BM25 re-rank); parsed as vec=2
 BINS_NAME = re.compile(r'^bins_(?:vec(?P<vec>\d)|(?P<text>text))_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
 PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
-TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?_k(?P<k>10)$')
+TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?(?:_c(?P<c>\d+))?_k(?P<k>10)$')
 
 TREE_STAGES = [1, 2, 3]   # each stage is one PIR DB; totals are the sum over these
 
@@ -181,7 +202,7 @@ def combine_parts(run, parts):
 # PARSERS (one per method)
 # ==========================================
 
-def parse_common(folder, meta):
+def parse_common(folder, meta, method):
     """Keys every method shares. Returns None if the run can't be made per-query."""
     n = read_float(meta, 'NumQueries')
     if not n > 0:
@@ -189,10 +210,12 @@ def parse_common(folder, meta):
                   folder, meta.get('NumQueries'))
         return None
 
+    mrr_key = 'MRRPreReRank' if method in g.MRR_FROM_PRE_RERANK else 'MRR'
     run = {
         'folder':             folder,
         'num_queries':        int(n),
-        'mrr':                read_float(meta, 'MRR'),
+        'mrr':                read_float(meta, mrr_key),
+        'mrr_reranked':       read_float(meta, 'MRR'),
         'mrr_pre_rerank':     read_float(meta, 'MRRPreReRank'),
         'recall':             read_float(meta, 'Recall'),
         'recall_pre_rerank':  read_float(meta, 'RecallPreReRank'),
@@ -206,7 +229,7 @@ def parse_common(folder, meta):
     run.update(read_db_part(meta, n))
 
     if run['mrr'] == 0:
-        log.warning("%s: MRR is 0", folder)
+        log.warning("%s: %s is 0", folder, mrr_key)
     if run['comm_kb'] == 0:
         log.warning("%s: TotalByteSent is 0", folder)
     return run
@@ -218,14 +241,14 @@ def parse_bins(folder, meta):
         if not "k100" in folder:
             log.warning("%s: doesn't match bins_vec<0|1>_<dataset>_k<K>_bs<BS>_dpb<DPB>, skipping", folder)
         return None
-    run = parse_common(folder, meta)
+    run = parse_common(folder, meta, 'bins')
     if run is None:
         return None
 
     vec = 2 if name['text'] else int(name['vec'])
     bs, dpb = int(name['bs']), int(name['dpb'])
     tag = 'text' if vec == 2 else f'vec{vec}'
-    run.update(method='bins', dataset=name['dataset'], k=int(name['k']),
+    run.update(method='bins-text' if vec == 2 else 'bins', dataset=name['dataset'], k=int(name['k']),
                vec=vec, bs=bs, dpb=dpb, config=f'{tag}_bs{bs}_dpb{dpb}',
                pir_rounds=2 if vec == 0 else 1,   # vec0 queries the BM25 DB, then the Vec DB
                real_bin_size=read_float(meta, 'RealBinSize'),
@@ -236,7 +259,7 @@ def parse_bins(folder, meta):
     if vec == 0 and not has_vec_keys:
         log.warning("%s: vec0 run without Vec* keys, totals will be NaN", folder)
     if vec >= 1 and has_vec_keys:
-        log.warning("%s: vec1 run has Vec* keys, they are ignored", folder)
+        log.warning("%s: single-DB run has Vec* keys, they are ignored", folder)
     if run['real_bin_size'] != bs:
         log.warning("%s: RealBinSize=%s but folder says bs=%d", folder, meta.get('RealBinSize'), bs)
 
@@ -267,7 +290,7 @@ def parse_pacmann(folder, meta):
         if not "k100" in folder:
             log.warning("%s: doesn't match pacmann_<dataset>_k<K>_steps<S>_neighb<N>, skipping", folder)
         return None
-    run = parse_common(folder, meta)
+    run = parse_common(folder, meta, 'pacmann')
     if run is None:
         return None
 
@@ -289,15 +312,20 @@ def parse_tree(folder, meta):
     name = TREE_NAME.match(folder)
     if not name:
         if not "k100" in folder:
-            log.warning("%s: doesn't match tree_<dataset>_b<B>_r<R>_s<S>_L<L>_k<K>, skipping", folder)
+            log.warning("%s: doesn't match tree_<dataset>_b<B>_r<R>_s<S>_L<L>[_q<Q>][_c<C>]_k<K>, skipping", folder)
         return None
-    run = parse_common(folder, meta)
+    run = parse_common(folder, meta, 'tree')
     if run is None:
         return None
 
     b, r, s, L = int(name['b']), int(name['r']), int(name['s']), int(name['L'])
+    # q / c (k_candidates) only appear in newer folder names; keep them in the label so
+    # configs that differ only in q or c don't collapse into one point.
+    q = int(name['q']) if name['q'] else None
+    c = int(name['c']) if name['c'] else None
+    config = f'b{b}_r{r}_s{s}_L{L}' + (f'_q{q}' if q is not None else '') + (f'_c{c}' if c is not None else '')
     run.update(method='tree', dataset=name['dataset'], k=int(name['k']),
-               b=b, r=r, s=s, L=L, config=f'b{b}_r{r}_s{s}_L{L}')
+               b=b, r=r, s=s, L=L, q=q, k_candidates=c, config=config)
 
     parts, missing = {}, []
     for stage in TREE_STAGES:
@@ -335,7 +363,47 @@ def tree_pir_rounds(folder, meta, n):
     return math.nan if math.isnan(total) else math.ceil(total / n)
 
 
-PARSERS = {'bins': parse_bins, 'pacmann': parse_pacmann, 'tree': parse_tree}
+# m = multi-assign, b = bundle size, h = embedding hint MB (optional, older runs don't have them)
+TIPTOE_NAME = re.compile(r'^tiptoe_(?P<dataset>[a-z0-9-]+)_c(?P<c>\d+)(?:_m(?P<m>\d+))?(?:_b(?P<b>\d+))?(?:_h(?P<h>\d+))?_k(?P<k>10)$')
+COEUS_NAME = re.compile(r'^coeus_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_f(?P<f>\d+)(?:_tf(?P<tf>raw|log))?$')
+
+
+def parse_tiptoe(folder, meta):
+    name = TIPTOE_NAME.match(folder)
+    if not name:
+        if "k100" not in folder:
+            log.warning("%s: doesn't match tiptoe_<dataset>_c<C>_k<K>, skipping", folder)
+        return None
+    run = parse_common(folder, meta, 'tiptoe')
+    if run is None:
+        return None
+    c = int(name['c'])
+    m, b, h = int(name['m'] or 2), int(name['b'] or 160), int(name['h'] or 500)
+    run.update(method='tiptoe', dataset=name['dataset'], k=int(name['k']), c=c, multi_assign=m, bundle=b,
+               emb_hint_mb=h, config=f'c{c}_m{m}_b{b}_h{h}',
+               pir_rounds=2,   # ranking round + URL round (the token is fetched offline)
+               token_kb=read_float(meta, 'TiptoeTokenKBPerQuery'),
+               offline_wan_time=read_seconds(meta, 'TiptoeOfflineWANTime') / run['num_queries'])
+    return run
+
+
+def parse_coeus(folder, meta):
+    name = COEUS_NAME.match(folder)
+    if not name:
+        if "k100" not in folder:
+            log.warning("%s: doesn't match coeus_<dataset>_k<K>_f<F>, skipping", folder)
+        return None
+    run = parse_common(folder, meta, 'coeus')
+    if run is None:
+        return None
+    f, tf = int(name['f']), name['tf'] or 'raw'
+    run.update(method='coeus', dataset=name['dataset'], k=int(name['k']), f=f, tf=tf, config=f'f{f}_tf{tf}',
+               pir_rounds=2)   # encrypted scoring, then metadata PIR
+    return run
+
+
+PARSERS = {'bins': parse_bins, 'pacmann': parse_pacmann, 'tree': parse_tree,
+           'tiptoe': parse_tiptoe, 'coeus': parse_coeus}
 
 
 # ==========================================
@@ -369,29 +437,48 @@ def _load_folder(results_dir, folder):
     run = PARSERS[method](folder, meta)
     if run is None:
         return 'skipped', None, None
-    return 'ok', method, run
+    return 'ok', run.get('method', method), run   # bins_text_* folders load as 'bins-text'
 
 
-def load_results(results_dir=g.RESULTS_DIR, max_workers=32):
+def load_results(results_dirs=None, max_workers=32):
     """
-    Reads every folder's metadata.json with a thread pool. Loading is I/O-bound
+    Reads every folder's metadata.json in `results_dirs` (one path, a list of
+    paths, or None for g.RESULTS_DIRS) with a thread pool. Loading is I/O-bound
     (many small file reads, often over a network filesystem), so threads give a
     big speedup despite the GIL: it's released during file I/O, and json.load /
     the parsers only hold it for the small compute part.
     """
+    if results_dirs is None:
+        results_dirs = g.RESULTS_DIRS
+    elif isinstance(results_dirs, str):
+        results_dirs = [d for d in results_dirs.split(os.pathsep) if d]
+    extra = [d for d in g.EXTRA_RESULTS_DIRS if d not in results_dirs]
+    for d in extra:
+        if not os.path.isdir(d):
+            log.debug("extra results directory not found, skipped: %s", d)
+    results_dirs = list(results_dirs) + [d for d in extra if os.path.isdir(d)]
+    log.info("reading results from %s", ', '.join(results_dirs))
     nested_data = {method: {} for method in g.METHOD_ORDER}
-    if not os.path.isdir(results_dir):
-        log.error("results directory does not exist: %s", results_dir)
-        return nested_data
 
-    folders = sorted(os.listdir(results_dir))
+    jobs = []   # (results_dir, folder), a folder name seen twice is only loaded once
+    seen = {}
+    for results_dir in results_dirs:
+        if not os.path.isdir(results_dir):
+            log.error("results directory does not exist: %s", results_dir)
+            continue
+        for folder in sorted(os.listdir(results_dir)):
+            if folder in seen:
+                log.warning("%s is in both %s and %s, using the first", folder, seen[folder], results_dir)
+                continue
+            seen[folder] = results_dir
+            jobs.append((results_dir, folder))
     no_metadata, bad_json, skipped = [], [], []
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        # pool.map yields results in `folders` order even though workers finish
+        # pool.map yields results in `jobs` order even though workers finish
         # out of order, so nested_data ends up built deterministically.
-        for folder, (status, method, run) in zip(
-                folders, pool.map(partial(_load_folder, results_dir), folders)):
+        for (_, folder), (status, method, run) in zip(
+                jobs, pool.map(lambda job: _load_folder(*job), jobs)):
             if status == 'not_dir':
                 continue
             if status == 'unknown_method':
@@ -407,6 +494,8 @@ def load_results(results_dir=g.RESULTS_DIR, max_workers=32):
                 skipped.append(folder)
                 continue
             log.debug("loaded %s", folder)
+            if method == 'bins-text' and method not in g.METHOD_ORDER:   # g.TEXT_BINS = []
+                continue
             nested_data.setdefault(method, {}).setdefault(run['dataset'], []).append(run)
 
     if no_metadata:
@@ -445,7 +534,7 @@ def find_run(nested_data, folder):
 
 if __name__ == '__main__':
     g.setup_logging()
-    data = load_results(g.RESULTS_DIR)
+    data = load_results()
     for name in sys.argv[1:]:
         found = find_run(data, name)
         if found is None:

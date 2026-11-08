@@ -61,6 +61,38 @@ type SimpleBatchPianoPIR struct {
 	InitialPreprocessingTime float64
 	MaintainenceTime         float64
 	TotalPreProcs            uint
+
+	// download is set when the whole DB is smaller than its Piano hints would be
+	// (DownloadIfCheaper): the client keeps rawDB and answers lookups locally.
+	download bool
+	rawDB    [][]uint64
+}
+
+// DownloadIfCheaper makes NewSimpleBatchPianoPIR hand the client the plain DB
+// whenever the Piano hints for it would take at least as much client storage as
+// the DB itself. Decided from public sizes only, and a local lookup sends
+// nothing, so it is trivially private. Off by default.
+var DownloadIfCheaper = false
+
+// partitionConfig is the PianoPIRConfig every partition of the batch gets.
+func partitionConfig(PartitionSize, MaxDBEntrySize, DBEntryByteNum, FailureProbLog2 uint64) PianoPIRConfig {
+	targetChunkSize := uint64(2 * math.Sqrt(float64(PartitionSize)))
+	ChunkSize := uint64(1)
+	for ChunkSize < targetChunkSize {
+		ChunkSize *= 2
+	}
+	SetSize := uint64(math.Ceil(float64(PartitionSize) / float64(ChunkSize)))
+	// round up to the next mulitple of 4
+	SetSize = (SetSize + 3) / 4 * 4
+	return PianoPIRConfig{
+		DBEntryByteNum:  DBEntryByteNum,
+		MaxDBEntrySize:  MaxDBEntrySize,
+		DBSize:          PartitionSize,
+		ChunkSize:       ChunkSize,
+		SetSize:         SetSize,
+		ThreadNum:       ThreadNum,
+		FailureProbLog2: FailureProbLog2,
+	}
 }
 
 func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum uint64, BatchSize uint64,
@@ -90,6 +122,18 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 		ThreadNum:       ThreadNum,
 		FailureProbLog2: FailureProbLog2,
 		BatchNumNeeded:  BatchNumNeeded,
+	}
+
+	if DownloadIfCheaper {
+		sub := partitionConfig(PartitionSize, MaxDBEntrySize, DBEntryByteNum, FailureProbLog2)
+		hintBytes := float64(PartitionNum) * hintStorageBytes(&sub)
+		dbBytes := float64(rawDBBytes(rawDB)) // real (unpadded) size: variable-size entries are stored as they are
+		if hintBytes >= dbBytes {
+			logrus.Infof("BatchPIR: hints would take %.2f MB but the DB is only %.2f MB, the client downloads the DB instead",
+				hintBytes/1024/1024, dbBytes/1024/1024)
+			return &SimpleBatchPianoPIR{config: config, download: true, rawDB: rawDB,
+				SupportBatchNum: math.MaxUint64 / 2} // never needs a refresh
+		}
 	}
 
 	// --- START INSERTION: Zero-Copy Shuffle Logic ---
@@ -128,24 +172,7 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 			log.Fatalf("Piano PIR len(rawDB) = %v; want %v", len(rawDB), DBSize)
 		}
 
-		targetChunkSize := uint64(2 * math.Sqrt(float64(PartitionSize)))
-		ChunkSize := uint64(1)
-		for ChunkSize < targetChunkSize {
-			ChunkSize *= 2
-		}
-		SetSize := uint64(math.Ceil(float64(PartitionSize) / float64(ChunkSize)))
-		// round up to the next mulitple of 4
-		SetSize = (SetSize + 3) / 4 * 4
-
-		subConfig := PianoPIRConfig{
-			DBEntryByteNum:  DBEntryByteNum,
-			MaxDBEntrySize:  MaxDBEntrySize,
-			DBSize:          PartitionSize,
-			ChunkSize:       ChunkSize,
-			SetSize:         SetSize,
-			ThreadNum:       ThreadNum,
-			FailureProbLog2: FailureProbLog2,
-		}
+		subConfig := partitionConfig(PartitionSize, MaxDBEntrySize, DBEntryByteNum, FailureProbLog2)
 
 		// subPIR[i] = NewPianoPIR(&subConfig, rawDB[start:end])
 		// subPIR[i] = NewPianoPIR(&subConfig, shuffledDB[start:end])
@@ -169,6 +196,24 @@ func netTime(bytes, rounds uint64, mbps, rttSec float64) float64 {
 func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 
 	metadata := make(map[string]string)
+	if p.download {
+		dbBytes := float64(rawDBBytes(p.rawDB))
+		fmt.Printf("BatchPIR (downloaded): DBSize: %v, DBEntryByteNum: %v, client storage = %v MB\n",
+			p.config.DBSize, p.config.DBEntryByteNum, dbBytes/1024/1024)
+		metadata["TotalByteSent"] = "0"
+		metadata["TotalLANTime"] = "0"
+		metadata["TotalWANTime"] = "0"
+		metadata["DBSizeInBytesMB"] = fmt.Sprintf("%v", dbBytes/1024/1024)
+		metadata["FailureProbLog2"] = fmt.Sprintf("%v", p.config.FailureProbLog2)
+		metadata["ClientStorageMB"] = fmt.Sprintf("%v", dbBytes/1024/1024)
+		metadata["ClientStoragePaddedMB"] = fmt.Sprintf("%v", float64(p.config.DBSize)*float64(p.config.DBEntryByteNum)/1024/1024)
+		metadata["TotalByteSentPadded"] = "0"
+		metadata["CommCostPerBatchKB"] = "0"
+		metadata["PreprocessingTime"] = "0"
+		metadata["MaintainenceTime"] = "0"
+		metadata["DownloadedDB"] = "true"
+		return metadata
+	}
 
 	fmt.Printf("-----------BatchPIR config --------\n")
 
@@ -234,6 +279,10 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 }
 
 func (p *SimpleBatchPianoPIR) RecordStats() {
+	if p.download {
+		p.localStorage = uint64(p.LocalStorageSize())
+		return
+	}
 	p.localStorage = uint64(p.LocalStorageSize())                 // bytes
 	p.commCostPerBatchOnline = uint64(p.CommCostPerBatchOnline()) // bytes
 	p.SupportBatchNum = p.subPIR[0].client.MaxQueryNum / QueryPerPartition
@@ -250,6 +299,10 @@ func (p *SimpleBatchPianoPIR) Preprocessing() time.Duration {
 	// we now use p.config.ThreadNum threads to do the preprocessing
 	p.FinishedBatchNum = 0
 	p.QueriesMadeInPartition = 0
+	if p.download { // the download is the offline phase; nothing to compute
+		p.TotalPreProcs = max(p.TotalPreProcs, 1)
+		return 0
+	}
 	startTime := time.Now()
 
 	var wg sync.WaitGroup
@@ -294,6 +347,9 @@ func (p *SimpleBatchPianoPIR) Preprocessing() time.Duration {
 
 func (p *SimpleBatchPianoPIR) DummyPreprocessing() {
 	p.PrintInfo()
+	if p.download {
+		return
+	}
 	// directly initialize all subPIR
 	for i := uint64(0); i < p.config.PartitionNum; i++ {
 		p.subPIR[i].DummyPreprocessing()
@@ -306,6 +362,17 @@ func (p *SimpleBatchPianoPIR) DummyPreprocessing() {
 /// TODO: optimize for multiple batch
 
 func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
+	if p.download {
+		ret := make([][]uint64, len(idx))
+		for i, row := range idx {
+			if row >= p.config.DBSize {
+				return nil, fmt.Errorf("BatchPIR index %d is outside database of size %d", row, p.config.DBSize)
+			}
+			ret[i] = make([]uint64, p.config.MaxDBEntrySize) // padded like a PIR answer
+			copy(ret[i], p.rawDB[row])
+		}
+		return ret, nil
+	}
 
 	// For tracking WAN/LAN times
 	p.roundsMade++
@@ -524,7 +591,13 @@ func (p *SimpleBatchPianoPIR) Query(idx []uint64) ([][]uint64, error) {
 	return ret, nil
 }
 
+// Downloaded reports whether the client holds the plain DB instead of hints.
+func (p *SimpleBatchPianoPIR) Downloaded() bool { return p.download }
+
 func (p *SimpleBatchPianoPIR) LocalStorageSize() float64 {
+	if p.download {
+		return float64(p.config.DBSize) * float64(p.config.DBEntryByteNum)
+	}
 	ret := float64(0)
 	for i := uint64(0); i < p.config.PartitionNum; i++ {
 		ret += p.subPIR[i].LocalStorageSize()
@@ -534,7 +607,7 @@ func (p *SimpleBatchPianoPIR) LocalStorageSize() float64 {
 
 func (p *SimpleBatchPianoPIR) CommCostPerBatchOnline() uint64 {
 	ret := float64(0)
-	for i := uint64(0); i < p.config.PartitionNum; i++ {
+	for i := range p.subPIR { // none when the DB was downloaded
 		ret += p.subPIR[i].CommCostPerQuery() * float64(QueryPerPartition)
 	}
 	return uint64(ret)
@@ -550,9 +623,21 @@ func (p *SimpleBatchPianoPIR) Config() *SimpleBatchPianoPIRConfig {
 
 // LocalStorageSizeTrimmed is the client hint size with each stored entry charged its real (unpadded) length.
 func (p *SimpleBatchPianoPIR) LocalStorageSizeTrimmed() float64 {
+	if p.download {
+		return float64(rawDBBytes(p.rawDB))
+	}
 	ret := float64(0)
 	for i := uint64(0); i < p.config.PartitionNum; i++ {
 		ret += p.subPIR[i].LocalStorageSizeTrimmed()
 	}
 	return ret
+}
+
+// rawDBBytes is the stored size of a DB whose entries may have different lengths.
+func rawDBBytes(rawDB [][]uint64) uint64 {
+	var n uint64
+	for _, e := range rawDB {
+		n += uint64(len(e)) * 8
+	}
+	return n
 }
