@@ -135,6 +135,11 @@ def _count_gz_lines(fp):
     return n
 
 
+def _count_indexed(arg):
+    i, fp = arg
+    return i, _count_gz_lines(fp)
+
+
 def raw_line_counts(files):
     """Passages per .gz, cached in line_counts.json next to them (one parallel pass the first time)."""
     cache = os.path.join(os.path.dirname(files[0]), 'line_counts.json')
@@ -144,8 +149,11 @@ def raw_line_counts(files):
             return [counts[os.path.basename(f)] for f in files]
     from multiprocessing import Pool
     print(f"Counting passages in {len(files)} .gz files (once, cached in {cache}) ...")
+    n = [0] * len(files)
     with Pool(min(len(files), os.cpu_count() or 1)) as pool:
-        n = pool.map(_count_gz_lines, files)
+        for i, c in tqdm(pool.imap_unordered(_count_indexed, list(enumerate(files))), total=len(files),
+                         desc="Counting passages", unit="file"):
+            n[i] = c
     json.dump({os.path.basename(f): c for f, c in zip(files, n)}, open(cache, 'w'))
     return n
 
