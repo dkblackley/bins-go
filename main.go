@@ -15,7 +15,9 @@ import (
 	"github.com/dkblackley/bins-go/Pacmann"
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
+	"github.com/dkblackley/bins-go/pianopir"
 	testpir "github.com/dkblackley/bins-go/testPIR"
+	"github.com/dkblackley/bins-go/tiptoe"
 	"github.com/dkblackley/bins-go/tree/cmd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sirupsen/logrus"
@@ -105,7 +107,7 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 			root + "/msmarco/qrels/qrels.dev.tsv",
 			vectors,
 		}
-	} else {
+	} else if name == "trec-covid" {
 		vectors := globals.Vectors{
 
 			root + "/trec-covid/trec_corpus_embed_f32.npy",
@@ -120,12 +122,49 @@ func GetDatasets(root, name string) globals.DatasetMetadata {
 			vectors,
 		}
 	}
+
+	// Generic layout written by datasets/prepare_dataset.py + datasets/embed.slurm. Covers nq, hotpotqa, fever,
+	// msmarco-v2 and its subsamples (e.g. msmarco-v2-100m), or any other name you prepare the same way:
+	//   <root>/<name>/corpus.jsonl, queries.jsonl, qrels/test.tsv,
+	//   <root>/<name>/<name>_corpus_embed_f32.npy, <name>_query_embed_f32.npy
+	pretty, ok := datasetDisplayNames[name]
+	if !ok {
+		pretty = name
+	}
+	if _, err := os.Stat(root + "/" + name + "/corpus.jsonl"); err != nil {
+		logrus.Warnf("Dataset %q: %s/%s/corpus.jsonl not found (%v)", name, root, name, err)
+	}
+	vectors := globals.Vectors{
+		root + "/" + name + "/" + name + "_corpus_embed_f32.npy",
+		root + "/" + name + "/" + name + "_query_embed_f32.npy",
+		root + "/" + name + "/" + name + "_graph.npy"}
+	return globals.DatasetMetadata{
+		pretty,
+		root + "/index_" + name,
+		root + "/" + name + "/corpus.jsonl",
+		root + "/" + name + "/queries.jsonl",
+		root + "/" + name + "/qrels/test.tsv",
+		vectors,
+	}
+}
+
+// Display names for the datasets that use the generic layout (unknown names just use the -name flag as-is)
+var datasetDisplayNames = map[string]string{
+	"nq":              "NQ",
+	"hotpotqa":        "HotpotQA",
+	"fever":           "FEVER",
+	"dbpedia-entity":  "DBPedia",
+	"miracl-en":       "MIRACL-en",
+	"msmarco-v2":      "MSMARCO-v2",
+	"msmarco-v2-25m":  "MSMARCO-v2-25M",
+	"msmarco-v2-50m":  "MSMARCO-v2-50M",
+	"msmarco-v2-100m": "MSMARCO-v2-100M",
 }
 
 func main() {
 
 	DBSize := flag.Uint("n", 8841823, "Number of items/vectors in DB")
-	searchType := flag.String("t", "bins", "Search type, current options are 'bins'|'pacmann'")
+	searchType := flag.String("t", "bins", "Search type: 'bins'|'pacmann'|'tree', or 'index' to build the bins' Bluge index for -name and exit")
 	dbFileName := flag.String("name", "msmarco", "Identifier for the dataset to be loaded")
 	datasetsDirectory := flag.String("dataset", "../datasets", "Where to look for the dataset/data")
 	topK := flag.Uint("k", 5, "K many items to return in search")
@@ -135,6 +174,9 @@ func main() {
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
 	binSize := flag.Uint("binSize", 1000000, "How many total bins to use, it's vocab size times this number")
 	docsPerBin := flag.Uint("docsPerBin", 100, "How many documents to put into each bin.")
+	idBatch := flag.Uint("idBatch", 0, "bins vec0: batch size of the ID DB, partitions = batch/2 (0 = 24)")
+	vecBatch := flag.Uint("vecBatch", 0, "bins vec0: embeddings fetched per embedding-DB round; partitions = batch/2, so smaller = less client storage (0 = automatic)")
+	vecRounds := flag.Uint("vecRounds", 0, "bins vec0: embedding-DB rounds per query (0 = automatic: enough rounds to cover as many docs as the automatic setting)")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
 	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
@@ -188,11 +230,26 @@ func main() {
 	pirConstantWork := flag.Bool("pir-constant-work", false, "Use public fixed BatchPIR padding and dummy work for cache hits (tree)")
 	pirThreads := flag.Int("pir-threads", 15, "Maximum number of BatchPIR partitions processed concurrently (tree)")
 	cuckooLoadFactor := flag.Float64("cuckoo-load-factor", 0.4, "Cuckoo table load factor (must be below 0.5 for two hashes)")
+	// client-storage knobs (tree, pir-old). Defaults reproduce the original runs.
+	pirDownloadSmall := flag.Bool("pir-download-small", false, "Download a PIR DB in the clear when its Piano hints would be at least as large as the DB (tree and bins)")
+	pirChunkFactor := flag.Float64("pir-chunk-factor", 2.0, "Piano ChunkSize = next pow2 >= factor*sqrt(partition rows); smaller = smaller primary hints, larger uploads (tree)")
+	pirQueryBudget := flag.Float64("pir-query-budget", 1.0, "Scale on the sqrt(n)ln(n) queries between hint refreshes; smaller = smaller backup hints, more re-preprocessing (tree)")
+	cuckooHashes := flag.Int("cuckoo-hashes", 2, "tree: hash locations per Cuckoo key, 2 or 3 (3 allows load factors up to 0.91)")
+	cuckooKeyBytes := flag.Int("cuckoo-key-bytes", 8, "tree: bytes of the (term,node) key kept per Cuckoo row, 1..8 (below 8 = fingerprint)")
+	cuckooUBBits := flag.Int("ub-bits", 8, "tree: bits per Stage1/2 upper bound, 1..8 (rounded up, so still upper bounds)")
+	stage3BatchSize := flag.Int64("stage3-batch-size", 32, "BatchPIR batch size of the Stage3 embedding DB, partitions = batch/2 (tree)")
 	cuckooMaxKicks := flag.Int("cuckoo-max-kicks", 1000, "Maximum displacement steps per Cuckoo insertion")
 	cuckooBuildAttempts := flag.Int("cuckoo-build-attempts", 8, "Maximum full-table Cuckoo rehash attempts")
 	cuckooCacheDir := flag.String("cuckoo-cache-dir", "", "Optional directory for persistent physical Cuckoo tables")
 
+	// Flags for the Tiptoe baseline (needs a build with -tags tiptoe)
+	tiptoeDir := flag.String("tiptoe-dir", "", "Tiptoe corpus dir made by baselines/tiptoe/preprocess_tiptoe.py")
+	tiptoeEmbHint := flag.Int("tiptoe-emb-hint-mb", 500, "Tiptoe ranking-service hint size target in MB (upstream default 500)")
+	tiptoeURLHint := flag.Int("tiptoe-url-hint-mb", 100, "Tiptoe URL-service hint size target in MB (upstream default 100)")
+	tiptoeMaxQueries := flag.Int("tiptoe-max-queries", 0, "Tiptoe: answer only the first N queries (0 = all)")
+
 	flag.Parse()
+	pianopir.DownloadIfCheaper = *pirDownloadSmall // bins; the tree sets pir-old's copy from BinsConf
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
 
@@ -226,6 +283,9 @@ func main() {
 		DChoice:           *dChoice,
 		BinSize:           *binSize,
 		DocsPerBin:        *docsPerBin,
+		IDBatch:           *idBatch,
+		VecBatch:          *vecBatch,
+		VecRounds:         *vecRounds,
 		DBSize:            *DBSize,
 		Save:              *save,
 		Load:              *load,
@@ -290,9 +350,21 @@ func main() {
 			PIRConstantWork:     *pirConstantWork,
 			PIRThreads:          *pirThreads,
 			CuckooLoadFactor:    *cuckooLoadFactor,
+			CuckooHashes:        *cuckooHashes,
+			CuckooKeyBytes:      *cuckooKeyBytes,
+			CuckooUBBits:        *cuckooUBBits,
+			PIRDownloadSmall:    *pirDownloadSmall,
+			PIRChunkFactor:      *pirChunkFactor,
+			PIRQueryBudget:      *pirQueryBudget,
+			Stage3BatchSize:     *stage3BatchSize,
 			CuckooMaxKicks:      *cuckooMaxKicks,
 			CuckooBuildAttempts: *cuckooBuildAttempts,
 			CuckooCacheDir:      *cuckooCacheDir,
+
+			TiptoeDir:        *tiptoeDir,
+			TiptoeEmbHintMB:  *tiptoeEmbHint,
+			TiptoeURLHintMB:  *tiptoeURLHint,
+			TiptoeMaxQueries: *tiptoeMaxQueries,
 		},
 	}
 
@@ -314,6 +386,14 @@ func main() {
 	})
 
 	logrus.Debugf("Config: %v", config)
+
+	if *searchType == "index" {
+		logrus.Infof("Building bins index %s from %s", meta.IndexDir, meta.OriginalDir)
+		start := time.Now()
+		bins.Must(bins.BuildBinsIndex(meta))
+		logrus.Infof("Index built in %s", time.Since(start))
+		return
+	}
 
 	qids := getQIDS(config)
 	config.QueryNum = uint(len(qids))
@@ -339,6 +419,8 @@ func main() {
 		PIRImplemented = run_tree.Runtree(&config)
 	} else if *searchType == "test" {
 		PIRImplemented = testpir.MakeTextDb(&config)
+	} else if *searchType == "tiptoe" {
+		PIRImplemented = tiptoe.MakeTiptoe(&config)
 	} else {
 		logrus.Errorf("Invalid search type: %s", *searchType)
 		return

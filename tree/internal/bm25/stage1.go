@@ -121,7 +121,7 @@ func NewStage1PIRDBWithCuckoo(
 	for level, itemCount := range levelCounts {
 		level := level
 		name := fmt.Sprintf("Stage1 level %d", level)
-		cacheName := fmt.Sprintf("stage1_level_%02d_r%d_alpha_%0.4f.cuckoo", level, r, config.LoadFactor)
+		cacheName := fmt.Sprintf("stage1_level_%02d_r%d_alpha_%0.4f%s.cuckoo", level, r, config.LoadFactor, config.CacheSuffix())
 		table, err := buildOrLoadCuckooTable(
 			name,
 			itemCount,
@@ -278,7 +278,7 @@ func (db *Stage1PIRDB) queryCuckooRows(level int, termKeys []uint32, nodeIDs []i
 	levelDB := db.level(level)
 	table := levelDB.Table
 	logicalCount := len(termKeys) * len(nodeIDs)
-	rowIndices := make([]uint64, 0, logicalCount*2)
+	rowIndices := make([]uint64, 0, logicalCount*max(table.Hashes, 2))
 	keys := make([]uint64, 0, logicalCount)
 	for _, termKey := range termKeys {
 		for _, nodeID := range nodeIDs {
@@ -286,9 +286,8 @@ func (db *Stage1PIRDB) queryCuckooRows(level int, termKeys []uint32, nodeIDs []i
 				panic(fmt.Sprintf("Stage1 node ID %d does not fit the Cuckoo key", nodeID))
 			}
 			key := packedCuckooKey(termKey, uint32(nodeID))
-			first, second := table.positions(key)
 			keys = append(keys, key)
-			rowIndices = append(rowIndices, first, second)
+			rowIndices = append(rowIndices, table.probes(key)...)
 		}
 	}
 	Debugf("Stage1 level %d: %d logical keys, %d Cuckoo PIR probes, %d physical slots, %d-byte entries\n",
@@ -301,29 +300,26 @@ func (db *Stage1PIRDB) queryCuckooRows(level int, termKeys []uint32, nodeIDs []i
 		panic(fmt.Sprintf("Stage1 level %d returned %d PIR rows; want %d", level, len(responses), len(rowIndices)))
 	}
 	rows := make([][]byte, logicalCount)
+	probeCount := len(rowIndices) / max(len(keys), 1)
 	for i, key := range keys {
-		firstResponse := responses[2*i]
-		secondResponse := responses[2*i+1]
-		if StrictPIR {
-			if err := table.verifyResponse(rowIndices[2*i], firstResponse); err != nil {
-				panic(err)
+		for j := i * probeCount; j < (i+1)*probeCount; j++ {
+			if StrictPIR {
+				if err := table.verifyResponse(rowIndices[j], responses[j]); err != nil {
+					panic(err)
+				}
 			}
-			if err := table.verifyResponse(rowIndices[2*i+1], secondResponse); err != nil {
-				panic(err)
+			if value, ok := table.decodeValue(responses[j], key); ok {
+				rows[i] = maxValue(rows[i], value)
 			}
 		}
-		if value, ok := cuckooResponseValue(firstResponse, key, db.R); ok {
-			rows[i] = value
-		} else if value, ok := cuckooResponseValue(secondResponse, key, db.R); ok {
-			rows[i] = value
-		} else {
+		if rows[i] == nil {
 			rows[i] = make([]byte, db.R)
 		}
 	}
 	return rows
 }
 
-// SumChildScoresAtLevel performs exactly two PIR probes for every
+// SumChildScoresAtLevel performs exactly Hashes (2 or 3) PIR probes for every
 // (query term,parent) pair and checks returned keys before summing scores.
 func (db *Stage1PIRDB) SumChildScoresAtLevel(level int, terms []string, nodeIDs []int) map[int][]int {
 	db.mu.RLock()
@@ -367,7 +363,7 @@ func (db *Stage1PIRDB) SumChildScoresAtLevel(level int, terms []string, nodeIDs 
 }
 
 // GetScoreBatch is retained for diagnostic callers. Production tree traversal
-// uses SumChildScoresAtLevel so padded/OOV terms also issue their two probes.
+// uses SumChildScoresAtLevel so padded/OOV terms also issue their probes.
 func (db *Stage1PIRDB) GetScoreBatch(termIDs []int, nodeIDs []int) map[int]map[int][]byte {
 	return db.GetScoreBatchCovered(termIDs, nodeIDs, len(termIDs))
 }

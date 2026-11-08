@@ -22,6 +22,8 @@ Every point drawn is logged with its folder, so
 shows the full run behind it.
 """
 
+import math
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
@@ -41,7 +43,7 @@ TITLE = 'PPRAG Comparison - {dataset}'
 
 BEST_N = 5              # configs per method, picked by select_configs.py exactly as
                         # plot_metric_vs_latency.py picks them (None = every config in the sweep)
-BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
+METHOD_FILTERS = {}     # method -> fixed run keys, e.g. {'bins': {'vec': 1}} to only use single-DB bins runs
 LOG_X = True
 
 Y_LIM = (0.0, 1.0)      # fallback for any (dataset, metric) not listed in Y_LIMS
@@ -65,6 +67,8 @@ Y_TICK_STEPS = {
 ('scifact', 'answer_relevancy'): 0.05,
 ('scifact', 'faithfulness'): 0.03,
 }       # per-(dataset, metric) steps, overriding Y_TICK_STEP
+Y_GROW = True           # widen a Y_LIMS range (by whole tick steps) when a point would fall outside
+                        # it, e.g. a baseline below the range picked for our methods. Logged when it happens
 Y_TICK_DP = 2           # decimals on the y tick labels, trailing zeros dropped (trim_tick)
 
 # ==========================================
@@ -149,11 +153,13 @@ Y_LABEL_X = -0.3          # x of every metric name, as a fraction of its panel's
 X_LABEL_SIZE = g.FONT_SIZE + 2   # the latency name under each bottom-row panel
 X_LABEL_PAD = 2                  # gap between it and the latency tick labels, in points
 
-LEGEND_ROWS = [['bins', 'tree'], ['pacmann', 'global']]
-# one centred legend line per row, under the figure, in place of pu.method_legend's
-# g.METHOD_LEGEND_ROWS. An entry is a method (labelled from g.METHOD_LEGEND_LABELS) or
-# 'global' (the GLOBAL_FRONTIER line), which is skipped when nothing was drawn for it,
-# so 'global' costs nothing while GLOBAL_FRONTIER is off
+LEGEND_ROWS = None
+# one centred legend line per row, under the figure. None takes g.METHOD_LEGEND_ROWS
+# and adds 'global' (the GLOBAL_FRONTIER line) to the last row, or to a row of its own
+# when that row already holds LEGEND_ROW_MAX entries. An entry is a method (labelled
+# from g.METHOD_LEGEND_LABELS) or 'global'. Methods with no point in the figure (e.g.
+# a baseline only run on one dataset) are left out, as is 'global' while it is off
+LEGEND_ROW_MAX = 3
 LEGEND_MARKER_SIZE = 6          # markers in the legend, where they need less room
 LEGEND_STYLE = dict(handlelength=0.6, fontsize=13)   # on top of g.LEGEND_STYLE /
                                                      # g.METHOD_LEGEND_STYLE
@@ -329,7 +335,7 @@ def method_runs(nested_data, dataset, best_n=BEST_N):
     """{method: runs} for one dataset, cut down to the best_n picks per method when best_n is set."""
     per_method = {}
     for method in g.METHOD_ORDER:
-        fixed = BINS_FILTER if method == 'bins' else {}
+        fixed = METHOD_FILTERS.get(method, {})
         runs = pu.get_runs(nested_data, method, dataset, k=K, **fixed)
         if best_n:
             runs = sc.select_configs(runs, n=best_n, name=f'{method}/{dataset}')
@@ -355,8 +361,8 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
     One panel: a marker per config in its method's colour (POINTS), the
     frontier over all methods pooled as one black line (GLOBAL_FRONTIER) and,
     if METHOD_LINES is on, each method's own frontier as a line of its own.
-    Returns every x value drawn, which the caller needs for the shared latency
-    ticks. Labels, titles and the legend are set by the caller.
+    Returns the methods that got at least one point, for the legend. Labels,
+    titles and the legend are set by the caller.
     """
     ax.grid(True, which='major')
     ax.tick_params(labelsize=TICK_SIZE + 2)
@@ -379,7 +385,7 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
                  marker='', drawstyle=step_style(x_key) if STEP else 'default',
                  zorder=1)   # under the method markers, which are its own points
 
-    plotted = []
+    plotted, drawn = [], set()
     for method, runs in runs_by_method.items():
         name = f'{method}/{dataset}'
         good = usable(runs)
@@ -392,6 +398,7 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
         shown = good if POINTS == 'all' else [r for r in good if id(r) in on_front]
         faded = [r for r in good if id(r) not in on_front] if POINTS == 'fade' else []
         plotted += [r[x_key] for r in shown] + [r[x_key] for r in faded]
+        drawn.add(method)
         for run in shown:
             pu.log.info("%-9s %-8s %-8s %-18s %s=%-10.4g %s=%-10.4g %s",
                         'frontier' if id(run) in on_front else 'point', method, dataset,
@@ -425,10 +432,51 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
         # switched off come back (labelled 2x10^-2, 3x10^-2, ... on top of each
         # other on a narrow range) unless they are switched off again here
 
-    ax.set_ylim(*Y_LIMS.get((dataset, y_key), Y_LIM))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(Y_TICK_STEPS.get((dataset, y_key), Y_TICK_STEP)))
+    lo, hi, step = y_range(dataset, y_key, [r[y_key] for r in pooled],
+                           Y_TICK_STEPS.get((dataset, y_key), Y_TICK_STEP))
+    ax.set_ylim(lo, hi)
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(step))
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(trim_tick))
-    return plotted
+    return drawn
+
+
+def y_range(dataset, y_key, ys, step):
+    """
+    (lo, hi, step) for this panel: Y_LIMS and the tick step, unless Y_GROW and a
+    value falls outside, in which case the range is widened to the next tick past
+    it and the step doubled until there are no more ticks than Y_LIMS gave.
+    """
+    lo, hi = Y_LIMS.get((dataset, y_key), Y_LIM)
+    if not Y_GROW or not ys:
+        return lo, hi, step
+    max_ticks = round((hi - lo) / step) + 1
+    while True:
+        eps = step * 1e-6   # so float noise (0.2 / 0.1 = 2.0000000000000004) never widens a range
+        new_lo = lo if min(ys) >= lo - eps else math.floor(min(ys) / step + eps) * step
+        new_hi = hi if max(ys) <= hi + eps else math.ceil(max(ys) / step - eps) * step
+        if (new_hi - new_lo) / step + 1 <= max_ticks + 1 + eps:   # allow one extra tick
+            break
+        step *= 2
+    if (new_lo, new_hi) != (lo, hi):
+        pu.warn_once("pareto_comparison: %s/%s y range widened from (%g, %g) to (%g, %g), tick "
+                     "every %g, to fit every point; set Y_LIMS/Y_TICK_STEPS to choose it yourself",
+                     dataset, y_key, lo, hi, round(new_lo, 6), round(new_hi, 6), round(step, 6))
+    return new_lo, new_hi, step
+
+
+def legend_rows(drawn):
+    """LEGEND_ROWS, or the default built from g.METHOD_LEGEND_ROWS, without the methods not in `drawn`."""
+    rows = LEGEND_ROWS
+    if rows is None:
+        listed = {m for row in g.METHOD_LEGEND_ROWS for m in row}
+        rows = list(g.METHOD_LEGEND_ROWS) + [[m for m in g.METHOD_ORDER if m not in listed]]
+        rows = [[m for m in row if m in drawn] for row in rows]
+        rows = [row for row in rows if row]
+        if rows and len(rows[-1]) < LEGEND_ROW_MAX:
+            rows[-1].append('global')
+        else:
+            rows.append(['global'])
+    return [[e for e in row if e == 'global' or e in drawn] for row in rows]
 
 
 def legend_handle(entry):
@@ -451,10 +499,10 @@ def legend_handle(entry):
     return None
 
 
-def combined_legend(fig):
+def combined_legend(fig, drawn):
     """
-    LEGEND_ROWS centred under the figure, one line per row ('Bin  Tree', then
-    'PACMANN  Pareto Frontier'). Same layout as pu.method_legend, which can't
+    legend_rows() centred under the figure, one line per row ('Bin  Tree', then
+    'PACMANN  Coeus  Tiptoe  Pareto Frontier'). `drawn` is the methods with a point. Same layout as pu.method_legend, which can't
     be used here because the frontier entry has to share a line with a method
     one: each line is its own legend, placed under the one before, since one
     legend can't centre a lone entry.
@@ -465,7 +513,7 @@ def combined_legend(fig):
     fig.draw_without_rendering()   # lay out the figure so each line knows where to go
     top = fig.get_tightbbox().y0 / fig.get_figheight()   # bottom of the axes, labels, ...
     legends = []
-    for row in LEGEND_ROWS:
+    for row in legend_rows(drawn):
         handles = [h for h in (legend_handle(entry) for entry in row) if h is not None]
         if not handles:
             continue
@@ -489,8 +537,9 @@ def plot_dataset(nested_data, dataset, x_key=X_KEY):
     axes = fig.subplots(2, 2, sharex=True)   # sharex: only the bottom row labels its latency ticks
 
     picked = method_runs(nested_data, dataset)
+    drawn = set()
     for i, (ax, y_key) in enumerate(zip(axes.flat, Y_KEYS)):
-        draw_panel(ax, picked, dataset, y_key, x_key)
+        drawn |= draw_panel(ax, picked, dataset, y_key, x_key)
         row = i // axes.shape[1]   # the top row's labels sit higher than the bottom row's
         text = ax.set_ylabel(g.label(y_key, K), y=Y_LABEL_Y[row], labelpad=Y_LABEL_PAD)
         if Y_LABEL_X is not None:   # same x in every panel, whatever its tick labels are
@@ -503,7 +552,7 @@ def plot_dataset(nested_data, dataset, x_key=X_KEY):
     if TITLE:
         fig.suptitle(TITLE.format(dataset=g.DATASET_LABELS[dataset]), fontsize=20)
 
-    combined_legend(fig)   # the methods and the global frontier (LEGEND_ROWS)
+    combined_legend(fig, drawn)   # the methods drawn and the global frontier
 
     return pu.save_figure(fig, f'pareto_comparison_{dataset}')
 

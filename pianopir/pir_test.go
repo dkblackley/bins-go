@@ -473,3 +473,61 @@ func TestAESPerf(t *testing.T) {
 	t.Logf("XorSlices time = %v\n", end.Sub(start))
 	t.Logf("average time = %v ns", end.Sub(start).Nanoseconds()/int64(n))
 }
+
+// Re-preprocessing reuses the hint tables in place. Check the answers stay
+// correct across several rounds and that the database is never modified
+// (replacementVal points at DB rows, so clearing it wrongly would zero them).
+func TestPIRRepreprocessing(t *testing.T) {
+	DBSize := uint64(4000)
+	MaxDBEntrySize := uint64(64)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	rawDB := make([][]uint64, DBSize)
+	for i := range rawDB {
+		rawDB[i] = make([]uint64, 1+rng.Intn(int(MaxDBEntrySize)))
+		for j := range rawDB[i] {
+			rawDB[i][j] = rng.Uint64()
+		}
+	}
+	snapshot := DeepCopy2DUint64(rawDB)
+
+	ChunkSize := uint64(1)
+	for ChunkSize < uint64(2*math.Sqrt(float64(DBSize))) {
+		ChunkSize *= 2
+	}
+	SetSize := (uint64(math.Ceil(float64(DBSize)/float64(ChunkSize))) + 3) / 4 * 4
+
+	PIR := NewPianoPIR(&PianoPIRConfig{
+		DBEntryByteNum:  MaxDBEntrySize * 8,
+		MaxDBEntrySize:  MaxDBEntrySize,
+		DBSize:          DBSize,
+		ChunkSize:       ChunkSize,
+		SetSize:         SetSize,
+		ThreadNum:       ThreadNum,
+		FailureProbLog2: 40,
+	}, rawDB)
+
+	for round := 0; round < 3; round++ {
+		PIR.Preprocessing()
+		for q := uint64(0); q < PIR.client.MaxQueryNum/2; q++ {
+			idx := rng.Uint64() % DBSize
+			got, err := PIR.Query(idx, true)
+			if err != nil {
+				t.Fatalf("round %d: Query(%d) failed: %v", round, idx, err)
+			}
+			for j, want := range snapshot[idx] {
+				if got[j] != want {
+					t.Fatalf("round %d: Query(%d)[%d] = %d; want %d", round, idx, j, got[j], want)
+				}
+			}
+		}
+	}
+
+	for i := range snapshot {
+		for j := range snapshot[i] {
+			if PIR.server.rawDB[i][j] != snapshot[i][j] {
+				t.Fatalf("database row %d was modified", i)
+			}
+		}
+	}
+}

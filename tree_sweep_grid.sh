@@ -1,8 +1,9 @@
 #!/bin/bash
 # Shared tree parameter grid, sourced by run_tree_pir_old.slurm (runs) and
-# build_tree_artifacts.slurm (artifacts). Edit the lists here, both pick it up.
+# datasets/prep_tree.sh (artifacts). Edit the lists here, both pick it up.
 #
-#   DATASET=msmarco|scifact   SWEEP=legacy|oat|grid|all   (default all = oat + grid)
+#   DATASET=msmarco|scifact|nq|dbpedia-entity|fever|hotpotqa|miracl-en|msmarco-v2[-25m|-50m|-100m]
+#   SWEEP=legacy|oat|grid|all   (default all = oat + grid)
 #
 #   bash tree_sweep_grid.sh --count    number of run configs (for --array=0-N)
 #   bash tree_sweep_grid.sh --list     every run config
@@ -74,28 +75,37 @@ add_oat() {   # dataset max_q anchor"B r s L q c"  name  "values"
     done
 }
 
+# Large-corpus grid (msmarco and every new dataset, 2.7M-138M docs).
+_big_grid() {   # dataset max_q sweep
+    local d=$1 MQ=$2 sweep=$3 ANCHOR="32 32 8 100 4 128"
+    if [[ $sweep == legacy ]]; then
+        #                    c   max_q  B          r          s        q         L
+        add_cartesian "$d" 128 "$MQ" "16 32 64" "8 32 128" "4 8 16" "2 4 6 8" "50 100 200 400"
+    fi
+    if [[ $sweep == oat || $sweep == all ]]; then
+        add_oat "$d" "$MQ" "$ANCHOR" B "4 8 16 32 64 128"
+        add_oat "$d" "$MQ" "$ANCHOR" r "2 4 8 16 32 64 128 256"
+        add_oat "$d" "$MQ" "$ANCHOR" s "1 2 4 8 16 32"
+        add_oat "$d" "$MQ" "$ANCHOR" L "1 2 4 8 16 32 64 100 200 400 800"
+        add_oat "$d" "$MQ" "$ANCHOR" q "1 2 3 4 6 8 12"
+        add_oat "$d" "$MQ" "$ANCHOR" c "1 2 4 8 16 32 64 128 256 400"
+    fi
+    if [[ $sweep == grid || $sweep == all ]]; then
+        #                  max_q  B             r         s        L                  q       P = c*s
+        add_pool_grid "$d" "$MQ" "8 16 32 64" "4 16 64" "2 4 8"  "2 8 32 128 512"   "2 4 8" "128 1024"
+    fi
+}
+
+TREE_DATASETS="msmarco scifact nq dbpedia-entity fever hotpotqa miracl-en msmarco-v2 msmarco-v2-25m msmarco-v2-50m msmarco-v2-100m"
+
 build_tree_grid() {
     local dataset=$1 sweep=${2:-all}
+    case $sweep in legacy|oat|grid|all) ;; *) echo "Unknown SWEEP: $sweep (legacy|oat|grid|all)" >&2; return 1 ;; esac
     case $dataset in
     msmarco)
-        local MQ=6980 ANCHOR="32 32 8 100 4 128"
-        if [[ $sweep == legacy ]]; then
-            #                       c   max_q  B          r          s        q         L
-            add_cartesian msmarco 128 $MQ "16 32 64" "8 32 128" "4 8 16" "2 4 6 8" "50 100 200 400"
-        fi
-        if [[ $sweep == oat || $sweep == all ]]; then
-            add_oat msmarco $MQ "$ANCHOR" B "4 8 16 32 64 128"
-            add_oat msmarco $MQ "$ANCHOR" r "2 4 8 16 32 64 128 256"
-            add_oat msmarco $MQ "$ANCHOR" s "1 2 4 8 16 32"
-            add_oat msmarco $MQ "$ANCHOR" L "1 2 4 8 16 32 64 100 200 400 800"
-            add_oat msmarco $MQ "$ANCHOR" q "1 2 3 4 6 8 12"
-            add_oat msmarco $MQ "$ANCHOR" c "1 2 4 8 16 32 64 128 256 400"
-        fi
-        if [[ $sweep == grid || $sweep == all ]]; then
-            #                    max_q  B             r         s        L                  q       P = c*s
-            add_pool_grid msmarco $MQ "8 16 32 64" "4 16 64" "2 4 8"  "2 8 32 128 512"   "2 4 8" "128 1024"
-        fi
-        ;;
+        _big_grid msmarco 6980 "$sweep" ;;
+    nq|hotpotqa|fever|dbpedia-entity|miracl-en|msmarco-v2*)
+        _big_grid "$dataset" 10000 "$sweep" ;;
     scifact)
         local MQ=300 ANCHOR="16 8 4 20 8 20"
         if [[ $sweep == legacy ]]; then
@@ -113,7 +123,7 @@ build_tree_grid() {
             add_pool_grid scifact $MQ "4 8 16 32" "2 4 16"   "1 2 4 8" "1 3 10 30 100" "2 8 16"  "16 64 256"
         fi
         ;;
-    *) echo "Unknown DATASET: $dataset" >&2; return 1 ;;
+    *) echo "Unknown DATASET: $dataset (one of: $TREE_DATASETS)" >&2; return 1 ;;
     esac
 }
 
@@ -125,7 +135,7 @@ tree_grid_shapes() {
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     set -euo pipefail
-    build_tree_grid "${DATASET:?set DATASET to msmarco or scifact}" "${SWEEP:-all}"
+    build_tree_grid "${DATASET:?set DATASET (see the top of this file)}" "${SWEEP:-all}"
     case "${1:---count}" in
         --count)  echo "${#DATA_ARR[@]} configs, $(tree_grid_shapes | wc -l) B/r/s artifact dirs for ${DATASET} SWEEP=${SWEEP:-all} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))" ;;
         --list)   for i in "${!DATA_ARR[@]}"; do echo "$i ${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]} L=${L_ARR[$i]} q=${QWORDS_ARR[$i]} c=${KCAND_ARR[$i]}"; done ;;

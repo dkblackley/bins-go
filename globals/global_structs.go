@@ -16,6 +16,9 @@ type Args struct {
 	DBSize            uint
 	BinSize           uint
 	DocsPerBin        uint
+	IDBatch           uint // bins vec0: batch size of the ID DB (0 = 24)
+	VecBatch          uint // bins vec0: batch size of each embedding-DB round (0 = automatic)
+	VecRounds         uint // bins vec0: embedding-DB rounds per query (0 = automatic)
 	Threshold         uint
 	DChoice           uint
 	Save              bool
@@ -91,9 +94,22 @@ type BinsConf struct {
 	PIRConstantWork     bool
 	PIRThreads          int
 	CuckooLoadFactor    float64
+	CuckooHashes        int     // tree: 2 or 3 hash locations per Cuckoo key (2 = original)
+	CuckooKeyBytes      int     // tree: bytes of the (term,node) key kept per row (8 = original)
+	CuckooUBBits        int     // tree: bits per upper bound in Stage1/2 rows (8 = original)
+	PIRDownloadSmall    bool    // pir-old: download a DB whose hints would be larger than it
+	PIRChunkFactor      float64 // pir-old: ChunkSize factor (2 = original)
+	PIRQueryBudget      float64 // pir-old: queries between refreshes, as a fraction of sqrt(n)ln(n)
+	Stage3BatchSize     int64   // tree: Stage3 BatchPIR batch size
 	CuckooMaxKicks      int
 	CuckooBuildAttempts int
 	CuckooCacheDir      string
+
+	// Tiptoe baseline (-t tiptoe, build with -tags tiptoe)
+	TiptoeDir        string // output of baselines/tiptoe/preprocess_tiptoe.py
+	TiptoeEmbHintMB  int    // SimplePIR hint size target for the ranking service (Tiptoe default: 500)
+	TiptoeURLHintMB  int    // same for the URL service (Tiptoe default: 100)
+	TiptoeMaxQueries int    // answer only the first N queries (0 = all)
 }
 
 // strconv.Itoa(docID)
@@ -155,14 +171,12 @@ func LoadFloat32MatrixFromNpy(filename string, n int, dim int) ([][]float32, err
 
 	//bar := progressbar.Default(int64(n), "Loading BM25 vectors")
 
-	// we now convert the data to a 2D slice
+	// Convert to a 2D slice by re-slicing the flat buffer instead of copying it. The old version copied every
+	// row, so for a 100M+ corpus (~77 GB at 192 dims) the vectors briefly lived in memory twice. Each row is
+	// capped (full slice expression) so an append on one row can never spill into the next.
 	ret := make([][]float32, n)
 	for i := 0; i < n; i++ {
-		ret[i] = make([]float32, dim)
-		for j := 0; j < dim; j++ {
-			ret[i][j] = float32(data[i*dim+j])
-		}
-		//bar.Add64(int64(1))
+		ret[i] = data[i*dim : (i+1)*dim : (i+1)*dim]
 	}
 
 	//bar.Finish()

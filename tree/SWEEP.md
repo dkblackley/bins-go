@@ -1,24 +1,30 @@
 # Tree parameter sweep
 
 The grid is defined once in `tree_sweep_grid.sh` and used by both
-`build_tree_artifacts.slurm` (builds missing `B*_r*_s*` artifact dirs) and
-`run_tree_pir_old.slurm` (runs the configs).
+`datasets/prep_tree.sh` (builds the missing `B*_r*_s*` artifact dirs) and
+`run_tree_pir_old.slurm` (runs the configs). It covers every dataset:
+msmarco, scifact, nq, dbpedia-entity, fever, hotpotqa, miracl-en and
+msmarco-v2 (+ 25m/50m/100m). The new datasets and msmarco-v2 use the msmarco grid.
 
 ```bash
-# 1. how big is it
-DATASET=msmarco SWEEP=all bash tree_sweep_grid.sh --count      # 961 configs, 51 artifact dirs
-DATASET=scifact SWEEP=all bash tree_sweep_grid.sh --count      # 1675 configs, 57 artifact dirs
+# how big is it
+DATASET=nq SWEEP=all bash tree_sweep_grid.sh --count       # 961 configs, 51 artifact dirs
+DATASET=scifact SWEEP=all bash tree_sweep_grid.sh --count  # 1675 configs, 57 artifact dirs
 
-# 2. build the artifacts the sweep needs (one task per (B, r); existing dirs are skipped)
-DATASET=msmarco SWEEP=all bash build_tree_artifacts.slurm --count
-DATASET=msmarco SWEEP=all sbatch --array=0-21 build_tree_artifacts.slurm
+# everything for every DB: artifacts, then the sweep (chunked past MaxArraySize), chained with dependencies
+STAGES="tree-db tree" bash datasets/run_all.sh msmarco scifact nq dbpedia-entity fever miracl-en msmarco-v2 \
+    msmarco-v2-25m msmarco-v2-50m msmarco-v2-100m
+DRY_RUN=1 STAGES="tree-db tree" bash datasets/run_all.sh nq   # print the sbatch lines only
 
-# 3. run (finished configs are skipped, so resubmitting is safe)
-DATASET=msmarco SWEEP=all sbatch --array=0-960 run_tree_pir_old.slurm
-# arrays above MaxArraySize (often 1001): send the rest with an offset
-DATASET=scifact SWEEP=all sbatch --array=0-999 run_tree_pir_old.slurm
-DATASET=scifact SWEEP=all ARRAY_OFFSET=1000 sbatch --array=0-674 run_tree_pir_old.slurm
+# or by hand for one dataset
+DATASET=nq sbatch datasets/tree_artifacts.slurm             # existing combos are skipped
+DATASET=nq sbatch --array=0-960 run_tree_pir_old.slurm      # finished configs are skipped
+DATASET=scifact ARRAY_OFFSET=1000 sbatch --array=0-674 run_tree_pir_old.slurm   # second chunk
 ```
+
+For msmarco and scifact, `prep_tree.sh` keeps the original index and stage-3
+files and only adds the missing dirs under `data/<name>/pir/` (`--db-only`).
+`SWEEP` selects the grid for both steps (default `all`).
 
 Result folders are now `tree_grid_<ds>_b<B>_r<r>_s<s>_L<L>_q<q>_c<k_candidates>_k10`.
 `plotting/load_results.py` reads the old names too.
@@ -63,10 +69,10 @@ Expected effect (not measured yet):
 
 ## Artifact builder
 
-`tree/build_tree_artifacts.py` writes Stage 1 once per (B, r) and Stage 2 for
-every s, in one pass over the postings, using the same maths as
-`build_small_test_artifacts.py` (byte-identical on synthetic data). It uses
-avgdl-based upper bounds with no `min_dl_map`, like the non-`--compute-leaf-mins`
-path of `prepare_data_stage2.py`. Existing artifact dirs are left alone, so if the
-original msmarco artifacts were built with a `min_dl_map`, rebuild them with
-`FORCE=1` for a like-for-like comparison.
+`tree/build_tree_artifacts.py` takes explicit triples with `--combos B,r,s ...`
+(which `prep_tree.sh` fills from `tree_sweep_grid.sh --shapes`). Only those
+combos are built, not the product of their values. The output on synthetic
+data is byte-identical to `build_small_test_artifacts.py`. Like the other
+scripts, it uses avgdl-based bounds and no `min_dl_map`. If the original
+msmarco artifacts were built with a `min_dl_map`, rebuild them with `FORCE=1`
+for a like-for-like comparison.

@@ -20,17 +20,17 @@ cd "$ROOT_DIR"
 #module --quiet purge
 #module load hosts/hopper
 #module load gnu9/9.3.0
-export PATH=$PATH:/usr/local/go/bin
 
 
-# The grid lives in tree_sweep_grid.sh (shared with build_tree_artifacts.slurm).
-#   DATASET=msmarco|scifact  SWEEP=legacy|oat|grid|all (default all)
-#   bash tree_sweep_grid.sh --count   -> how many configs, set --array to match
-# Slurm caps array size (MaxArraySize, often 1001), so big sweeps can be sent in
-# chunks: ARRAY_OFFSET=1000 sbatch --array=0-674 ... runs configs 1000..1674.
+# The grid lives in tree_sweep_grid.sh (shared with datasets/prep_tree.sh, which builds the artifacts).
+#   DATASET=msmarco|scifact|nq|dbpedia-entity|fever|hotpotqa|miracl-en|msmarco-v2[-25m|-50m|-100m]
+#   SWEEP=legacy|oat|grid|all (default all)
+#   bash run_tree_pir_old.slurm --count   -> how many configs, set --array to match
+# Slurm caps array size (MaxArraySize, often 1001), so big sweeps go in chunks:
+#   ARRAY_OFFSET=1000 sbatch --array=0-674 ... runs configs 1000..1674 (datasets/run_all.sh does this for you).
 # Configs whose metadata.json already exists are skipped, so re-submitting is safe.
 source "${ROOT_DIR}/tree_sweep_grid.sh"
-DATASET="${DATASET:?set DATASET to msmarco or scifact}"
+DATASET="${DATASET:?set DATASET (see tree_sweep_grid.sh)}"
 SWEEP="${SWEEP:-all}"
 build_tree_grid "$DATASET" "$SWEEP" || exit 1
 
@@ -55,7 +55,7 @@ embed_val=192
 
 BINARY="${ROOT_DIR}/pir_app"
 # _c<k_candidates> is part of the name now that k_candidates is swept (load_results.py reads it)
-OUT_DIR="${RESULTS_ROOT:-/scratch/dblackle/results}/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10"
+OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10"
 if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
     echo "Already done: ${OUT_DIR} (set FORCE=1 to rerun)"; exit 0
 fi
@@ -125,6 +125,32 @@ elif [ "$dataset" == "scifact" ]; then
 
     CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
 
+elif [[ "$dataset" =~ ^(nq|hotpotqa|fever|dbpedia-entity|miracl-en|msmarco-v2.*)$ ]]; then
+    # Layout written by datasets/prep_tree.sh
+    DATASET_ROOT="${DATASET_DIR:-../../datasets}"
+    DB_SIZE=$(cat "${DATASET_ROOT}/${dataset}/num_docs.txt")
+    DATA_ROOT="${ROOT_DIR}/data/${dataset}_tree"
+    ARTIFACT_DIR="${DATA_ROOT}/B${B_val}_r${r_val}_s${s_val}"
+    BLOCK_PERMS=""
+
+    CACHE_DIR="${ROOT_DIR}/cuckoo_cache/${dataset}/B${B_val}_r${r_val}_s${s_val}/task_${task_id}"
+    mkdir -p "$CACHE_DIR"
+
+    LAYOUT_PATH="${ARTIFACT_DIR}/layout.json"
+    INDEX="${DATA_ROOT}/index_${dataset}"
+    QUERIES="${DATA_ROOT}/queries.qrels.tsv"
+    QRELS="${DATA_ROOT}/qrels.trec"
+    VOCAB="${ARTIFACT_DIR}/stage1_vocab.json"
+    STAGE1_DATA="${ARTIFACT_DIR}/stage1_data.bin"
+    STAGE1_IDMAP="${ARTIFACT_DIR}/stage1_idmap.bin"
+    STAGE2_DATA="${ARTIFACT_DIR}/stage2/data.bin"
+    STAGE2_IDMAP="${ARTIFACT_DIR}/stage2/idmap.bin"
+    DOC_EMBED="${DATA_ROOT}/stage3_doc.npy"
+    DOC_ID_MAP="${DATA_ROOT}/stage3_doc.npy.ids"
+    # rows follow queries.jsonl order; tree_main matches them to the analyzed queries by ID
+    QUERY_EMBED="${DATASET_ROOT}/${dataset}/${dataset}_query_embed_f32.npy"
+
+    CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
 
 else
     echo "Unknown dataset: $dataset"
@@ -132,7 +158,7 @@ else
 fi
 
 for f in "$LAYOUT_PATH" "$VOCAB" "$STAGE1_DATA" "$STAGE1_IDMAP" "$STAGE2_DATA" "$STAGE2_IDMAP"; do
-    [[ -e "$f" ]] || { echo "Missing tree artifact $f: build it first with DATASET=$dataset SWEEP=$SWEEP sbatch build_tree_artifacts.slurm"; exit 1; }
+    [[ -e "$f" ]] || { echo "Missing tree artifact $f: build it first with DATASET=$dataset SWEEP=$SWEEP sbatch datasets/tree_artifacts.slurm"; exit 1; }
 done
 
 LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10.log"
