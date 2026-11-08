@@ -6,7 +6,8 @@
 #
 # Stages (default: all): prep (download + convert), embed (e5 + PCA on the local GPU), tree-db (Lucene index +
 # tree artifacts for one B/r/s), run (one bins, one pacmann and one tree config, written to $RESULTS_DIR, default
-# <datasets>/results, with the same folder names as the slurm runs).
+# <datasets>/results, with the same folder names as the slurm runs), baselines (one Tiptoe and one Coeus config,
+# same folder names; Tiptoe is real if ./pir_app_tiptoe is built, otherwise simulated).
 # Each stage is skipped automatically if its output already exists (FORCE=1 redoes it).
 #
 # Needs: python with requirements.txt (+ faiss, pyserini), Java 21, Go + the NGT/hnsw libs (see run_scifact_local.sh).
@@ -18,7 +19,7 @@ ROOT="${DATASETS_ROOT:-../../../datasets}"
 RAW="${RAW_ROOT:-$ROOT/raw}"
 # Same folder + naming as the slurm runs, so plotting/load_results.py picks local results up too
 OUT="${RESULTS_DIR:-$ROOT/results}"
-STAGES="${STAGES:-prep embed tree-db run}"
+STAGES="${STAGES:-prep embed tree-db run baselines}"
 has() { [[ " $STAGES " == *" $1 "* ]]; }
 # one tree shape for the local check (the server builds the whole grid)
 B="${TREE_B:-32}"; R="${TREE_R:-8}"; S="${TREE_S:-4}"
@@ -91,5 +92,35 @@ for d in "$@"; do
         -doc-embed "$T/stage3_doc.npy" -doc-id-map "$T/stage3_doc.npy.ids" \
         -query-embed "$D/${d}_query_embed_f32.npy" -embed-dim 192
     echo "Results: $OB, $OP, $OT (metadata.json in each)"
+  fi
+
+  # ---------------- Tiptoe + Coeus (baselines/README.md), Tiptoe's and Coeus' paper defaults
+  if has baselines; then
+    DPC="${TT_DPC:-2500}"
+    if [[ -x ./pir_app_tiptoe ]]; then FMT=txt; else FMT=npy; fi
+    TT="$ROOT/tiptoe/${d}_dpc${DPC}_m2_b160_${FMT}"
+    if [[ ! -f "$TT/tiptoe_meta.json" || -n "${FORCE:-}" ]]; then
+      echo "-- tiptoe preprocessing"
+      python3 baselines/tiptoe/preprocess_tiptoe.py --dataset "$ROOT" --name "$d" --docs-per-cluster "$DPC" \
+          --multi-assign 2 --bundle-size 160 --format "$FMT" --out "$TT"
+    fi
+    if [[ "$FMT" == txt ]]; then
+      echo "-- tiptoe (real)"
+      read -r C MA < <(python3 -c "import json;m=json.load(open('$TT/tiptoe_meta.json'));print(m['num_clusters'],m['multi_assign'])")
+      OTT="$OUT/tiptoe_${d}_c${C}_m${MA}_b160_h500_k${K}"
+      mkdir -p "$OTT"
+      ./pir_app_tiptoe -n "$N" -t tiptoe -name "$d" -k "$K" -dim 192 -dataset "$ROOT" -tiptoe-dir "$TT" \
+          -tiptoe-emb-hint-mb 500 -tiptoe-max-queries "${TT_MAX_QUERIES:-1000}" -outDir "$OTT" -outFile results -debug 0
+    else
+      echo "-- tiptoe (simulated: no ./pir_app_tiptoe)"
+      go build -o simplepir_bench ./cmd/simplepir_bench
+      python3 baselines/tiptoe/simulate_tiptoe.py --dataset "$ROOT" --name "$d" --tiptoe-dir "$TT" --k "$K" \
+          --emb-hint-mb 500 --results-root "$OUT" --bench-bin ./simplepir_bench --parallelism "$(nproc)"
+    fi
+    echo "-- coeus"
+    OPT2="$HOME/opt/src/Coeus_artifact/matmult/bin/opt2"
+    OPT2_ARG=(); [[ -x "$OPT2" ]] && OPT2_ARG=(--opt2-bin "$OPT2" --parallelism "$(nproc)")
+    python3 baselines/coeus/run_coeus.py --dataset "$ROOT" --name "$d" --k "$K" --features "${COEUS_F:-65536}" \
+        --tf raw --results-root "$OUT" ${OPT2_ARG[@]+"${OPT2_ARG[@]}"}
   fi
 done

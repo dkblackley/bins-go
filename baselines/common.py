@@ -12,6 +12,7 @@ their metadata.json is read by plotting/load_results.py like any Go run:
 
 import json
 import os
+import re
 
 import numpy as np
 
@@ -26,12 +27,27 @@ DATASETS = {
 }
 
 
+def generic_layout(name):
+    """The layout datasets/prepare_dataset.py + embed.slurm write (nq, fever, msmarco-v2, ...), = GetDatasets' fallback."""
+    return (f"{name}/corpus.jsonl", f"{name}/queries.jsonl", f"{name}/qrels/test.tsv",
+            f"{name}/{name}_corpus_embed_f32.npy", f"{name}/{name}_query_embed_f32.npy")
+
+
 def dataset_paths(root, name):
-    if name not in DATASETS:
-        raise SystemExit(f"unknown dataset {name!r}; add it to DATASETS in baselines/common.py "
-                         f"(and GetDatasets in main.go)")
-    return {k: os.path.join(root, v) for k, v in
-            zip(("corpus", "queries", "qrels", "corpus_vec", "query_vec"), DATASETS[name])}
+    files = DATASETS.get(name) or generic_layout(name)
+    paths = {k: os.path.join(root, v) for k, v in zip(("corpus", "queries", "qrels", "corpus_vec", "query_vec"), files)}
+    missing = [v for v in paths.values() if not os.path.exists(v)]
+    if missing:
+        raise SystemExit(f"dataset {name!r}: missing {', '.join(missing)} (run datasets/prepare_dataset.py + embed first)")
+    return paths
+
+
+def num_docs(root, name):
+    """Corpus size without reading the corpus: num_docs.txt if prepare_dataset.py wrote one, else the embedding rows."""
+    f = os.path.join(root, name, "num_docs.txt")
+    if os.path.exists(f):
+        return int(open(f).read().split()[0])
+    return int(np.load(dataset_paths(root, name)["corpus_vec"], mmap_mode="r").shape[0])
 
 
 def load_corpus(path):
@@ -45,6 +61,52 @@ def load_corpus(path):
             body = d.get("text") or d.get("abstract") or ""
             docs.append((str(d.get("_id", "")), d.get("title", "") or "", body))
     return docs
+
+
+def iter_corpus(path):
+    """Like load_corpus, one doc at a time (for corpora too big to hold, e.g. msmarco-v2's 138M docs)."""
+    with open(path) as f:
+        for line in f:
+            if not line.strip():
+                continue
+            d = json.loads(line)
+            yield str(d.get("_id", "")), d.get("title", "") or "", d.get("text") or d.get("abstract") or ""
+
+
+_ID_RE = re.compile(r'"_id"\s*:\s*"([^"\\]*)"')
+
+
+def ids_for_rows(path, rows):
+    """{row: doc_id} for just the corpus rows a run returned, in one streaming pass (no corpus in memory)."""
+    want, out = set(int(r) for r in rows), {}
+    if not want:
+        return out
+    last = max(want)
+    with open(path) as f:
+        r = -1
+        for line in f:
+            if not line.strip():
+                continue
+            r += 1
+            if r in want:
+                m = _ID_RE.search(line)
+                out[r] = m.group(1) if m else str(json.loads(line).get("_id", ""))
+                if r == last:
+                    break
+    return out
+
+
+class AllRows:
+    """doc_index for cosine_rerank when results already hold corpus row numbers."""
+    def __contains__(self, r):
+        return True
+
+    def __getitem__(self, r):
+        return r
+
+
+def rows_to_ids(results, idmap):
+    return {qid: [idmap[r] for r in rows] for qid, rows in results.items()}
 
 
 def load_queries(path):

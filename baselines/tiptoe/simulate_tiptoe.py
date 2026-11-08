@@ -163,12 +163,21 @@ def main():
     cdir = os.path.join(args.tiptoe_dir, "clusters")
 
     # ---------- database shapes ----------
-    cluster_docs, bundle_bytes, n_bundles = [], [], 0
-    for c in range(C):
-        n, bb = cluster_shape(os.path.join(cdir, f"cluster_{c}.txt"))
-        cluster_docs.append(n)
-        bundle_bytes += bb
-        n_bundles += len(bb)
+    npy = meta.get("format", "txt") == "npy"
+    if npy:   # compact arrays from preprocess_tiptoe.py --format npy (same content as the txt files)
+        cptr = np.load(os.path.join(args.tiptoe_dir, "cluster_ptr.npy"))
+        cluster_docs = np.diff(cptr).tolist()
+        bundle_bytes = np.load(os.path.join(args.tiptoe_dir, "bundle_bytes.npy")).tolist()
+        n_bundles = len(bundle_bytes)
+        emb_all, rows_all, bun_all = (np.load(os.path.join(args.tiptoe_dir, f), mmap_mode="r")
+                                      for f in ("emb.npy", "rows.npy", "bundle.npy"))
+    else:
+        cluster_docs, bundle_bytes, n_bundles = [], [], 0
+        for c in range(C):
+            n, bb = cluster_shape(os.path.join(cdir, f"cluster_{c}.txt"))
+            cluster_docs.append(n)
+            bundle_bytes += bb
+            n_bundles += len(bb)
     emb_cols = pack_chunks(cluster_docs, args.emb_hint_mb * 125)
     L_emb, M_emb = max(emb_cols), len(emb_cols) * EMB_SLOTS
     url_cap = max(max(bundle_bytes), args.url_hint_mb * 250)
@@ -190,8 +199,6 @@ def main():
 
     # ---------- quality ----------
     paths = common.dataset_paths(args.dataset, args.name)
-    docs = common.load_corpus(paths["corpus"])
-    doc_ids = [d[0] for d in docs]
     all_queries = common.load_queries(paths["queries"])
     queries = all_queries[:args.max_queries] if args.max_queries else all_queries
     qvecs = np.load(paths["query_vec"], mmap_mode="r")
@@ -206,18 +213,25 @@ def main():
         if c not in cache:
             if len(cache) > 256:
                 cache.clear()
-            cache[c] = read_cluster_full(os.path.join(cdir, f"cluster_{c}.txt"))
-        cl = cache[c]
-        scores = np.array([int(e @ q) for _, e, _ in cl])
+            if npy:
+                s_, e_ = cptr[c], cptr[c + 1]
+                cache[c] = (np.asarray(emb_all[s_:e_], dtype=np.int64), np.asarray(rows_all[s_:e_]),
+                            np.asarray(bun_all[s_:e_]))
+            else:
+                cl = read_cluster_full(os.path.join(cdir, f"cluster_{c}.txt"))
+                cache[c] = (np.stack([e for _, e, _ in cl]), np.array([r for r, _, _ in cl]),
+                            np.array([b for _, _, b in cl]))
+        embs, crow, cbun = cache[c]
+        scores = embs @ q                                   # exact integer inner products, as decrypted
         order = np.argsort(-scores, kind="stable")
-        best_bundle = cl[order[0]][2]
+        best_bundle = cbun[order[0]]
         ids, seen = [], set()
         for j in order:
-            row, _, b = cl[j]
-            if b != best_bundle or doc_ids[row] in seen:
+            row, b = int(crow[j]), cbun[j]
+            if b != best_bundle or row in seen:   # results hold corpus rows; mapped to doc IDs below
                 continue
-            seen.add(doc_ids[row])
-            ids.append(doc_ids[row])
+            seen.add(row)
+            ids.append(row)
             if len(ids) == args.k:
                 break
         results[qid] = ids
@@ -225,7 +239,10 @@ def main():
 
     qvec_by_id = {qid: np.asarray(qvecs[i], dtype=np.float32) for i, (qid, _) in enumerate(all_queries) if i < len(qvecs)}
     doc_vecs = np.load(paths["corpus_vec"], mmap_mode="r")
-    reranked = common.cosine_rerank(results, args.k, {d: i for i, d in enumerate(doc_ids)}, doc_vecs, qvec_by_id)
+    reranked = common.cosine_rerank(results, args.k, common.AllRows(), doc_vecs, qvec_by_id)
+    # Only the returned rows' IDs are looked up, so the corpus is never held in memory (msmarco-v2 is 138M docs)
+    idmap = common.ids_for_rows(paths["corpus"], {r for rows in results.values() for r in rows})
+    results, reranked = common.rows_to_ids(results, idmap), common.rows_to_ids(reranked, idmap)
 
     nq = len(results)
     out = {

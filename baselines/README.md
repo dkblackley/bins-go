@@ -60,6 +60,28 @@ run both, `MRRPreReRank` should agree (apart from the order of exactly tied scor
 32 MiB per query whatever the corpus size. That is the biggest per-query client cost in Tiptoe, and PILLAR doesn't
 pay it.
 
+### New datasets (nq, dbpedia-entity, fever, miracl-en, msmarco-v2 and its subsamples)
+
+Anything laid out by `datasets/prepare_dataset.py` + the embed step works with no code change, as in `GetDatasets`:
+
+```bash
+TIPTOE_DATASETS="nq dbpedia-entity fever" bash run_tiptoe.slurm --count     # prints the --array range
+TIPTOE_DATASETS="nq dbpedia-entity fever" sbatch --array=0-<N-1> run_tiptoe.slurm
+COEUS_DATASETS="nq dbpedia-entity fever" bash run_coeus.slurm --count
+bash datasets/run_local.sh nq                                               # one Tiptoe + one Coeus config locally
+```
+
+* **Tiptoe** runs for real up to 50M docs (`REAL_MAX_DOCS`) and is simulated above that. Its server holds the
+  ranking DB and the parsed corpus in memory, about 1 KB per doc. Above 20M docs the grid is smaller: DPC
+  {6000, 12000, 25000, 50000} (above Tiptoe's cluster cap) and bundle 160. Simulated runs write the clusters as
+  compact arrays (`--format npy`, about 200 B per doc copy) instead of Tiptoe's text files. On msmarco-v2 one
+  preprocessing pass is about 33 GB of disk and needs more RAM than the default (`sbatch --mem=240G`), because
+  the 106 GB embedding file is read through the page cache.
+* **Coeus** streams the corpus, so memory is only the postings, about 12 B per (doc, term): roughly 50 GB on
+  msmarco-v2. Tokenising 138M docs takes hours, which is why the slurm limit is 2 days. It also writes a temporary
+  token file (4 B per token, about 25 GB) to `--tmp-dir`, which defaults to the results root.
+* Neither script loads the corpus text into memory any more. Doc IDs are looked up only for the rows a run returns.
+
 ## 3. The knobs we sweep, and why
 
 The paper argues with Pareto frontiers, so both baselines are swept over every knob that genuinely changes a cost

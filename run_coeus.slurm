@@ -5,10 +5,10 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=120G
-#SBATCH --time=0-08:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-47
+#SBATCH --array=0-47               # for the default scifact + msmarco; other datasets: see --count below
 #SBATCH --output=logs/Coeus_%A_%a.out
 #SBATCH --error=logs/Coeus_%A_%a.err
 #SBATCH --constraint=amd
@@ -26,13 +26,17 @@
 # first (sbatch --array=0 run_coeus.slurm) so the others reuse the cache instead of all calibrating at once.
 
 set -euo pipefail
-cd "$SLURM_SUBMIT_DIR"
+cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-conda activate main
-
+# Datasets, e.g.
+#   COEUS_DATASETS="nq dbpedia-entity fever" bash run_coeus.slurm --count     # prints the --array range to use
+#   COEUS_DATASETS="nq dbpedia-entity fever" sbatch --array=0-<N-1> run_coeus.slurm
+# Any dataset in datasets/prepare_dataset.py's layout works. The corpus is streamed, so memory is the postings only
+# (~12 B per (doc, term) pair: about 50 GB for msmarco-v2). Tokenising 138M docs takes hours, hence the 2-day limit.
+DATASET_DIR="${DATASET_DIR:-../../datasets}"
+COEUS_DATASETS="${COEUS_DATASETS:-scifact msmarco}"
 DATA_ARR=(); F_ARR=(); TF_ARR=(); K_ARR=()
-for d in scifact msmarco; do
+for d in $COEUS_DATASETS; do
     for f in 8192 16384 32768 65536 131072 262144; do
         for tf in raw log; do
             for k in 10 100; do
@@ -41,6 +45,14 @@ for d in scifact msmarco; do
         done
     done
 done
+
+if [[ "${1:-}" == "--count" ]]; then
+    echo "${#DATA_ARR[@]} configs (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
+    exit 0
+fi
+
+source /home/dblackle/miniconda3/etc/profile.d/conda.sh
+conda activate main
 
 task_id=$SLURM_ARRAY_TASK_ID
 dataset=${DATA_ARR[$task_id]}
@@ -52,7 +64,7 @@ OPT2="$HOME/opt/src/Coeus_artifact/matmult/bin/opt2"
 
 echo "Coeus: dataset=$dataset F=$features tf=$tf k=$k_val"
 python baselines/coeus/run_coeus.py \
-    --dataset ../../datasets \
+    --dataset "$DATASET_DIR" \
     --name "$dataset" \
     --k "$k_val" \
     --features "$features" \

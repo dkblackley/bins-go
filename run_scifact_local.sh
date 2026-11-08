@@ -96,10 +96,11 @@ for dpc in 250 500 1000 2500 5000 10000 40000; do
         python3 baselines/tiptoe/preprocess_tiptoe.py --dataset $DATASETS --name scifact --docs-per-cluster $dpc \
           --multi-assign $ma --bundle-size $bundle --out $TT > $LOGS/preprocess_dpc${dpc}_m${ma}_b${bundle}.log 2>&1
       fi
-      C=$(python3 -c "import json;print(json.load(open('$TT/tiptoe_meta.json'))['num_clusters'])")
+      # multi-assign as applied: it's capped at the number of clusters, and the simulator names its folder with it
+      read -r C MA_USED < <(python3 -c "import json;m=json.load(open('$TT/tiptoe_meta.json'));print(m['num_clusters'],m['multi_assign'])")
       for hint in 125 500; do
         for k in 10 100; do
-          name=tiptoe_scifact_c${C}_m${ma}_b${bundle}_h${hint}_k${k}
+          name=tiptoe_scifact_c${C}_m${MA_USED}_b${bundle}_h${hint}_k${k}
           TT_OUT=$OUT/tiptoe/$name
           [ -n "${SEEN[$name]:-}" ] && continue
           SEEN[$name]=1
