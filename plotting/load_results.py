@@ -1,5 +1,5 @@
 """
-Loads every run under RESULTS_DIR into
+Loads every run under g.RESULTS_DIRS (RESULTS_DIR, ':'-separated) into
 
     nested_data[method][dataset] = [run, run, ...]
 
@@ -30,11 +30,15 @@ finishes, so a folder without metadata.json is skipped (counted in the log).
     tree_{dataset}_..._k{K}
         Layout not fixed yet, see parse_tree().
 
-    tiptoe_{dataset}_c{C}_k{K}
+    tiptoe_{dataset}_c{C}[_m{M}][_b{B}][_h{H}]_k{K}
         C        number of k-means clusters (baselines/tiptoe/preprocess_tiptoe.py)
+        M        clusters each doc is assigned to (default 2)
+        B        bundle size (default 160)
+        H        embedding hint MB (default 500)
 
-    coeus_{dataset}_k{K}_f{F}
+    coeus_{dataset}_k{K}_f{F}[_tf{raw|log}]
         F        keyword dictionary size (baselines/coeus/run_coeus.py)
+        tf       term-frequency weighting (default raw)
 
 METADATA.JSON (all values are strings)
 -------------
@@ -43,7 +47,9 @@ Common to every method:
     CommCostPerBatchKB  KB sent for one batched PIR query
     DBSizeInBytesMB     server DB size (MB, despite the name)
     FailureProbLog2     PIR failure probability, log2
-    MRR / Recall        of the final list output by the method
+    MRR / Recall        of the final list output by the method. For the
+                        methods in g.MRR_FROM_PRE_RERANK (Coeus, Tiptoe) the
+                        loaded 'mrr' is MRRPreReRank instead, see parse_common()
     MRRPreReRank / RecallPreReRank
                         before the local rerank (cosine similarity against the
                         query embedding, keep top-k)
@@ -87,7 +93,9 @@ Per query (divided by NumQueries):
     wan_time     TotalWANTime (+ VecTotalWANTime) (s)
     comm_kb      TotalByteSent (+ VecTotalByteSent) in KB
 Not per query:
-    mrr, mrr_pre_rerank, recall, recall_pre_rerank, faithfulness,
+    mrr          MRR, or MRRPreReRank for g.MRR_FROM_PRE_RERANK methods
+    mrr_reranked MRR as written in metadata.json, whatever the method
+    mrr_pre_rerank, recall, recall_pre_rerank, faithfulness,
     answer_relevancy, db_size_mb, client_storage_mb, comm_per_batch_kb,
     failure_prob_log2, preprocessing_time (s, one-off),
     graph_generation_time (s, pacmann only), empty_bins, vocab_size,
@@ -111,10 +119,8 @@ import re
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 
 import globals as g
-from client_estimate import estimate_client
 
 log = logging.getLogger('load')
 
@@ -192,7 +198,7 @@ def combine_parts(run, parts):
 # PARSERS (one per method)
 # ==========================================
 
-def parse_common(folder, meta):
+def parse_common(folder, meta, method):
     """Keys every method shares. Returns None if the run can't be made per-query."""
     n = read_float(meta, 'NumQueries')
     if not n > 0:
@@ -200,10 +206,12 @@ def parse_common(folder, meta):
                   folder, meta.get('NumQueries'))
         return None
 
+    mrr_key = 'MRRPreReRank' if method in g.MRR_FROM_PRE_RERANK else 'MRR'
     run = {
         'folder':             folder,
         'num_queries':        int(n),
-        'mrr':                read_float(meta, 'MRR'),
+        'mrr':                read_float(meta, mrr_key),
+        'mrr_reranked':       read_float(meta, 'MRR'),
         'mrr_pre_rerank':     read_float(meta, 'MRRPreReRank'),
         'recall':             read_float(meta, 'Recall'),
         'recall_pre_rerank':  read_float(meta, 'RecallPreReRank'),
@@ -217,7 +225,7 @@ def parse_common(folder, meta):
     run.update(read_db_part(meta, n))
 
     if run['mrr'] == 0:
-        log.warning("%s: MRR is 0", folder)
+        log.warning("%s: %s is 0", folder, mrr_key)
     if run['comm_kb'] == 0:
         log.warning("%s: TotalByteSent is 0", folder)
     return run
@@ -229,7 +237,7 @@ def parse_bins(folder, meta):
         if not "k100" in folder:
             log.warning("%s: doesn't match bins_vec<0|1>_<dataset>_k<K>_bs<BS>_dpb<DPB>, skipping", folder)
         return None
-    run = parse_common(folder, meta)
+    run = parse_common(folder, meta, 'bins')
     if run is None:
         return None
 
@@ -276,7 +284,7 @@ def parse_pacmann(folder, meta):
         if not "k100" in folder:
             log.warning("%s: doesn't match pacmann_<dataset>_k<K>_steps<S>_neighb<N>, skipping", folder)
         return None
-    run = parse_common(folder, meta)
+    run = parse_common(folder, meta, 'pacmann')
     if run is None:
         return None
 
@@ -300,7 +308,7 @@ def parse_tree(folder, meta):
         if not "k100" in folder:
             log.warning("%s: doesn't match tree_<dataset>_b<B>_r<R>_s<S>_L<L>_k<K>, skipping", folder)
         return None
-    run = parse_common(folder, meta)
+    run = parse_common(folder, meta, 'tree')
     if run is None:
         return None
 
@@ -355,7 +363,7 @@ def parse_tiptoe(folder, meta):
         if "k100" not in folder:
             log.warning("%s: doesn't match tiptoe_<dataset>_c<C>_k<K>, skipping", folder)
         return None
-    run = parse_common(folder, meta)
+    run = parse_common(folder, meta, 'tiptoe')
     if run is None:
         return None
     c = int(name['c'])
@@ -374,7 +382,7 @@ def parse_coeus(folder, meta):
         if "k100" not in folder:
             log.warning("%s: doesn't match coeus_<dataset>_k<K>_f<F>, skipping", folder)
         return None
-    run = parse_common(folder, meta)
+    run = parse_common(folder, meta, 'coeus')
     if run is None:
         return None
     f, tf = int(name['f']), name['tf'] or 'raw'
@@ -421,26 +429,45 @@ def _load_folder(results_dir, folder):
     return 'ok', method, run
 
 
-def load_results(results_dir=g.RESULTS_DIR, max_workers=32):
+def load_results(results_dirs=None, max_workers=32):
     """
-    Reads every folder's metadata.json with a thread pool. Loading is I/O-bound
+    Reads every folder's metadata.json in `results_dirs` (one path, a list of
+    paths, or None for g.RESULTS_DIRS) with a thread pool. Loading is I/O-bound
     (many small file reads, often over a network filesystem), so threads give a
     big speedup despite the GIL: it's released during file I/O, and json.load /
     the parsers only hold it for the small compute part.
     """
+    if results_dirs is None:
+        results_dirs = g.RESULTS_DIRS
+    elif isinstance(results_dirs, str):
+        results_dirs = [d for d in results_dirs.split(os.pathsep) if d]
+    extra = [d for d in g.EXTRA_RESULTS_DIRS if d not in results_dirs]
+    for d in extra:
+        if not os.path.isdir(d):
+            log.debug("extra results directory not found, skipped: %s", d)
+    results_dirs = list(results_dirs) + [d for d in extra if os.path.isdir(d)]
+    log.info("reading results from %s", ', '.join(results_dirs))
     nested_data = {method: {} for method in g.METHOD_ORDER}
-    if not os.path.isdir(results_dir):
-        log.error("results directory does not exist: %s", results_dir)
-        return nested_data
 
-    folders = sorted(os.listdir(results_dir))
+    jobs = []   # (results_dir, folder), a folder name seen twice is only loaded once
+    seen = {}
+    for results_dir in results_dirs:
+        if not os.path.isdir(results_dir):
+            log.error("results directory does not exist: %s", results_dir)
+            continue
+        for folder in sorted(os.listdir(results_dir)):
+            if folder in seen:
+                log.warning("%s is in both %s and %s, using the first", folder, seen[folder], results_dir)
+                continue
+            seen[folder] = results_dir
+            jobs.append((results_dir, folder))
     no_metadata, bad_json, skipped = [], [], []
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        # pool.map yields results in `folders` order even though workers finish
+        # pool.map yields results in `jobs` order even though workers finish
         # out of order, so nested_data ends up built deterministically.
-        for folder, (status, method, run) in zip(
-                folders, pool.map(partial(_load_folder, results_dir), folders)):
+        for (_, folder), (status, method, run) in zip(
+                jobs, pool.map(lambda job: _load_folder(*job), jobs)):
             if status == 'not_dir':
                 continue
             if status == 'unknown_method':
@@ -494,7 +521,7 @@ def find_run(nested_data, folder):
 
 if __name__ == '__main__':
     g.setup_logging()
-    data = load_results(g.RESULTS_DIR)
+    data = load_results()
     for name in sys.argv[1:]:
         found = find_run(data, name)
         if found is None:

@@ -25,6 +25,13 @@ build_seal() {   # $1 = version tag, $2 = install prefix, rest = extra cmake fla
     if [[ -d "$prefix/lib" || -d "$prefix/lib64" ]]; then echo "SEAL $ver already in $prefix"; return; fi
     local src="$OPT/src/SEAL-$ver"
     [[ -d "$src" ]] || git clone --depth 1 -b "v$ver" https://github.com/microsoft/SEAL "$src"
+    # SEAL 3.5 relies on <mutex> being pulled in transitively; GCC >= 11 doesn't do that any more
+    local locks="$src/native/src/seal/util/locks.h"
+    if [[ -f "$locks" ]] && ! grep -q '#include <mutex>' "$locks"; then
+        sed -i 's|#include <shared_mutex>|#include <mutex>\n#include <shared_mutex>|' "$locks"
+    fi
+    # CMake >= 4 refuses projects declaring cmake_minimum_required < 3.5 (SEAL's bundled deps, Coeus' matmult)
+    export CMAKE_POLICY_VERSION_MINIMUM=3.5
     cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
         -DSEAL_USE_MSGSL=OFF -DSEAL_USE_ZLIB=OFF -DSEAL_USE_ZSTD=OFF "$@"
     cmake --build "$src/build" -j "$JOBS"
@@ -51,6 +58,10 @@ if [[ "$WHAT" == "tiptoe" || "$WHAT" == "all" ]]; then
     fi
     # Tiptoe's README: SEAL must be built with SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT=off
     build_seal 4.1.1 "$OPT/seal-4.1" -DSEAL_THROW_ON_TRANSPARENT_CIPHERTEXT=OFF -DBUILD_SHARED_LIBS=ON
+    # Tiptoe links -lseal-4.1 (the static lib's name); the shared build installs it as libseal.so
+    for d in "$OPT/seal-4.1/lib" "$OPT/seal-4.1/lib64"; do
+        [[ -e "$d/libseal.so" && ! -e "$d/libseal-4.1.so" ]] && ln -s libseal.so "$d/libseal-4.1.so"
+    done
 
     # The main build's NGT/HNSW flags are still needed: pir_app_tiptoe is the normal binary plus Tiptoe.
     export NGT_PREFIX="${NGT_PREFIX:-$HOME/opt/ngt-amd}"

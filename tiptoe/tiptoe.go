@@ -22,6 +22,7 @@
 package tiptoe
 
 import (
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -204,6 +205,12 @@ func MakeTiptoe(cfg *globals.Args) *TiptoeSearch {
 	logrus.Infof("Tiptoe ready: %d docs, %d clusters, client state %.2f MB, server DB %.2f MB",
 		embCorpus.GetNumDocs(), t.meta.NumClusters, float64(t.clientStateBytes)/(1<<20), float64(t.dbBytes)/(1<<20))
 	return t
+}
+
+// tutils.MessageSizeBytes gob-encodes through an interface{}, so any type it doesn't special-case must be
+// registered (upstream never sizes the whole hint, so it doesn't register TiptoeHint).
+func init() {
+	gob.Register(protocol.TiptoeHint{})
 }
 
 // applyHint is Coordinator.ApplyHint: the server answers the token query for both services.
