@@ -11,7 +11,8 @@
 #   prep     download + convert                 datasets/prep_datasets.slurm
 #   embed    e5 + PCA embeddings                 datasets/embed.slurm (msmarco-v2: PCA -> shards -> merge)
 #   tree-db  Lucene index + tree artifacts       datasets/tree_artifacts.slurm          (after embed)
-#   bins     bins grid, high + low tiers         run_bins_high.slurm, run_bins_low.slurm (after embed)
+#   bins-index Bluge index the bins need         datasets/bins_index.slurm              (after prep)
+#   bins     bins grid, high + low tiers         run_bins_high.slurm, run_bins_low.slurm (after embed + bins-index)
 #   pacmann  pacmann grid                        run_pacmann.slurm                       (after embed)
 #   tree     tree grid                           run_tree_pir_old.slurm                  (after tree-db)
 # A stage you leave out is assumed to be done already. If a job fails, the jobs that depend on it stay pending
@@ -26,7 +27,7 @@ cd "$(dirname "$0")/.."
 export DATASETS_ROOT="${DATASETS_ROOT:-../datasets}"
 export DATASET_DIR="$DATASETS_ROOT"
 
-STAGES="${STAGES:-prep embed tree-db bins pacmann tree}"
+STAGES="${STAGES:-prep embed tree-db bins-index bins pacmann tree}"
 has() { [[ " $STAGES " == *" $1 "* ]]; }
 mkdir -p logs
 
@@ -85,12 +86,21 @@ submit_dataset() {
         echo "  tree-db  $treedb"
     fi
 
+    local binsidx=""
+    if has bins-index; then
+        local big=()
+        is_big "$d" && big=(--partition=bigmem --mem=500G)
+        binsidx=$(submit "$prep $extra" --export=ALL,DATASET="$d" "${big[@]}" --job-name="binsidx_$d" \
+                  datasets/bins_index.slurm)
+        echo "  bins-index $binsidx"
+    fi
+
     if has bins; then
         local tier n
         for tier in high low; do
             n=$(count_of BINS_DATASETS="$d" "run_bins_${tier}.slurm")
             if [[ "$n" -gt 0 ]]; then
-                echo "  bins-$tier $(submit "$embed" --export=ALL,BINS_DATASETS="$d" --array=0-$((n - 1)) \
+                echo "  bins-$tier $(submit "$embed $binsidx" --export=ALL,BINS_DATASETS="$d" --array=0-$((n - 1)) \
                      --job-name="bins_${tier}_$d" "run_bins_${tier}.slurm") ($n tasks)"
             fi
         done
@@ -114,7 +124,7 @@ submit_dataset() {
 }
 
 [[ $# -gt 0 ]] || { sed -n 2,22p "$0"; exit 1; }
-needs_app() { has bins || has pacmann || has tree; }
+needs_app() { has bins-index || has bins || has pacmann || has tree; }
 [[ -x ./pir_app || -n "${DRY_RUN:-}" ]] || ! needs_app || echo "WARNING: ./pir_app not found, run build.sh before the run jobs start" >&2
 
 for d in "$@"; do

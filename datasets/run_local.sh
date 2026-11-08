@@ -5,7 +5,8 @@
 #   STAGES="embed tree-db run" bash datasets/run_local.sh nq      # skip stages that are already done
 #
 # Stages (default: all): prep (download + convert), embed (e5 + PCA on the local GPU), tree-db (Lucene index +
-# tree artifacts for one B/r/s), run (one bins, one pacmann and one tree config -> results_local/<name>/).
+# tree artifacts for one B/r/s), run (one bins, one pacmann and one tree config, written to $RESULTS_DIR, default
+# <datasets>/results, with the same folder names as the slurm runs).
 # Each stage is skipped automatically if its output already exists (FORCE=1 redoes it).
 #
 # Needs: python with requirements.txt (+ faiss, pyserini), Java 21, Go + the NGT/hnsw libs (see run_scifact_local.sh).
@@ -15,7 +16,8 @@ cd "$(dirname "$0")/.."
 
 ROOT="${DATASETS_ROOT:-../../../datasets}"
 RAW="${RAW_ROOT:-$ROOT/raw}"
-OUT="${OUT_ROOT:-results_local}"
+# Same folder + naming as the slurm runs, so plotting/load_results.py picks local results up too
+OUT="${RESULTS_DIR:-$ROOT/results}"
 STAGES="${STAGES:-prep embed tree-db run}"
 has() { [[ " $STAGES " == *" $1 "* ]]; }
 # one tree shape for the local check (the server builds the whole grid)
@@ -62,16 +64,24 @@ for d in "$@"; do
 
   # ---------------- one config per method
   if has run; then
-    mkdir -p "$OUT/$d/bins" "$OUT/$d/pacmann" "$OUT/$d/tree"
+    BS="${BINS_BS:-100000}"; DPB="${BINS_DPB:-100}"; L="${TREE_L:-100}"; Q="${QUERY_WORDS:-8}"
+    OB="$OUT/bins_vec1_${d}_k${K}_bs${BS}_dpb${DPB}"
+    OP="$OUT/pacmann_${d}_k${K}_steps15_neighb32"
+    OT="$OUT/tree_grid_${d}_b${B}_r${R}_s${S}_L${L}_q${Q}_k${K}"
+    mkdir -p "$OB" "$OP" "$OT"
+    if [[ ! -d "$ROOT/index_${d}" || -n "${FORCE:-}" ]]; then
+      echo "-- bins index"
+      ./pir_app -t index -name "$d" -dataset "$ROOT"
+    fi
     echo "-- bins"
-    ./pir_app -n "$N" -t bins -name "$d" -k "$K" -binSize "${BINS_BS:-100000}" -docsPerBin "${BINS_DPB:-100}" \
-        -vectors=true -dim 192 -dataset "$ROOT" -outDir "$OUT/$d/bins" -outFile results -debug 1
+    ./pir_app -n "$N" -t bins -name "$d" -k "$K" -binSize "$BS" -docsPerBin "$DPB" \
+        -vectors=true -dim 192 -dataset "$ROOT" -outDir "$OB" -outFile results -debug 1
     echo "-- pacmann"
     ./pir_app -n "$N" -t pacmann -name "$d" -k "$K" -steps 15 -neighb 32 -dim 192 \
-        -dataset "$ROOT" -outDir "$OUT/$d/pacmann" -outFile results -debug 1
+        -dataset "$ROOT" -outDir "$OP" -outFile results -debug 1
     echo "-- tree"
-    ./pir_app -n "$N" -t tree -name "$d" -k "$K" -dim 192 -dataset "$ROOT" -outDir "$OUT/$d/tree" -outFile results \
-        -debug 0 -B "$B" -r "$R" -s "$S" -L "${TREE_L:-100}" -k_candidates 128 -query-words "${QUERY_WORDS:-8}" \
+    ./pir_app -n "$N" -t tree -name "$d" -k "$K" -dim 192 -dataset "$ROOT" -outDir "$OT" -outFile results \
+        -debug 0 -B "$B" -r "$R" -s "$S" -L "$L" -k_candidates 128 -query-words "$Q" \
         -max-queries 100000 -k1 0.9 -b 0.4 -scale 10 -precompute -pir-batch-size 128 -pir-threads "$(nproc)" \
         -cuckoo-load-factor 0.4 -cuckoo-max-kicks 1000 -cuckoo-build-attempts 8 \
         -index "$T/index_${d}" -layout-path "$A/layout.json" -vocab "$A/stage1_vocab.json" \
@@ -80,6 +90,6 @@ for d in "$@"; do
         -queries "$T/queries.qrels.tsv" -qrels "$T/qrels.trec" \
         -doc-embed "$T/stage3_doc.npy" -doc-id-map "$T/stage3_doc.npy.ids" \
         -query-embed "$D/${d}_query_embed_f32.npy" -embed-dim 192
-    echo "Results: $OUT/$d/{bins,pacmann,tree}/metadata.json"
+    echo "Results: $OB, $OP, $OT (metadata.json in each)"
   fi
 done

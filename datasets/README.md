@@ -57,6 +57,7 @@ bash datasets/embed_big.sh                               # msmarco-v2: PCA -> 24
 DATASET=msmarco-v2-100m sbatch datasets/prep_datasets.slurm
 
 # 4. run: the bins / pacmann slurms take a dataset list and print the array size to use
+DATASET=nq sbatch datasets/bins_index.slurm             # bins only: Bluge index (= ./pir_app -t index -name nq)
 BINS_DATASETS="nq hotpotqa fever" bash run_bins_high.slurm --count
 BINS_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_bins_high.slurm      # and run_bins_low.slurm
 PACMANN_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_pacmann.slurm
