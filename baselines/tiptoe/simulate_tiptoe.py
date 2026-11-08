@@ -215,14 +215,16 @@ def main():
                 cache.clear()
             if npy:
                 s_, e_ = cptr[c], cptr[c + 1]
-                cache[c] = (np.asarray(emb_all[s_:e_], dtype=np.int64), np.asarray(rows_all[s_:e_]),
+                cache[c] = (np.asarray(emb_all[s_:e_], dtype=np.int8), np.asarray(rows_all[s_:e_]),
                             np.asarray(bun_all[s_:e_]))
             else:
                 cl = read_cluster_full(os.path.join(cdir, f"cluster_{c}.txt"))
-                cache[c] = (np.stack([e for _, e, _ in cl]), np.array([r for r, _, _ in cl]),
+                cache[c] = (np.stack([e for _, e, _ in cl]).astype(np.int8), np.array([r for r, _, _ in cl]),
                             np.array([b for _, _, b in cl]))
         embs, crow, cbun = cache[c]
-        scores = embs @ q                                   # exact integer inner products, as decrypted
+        # exact integer inner products, as decrypted (|score| <= 192*16*16, so int32 is exact); clusters are cached
+        # as int8 to keep memory at ~200 B per doc even with 40k-doc clusters
+        scores = embs.astype(np.int32) @ q.astype(np.int32)
         order = np.argsort(-scores, kind="stable")
         best_bundle = cbun[order[0]]
         ids, seen = [], set()
