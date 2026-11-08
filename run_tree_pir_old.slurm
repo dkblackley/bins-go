@@ -12,6 +12,7 @@
 #SBATCH --array=0-960
 #SBATCH --output=logs/Tree_%A_%a.out
 #SBATCH --error=logs/Tree_%A_%a.err
+#SBATCH --signal=B:TERM@120
 
 set -euo pipefail
 ROOT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
@@ -25,40 +26,43 @@ cd "$ROOT_DIR"
 # The grid lives in tree_sweep_grid.sh (shared with datasets/prep_tree.sh, which builds the artifacts).
 #   DATASET=msmarco|scifact|nq|dbpedia-entity|fever|hotpotqa|miracl-en|msmarco-v2[-25m|-50m|-100m]
 #   SWEEP=legacy|oat|grid|all (default all)
-#   bash run_tree_pir_old.slurm --count   -> how many configs, set --array to match
-# Slurm caps array size (MaxArraySize, often 1001), so big sweeps go in chunks:
-#   ARRAY_OFFSET=1000 sbatch --array=0-674 ... runs configs 1000..1674 (datasets/run_all.sh does this for you).
-# Configs whose metadata.json already exists are skipped, so re-submitting is safe.
+#
+# Normally datasets/run_all.sh submits this: it skips configs whose inputs are missing, groups the rest by
+# estimated RAM/time and passes each group as CONFIG_LIST (one "d B r s L q c max_q ..." line per array task),
+# with a matching --mem/--time/--partition. By hand, without CONFIG_LIST, task i runs config i of the grid:
+#   bash run_tree_pir_old.slurm --count; DATASET=nq sbatch --array=0-960 run_tree_pir_old.slurm
+#   (ARRAY_OFFSET=1000 shifts task ids for grids above MaxArraySize)
+# Configs whose metadata.json exists are skipped (FORCE=1 reruns), and so are configs with a missing input.
+# Every finished run appends its peak RSS and wall time to $USAGE_FILE (slurm_common.sh), which later estimates use.
 source "${ROOT_DIR}/tree_sweep_grid.sh"
-DATASET="${DATASET:?set DATASET (see tree_sweep_grid.sh)}"
-SWEEP="${SWEEP:-all}"
-build_tree_grid "$DATASET" "$SWEEP" || exit 1
-# MEM_TIER=<GB bucket> keeps only the configs whose estimated RAM lands in that bucket (tree_sweep_grid.sh --tiers),
-# so each bucket can be submitted with a matching --mem/--partition. datasets/run_all.sh does that for you:
-#   32/100 GB -> normal partition, 250/500/1000/1500 GB -> bigmem. Unset = every config.
-[[ -n "${MEM_TIER:-}" ]] && filter_tree_mem_tier "$MEM_TIER"
 
-if [[ "${1:-}" == "--count" ]]; then
-    echo "${#DATA_ARR[@]} configs for ${DATASET} SWEEP=${SWEEP}${MEM_TIER:+ MEM_TIER=$MEM_TIER} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
-    exit 0
+task_id=$(( ${SLURM_ARRAY_TASK_ID:-0} + ${ARRAY_OFFSET:-0} ))
+if [[ -n "${CONFIG_LIST:-}" ]]; then
+    if [[ "${1:-}" == "--count" ]]; then
+        echo "$(grep -c . "$CONFIG_LIST") configs in $CONFIG_LIST (use --array=0-$(( $(grep -c . "$CONFIG_LIST") - 1 )))"; exit 0
+    fi
+    line=$(sed -n "$(( task_id + 1 ))p" "$CONFIG_LIST")
+    [[ -n "$line" ]] || { echo "task ${task_id} is past the end of $CONFIG_LIST, nothing to do"; exit 0; }
+    read -r dataset B_val r_val s_val L_val q_words_val k_cand_val max_q_val est_gb est_min _ <<< "$line"
+    SWEEP="list"
+else
+    DATASET="${DATASET:?set DATASET (see tree_sweep_grid.sh)}"
+    SWEEP="${SWEEP:-all}"
+    build_tree_grid "$DATASET" "$SWEEP" || exit 1
+    if [[ "${1:-}" == "--count" ]]; then
+        echo "${#DATA_ARR[@]} configs for ${DATASET} SWEEP=${SWEEP} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
+        exit 0
+    fi
+    if (( task_id >= ${#DATA_ARR[@]} )); then
+        echo "task ${task_id} is past the ${#DATA_ARR[@]} configs of ${DATASET} SWEEP=${SWEEP}, nothing to do"; exit 0
+    fi
+    dataset=${DATA_ARR[$task_id]}; L_val=${L_ARR[$task_id]}; k_cand_val=${KCAND_ARR[$task_id]}
+    q_words_val=${QWORDS_ARR[$task_id]}; B_val=${B_ARR[$task_id]}; r_val=${R_ARR[$task_id]}
+    s_val=${S_ARR[$task_id]}; max_q_val=${MAX_Q_ARR[$task_id]}; est_gb="?"; est_min="?"
 fi
-
-task_id=$(( SLURM_ARRAY_TASK_ID + ${ARRAY_OFFSET:-0} ))
-if (( task_id >= ${#DATA_ARR[@]} )); then
-    echo "task ${task_id} is past the ${#DATA_ARR[@]} configs of ${DATASET} SWEEP=${SWEEP}, nothing to do"; exit 0
-fi
-dataset=${DATA_ARR[$task_id]}
-L_val=${L_ARR[$task_id]}
-k_cand_val=${KCAND_ARR[$task_id]}
-q_words_val=${QWORDS_ARR[$task_id]}
-B_val=${B_ARR[$task_id]}
-r_val=${R_ARR[$task_id]}
-s_val=${S_ARR[$task_id]}
-max_q_val=${MAX_Q_ARR[$task_id]}
 embed_val=192
 
 BINARY="${ROOT_DIR}/pir_app"
-# _c<k_candidates> is part of the name now that k_candidates is swept (load_results.py reads it)
 # Non-default Cuckoo settings (TREE_CUCKOO_HASHES=3 TREE_CUCKOO_LF=0.88 roughly halves the Stage 1/2 tables, worth it
 # for msmarco-v2) go in their own sub-folder so they never mix with the default runs.
 CUCKOO_HASHES="${TREE_CUCKOO_HASHES:-2}"
@@ -66,14 +70,29 @@ CUCKOO_LF="${TREE_CUCKOO_LF:-0.4}"
 CUCKOO_KICKS=$([[ "$CUCKOO_HASHES" == 3 ]] && echo 5000 || echo 1000)
 CUCKOO_TAG=""
 [[ "$CUCKOO_HASHES" != 2 || "$CUCKOO_LF" != 0.4 ]] && CUCKOO_TAG="h${CUCKOO_HASHES}_lf${CUCKOO_LF}/"
+# _c<k_candidates> is part of the name now that k_candidates is swept (load_results.py reads it)
 OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${CUCKOO_TAG}tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10"
 if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
     echo "Already done: ${OUT_DIR} (set FORCE=1 to rerun)"; exit 0
 fi
+
+missing=$(tree_missing "$dataset" "$B_val" "$r_val" "$s_val")
+if [[ -n "$missing" ]]; then
+    echo "SKIP ${dataset} B=${B_val} r=${r_val} s=${s_val} L=${L_val} q=${q_words_val} c=${k_cand_val}: missing ${missing}"
+    echo "     (tree artifacts: DATASET=${dataset} sbatch datasets/tree_artifacts.slurm; data/embeddings: datasets/run_all.sh)"
+    exit 0
+fi
+tree_paths "$dataset" "$B_val" "$r_val" "$s_val"
+CACHE_ARGS=""
+if [[ -n "$CACHE_SUBDIR" ]]; then
+    CACHE_DIR="${ROOT_DIR}/cuckoo_cache/${CACHE_SUBDIR}/task_${SLURM_ARRAY_JOB_ID:-0}_${task_id}"
+    mkdir -p "$CACHE_DIR"
+    CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
+fi
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
-echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
+echo "Array Task ID: ${SLURM_ARRAY_TASK_ID:-} (config ${task_id}, ${SWEEP})"
 echo "Dataset:       $dataset"
 echo "B Value:       $B_val"
 echo "r Value:       $r_val"
@@ -81,105 +100,16 @@ echo "s Value:       $s_val"
 echo "L Value:       $L_val"
 echo "k_candidates:  $k_cand_val"
 echo "Query Words:   $q_words_val"
-echo "Sweep:         $SWEEP${MEM_TIER:+ MEM_TIER=$MEM_TIER} (config $task_id of ${#DATA_ARR[@]}), estimated ${MEM_ARR[$task_id]:-?} GB"
+echo "Estimate:      ${est_gb} GB, ${est_min} min (requested: ${SLURM_MEM_PER_NODE:-?} MB)"
 echo "Output Dir:    $OUT_DIR"
 echo "========================================"
-
-# Pre-define dataset-specific variables using absolute paths
-if [ "$dataset" == "msmarco" ]; then
-    DB_SIZE=8841823
-    DATA_ROOT="${ROOT_DIR}/data/msmarco"
-    ARTIFACT_DIR="${DATA_ROOT}/pir/B${B_val}_r${r_val}_s${s_val}"
-    LAYOUT_PATH="${ARTIFACT_DIR}/layout.json"
-    BLOCK_PERMS="data/block_permutations.json"
-    INDEX="${ROOT_DIR}/data/msmarco_reordered"
-    QUERIES="${ROOT_DIR}/data/queries.dev.small.tsv"
-    # QUERIES="/scratch/dblackle/tree_stuff/new_tests/msmarco/queries.tsv"
-    QRELS="${ROOT_DIR}/data/qrels.dev.small.tsv"
-    # QRELS="/scratch/dblackle/tree_stuff/new_tests/msmarco/qrels.tsv"
-    VOCAB="${ARTIFACT_DIR}/stage1_vocab.json"
-    STAGE1_DATA="${ARTIFACT_DIR}/stage1_data.bin"
-    STAGE1_IDMAP="${ARTIFACT_DIR}/stage1_idmap.bin"
-    STAGE2_DATA="${ARTIFACT_DIR}/stage2/data.bin"
-    STAGE2_IDMAP="${ARTIFACT_DIR}/stage2/idmap.bin"
-    DOC_EMBED="${ROOT_DIR}/data/stage3_doc_aligned_shuffle.npy"
-    DOC_ID_MAP="${ROOT_DIR}/data/stage3_doc_aligned.npy.ids"
-    QUERY_EMBED="${ROOT_DIR}/data/stage3_query.npy"
-    # QUERY_EMBED="/scratch/dblackle/tree_stuff/new_tests/msmarco/data/query_embeddings.npy"
-    CACHE_ARGS=""
-
-elif [ "$dataset" == "scifact" ]; then
-    DB_SIZE=5183
-    DATA_ROOT="${ROOT_DIR}/data/scifact"
-    ARTIFACT_DIR="${DATA_ROOT}/pir/B${B_val}_r${r_val}_s${s_val}"
-    BLOCK_PERMS="${DATA_ROOT}/block_permutations.json"
-
-    CACHE_DIR="${ROOT_DIR}/cuckoo_cache/scifact/B${B_val}_r${r_val}_s${s_val}/task_${task_id}"
-    mkdir -p "$CACHE_DIR"
-
-    LAYOUT_PATH="${ARTIFACT_DIR}/layout.json"
-    INDEX="${ROOT_DIR}/indexes/scifact"
-    QUERIES="${DATA_ROOT}/queries.qrels.tsv"
-    # QUERIES="/scratch/dblackle/tree_stuff/new_tests/scifact/queries.qrels.tsv"
-    QRELS="${DATA_ROOT}/qrels.trec"
-    # QRELS="/scratch/dblackle/tree_stuff/new_tests/scifact/qrels.tsv"
-    VOCAB="${ARTIFACT_DIR}/stage1_vocab.json"
-    STAGE1_DATA="${ARTIFACT_DIR}/stage1_data.bin"
-    STAGE1_IDMAP="${ARTIFACT_DIR}/stage1_idmap.bin"
-    STAGE2_DATA="${ARTIFACT_DIR}/stage2/data.bin"
-    STAGE2_IDMAP="${ARTIFACT_DIR}/stage2/idmap.bin"
-    DOC_EMBED="${DATA_ROOT}/clustered/stage3_e5_pca192_doc_embeddings.npy"
-    DOC_ID_MAP="${DATA_ROOT}/clustered/stage3_e5_pca192_doc_embeddings.npy.ids"
-    QUERY_EMBED="${DATA_ROOT}/stage3_e5_pca192_query_embeddings.npy"
-    # QUERY_EMBED="/scratch/dblackle/tree_stuff/new_tests/scifact/query_embeddings.npy"
-
-
-    CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
-
-elif [[ "$dataset" =~ ^(nq|hotpotqa|fever|dbpedia-entity|miracl-en|msmarco-v2.*)$ ]]; then
-    # Layout written by datasets/prep_tree.sh
-    DATASET_ROOT="${DATASET_DIR:-../../datasets}"
-    DB_SIZE=$(cat "${DATASET_ROOT}/${dataset}/num_docs.txt")
-    DATA_ROOT="${ROOT_DIR}/data/${dataset}_tree"
-    ARTIFACT_DIR="${DATA_ROOT}/B${B_val}_r${r_val}_s${s_val}"
-    BLOCK_PERMS=""
-
-    CACHE_DIR="${ROOT_DIR}/cuckoo_cache/${dataset}/B${B_val}_r${r_val}_s${s_val}/task_${task_id}"
-    mkdir -p "$CACHE_DIR"
-
-    LAYOUT_PATH="${ARTIFACT_DIR}/layout.json"
-    INDEX="${DATA_ROOT}/index_${dataset}"
-    QUERIES="${DATA_ROOT}/queries.qrels.tsv"
-    QRELS="${DATA_ROOT}/qrels.trec"
-    VOCAB="${ARTIFACT_DIR}/stage1_vocab.json"
-    STAGE1_DATA="${ARTIFACT_DIR}/stage1_data.bin"
-    STAGE1_IDMAP="${ARTIFACT_DIR}/stage1_idmap.bin"
-    STAGE2_DATA="${ARTIFACT_DIR}/stage2/data.bin"
-    STAGE2_IDMAP="${ARTIFACT_DIR}/stage2/idmap.bin"
-    DOC_EMBED="${DATA_ROOT}/stage3_doc.npy"
-    DOC_ID_MAP="${DATA_ROOT}/stage3_doc.npy.ids"
-    # rows follow queries.jsonl order; tree_main matches them to the analyzed queries by ID
-    QUERY_EMBED="${DATASET_ROOT}/${dataset}/${dataset}_query_embed_f32.npy"
-
-    CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
-
-else
-    echo "Unknown dataset: $dataset"
-    exit 1
-fi
-
-for f in "$LAYOUT_PATH" "$VOCAB" "$STAGE1_DATA" "$STAGE1_IDMAP" "$STAGE2_DATA" "$STAGE2_IDMAP"; do
-    [[ -e "$f" ]] || { echo "Missing tree artifact $f: build it first with DATASET=$dataset SWEEP=$SWEEP sbatch datasets/tree_artifacts.slurm"; exit 1; }
-done
 
 LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10.log"
 
 SECONDS=0
 echo "Running tree search..."
-# /usr/bin/time -v puts "Maximum resident set size" in the log: real numbers to recalibrate TREE_MEM_CAL with
-TIMER=()
-[[ -x /usr/bin/time ]] && TIMER=(/usr/bin/time -v)
-"${TIMER[@]}" "$BINARY" \
+# peak RSS + wall time go to time_v.txt and then the usage log (slurm_common.sh record_usage)
+"${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
     -t tree \
     -name "$dataset" \
     -n "$DB_SIZE" \
@@ -219,12 +149,24 @@ TIMER=()
     --embed-dim "$embed_val" \
     --block-permutation "$BLOCK_PERMS" \
     --pir-threads 16 \
-    $CACHE_ARGS > "$LOG_FILE" 2>&1
+    $CACHE_ARGS > "$LOG_FILE" 2>&1 &
+run_pid=$!
+CFG_KEY=$(tree_config_key "$B_val" "$r_val" "$s_val" "$L_val" "$q_words_val" "$k_cand_val")
+# time limit (SIGTERM 120 s before it, see --signal) or OOM: log it so the next estimate for this config is bigger
+trap 'kill -TERM "$run_pid" 2>/dev/null; record_failure tree "$dataset" "$CFG_KEY" "${OUT_DIR}/time_v.txt" 143 "$SECONDS" timeout; exit 143' TERM
+rc=0
+wait "$run_pid" || rc=$?
+if (( rc != 0 )); then
+    echo "pir_app failed with exit code $rc, see $LOG_FILE"
+    record_failure tree "$dataset" "$CFG_KEY" "${OUT_DIR}/time_v.txt" "$rc" "$SECONDS" || true
+    exit "$rc"
+fi
 
 elapsed_time=$SECONDS
 echo "Time elapsed: $elapsed_time seconds"
+record_usage tree "$dataset" "$CFG_KEY" "${OUT_DIR}/time_v.txt" "$elapsed_time" || true
 echo "Execution finished."
 
 # Copy SLURM logs into the output directory for reference
-cp "${ROOT_DIR}/logs/Tree_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" "${OUT_DIR}/execution.log" || true
-cp "${ROOT_DIR}/logs/Tree_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err" "${OUT_DIR}/error.log" || true
+cp "${ROOT_DIR}/logs/Tree_${SLURM_ARRAY_JOB_ID:-}_${SLURM_ARRAY_TASK_ID:-}.out" "${OUT_DIR}/execution.log" || true
+cp "${ROOT_DIR}/logs/Tree_${SLURM_ARRAY_JOB_ID:-}_${SLURM_ARRAY_TASK_ID:-}.err" "${OUT_DIR}/error.log" || true

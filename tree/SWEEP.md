@@ -77,30 +77,38 @@ scripts, it uses avgdl-based bounds and no `min_dl_map`. If the original
 msmarco artifacts were built with a `min_dl_map`, rebuild them with `FORCE=1`
 for a like-for-like comparison.
 
-## Memory tiers
+## Input checks, memory and time (tree and bins)
 
-Each config gets a rough server RAM estimate from its dataset and B/r/s (`tree_mem_gb` in
-`tree_sweep_grid.sh`, calibrated so the old msmarco grid fits the 120 GB it ran in). Configs are grouped into
-buckets of 32/100/250/500/1000/1500 GB, with 20% headroom. `datasets/run_all.sh` submits one array per bucket:
-≤100 GB on `normal` (6 h), 250 GB on bigmem (12 h), 500 GB (1 day), and 1000/1500 GB (2 days).
+`datasets/run_all.sh` sizes every tree and bins config before submitting it:
+
+1. **Input check.** Configs whose data, embeddings, index or tree artifacts are missing are skipped and
+   counted ("SKIPPED 935 of 961 configs: inputs not there yet (first missing: ...)"). The check is skipped
+   when the jobs that produce those inputs are queued in the same call (`prep`, `embed`, `tree-db`,
+   `bins-index`). Each task checks again when it starts, prints `SKIP ... missing <file>` and exits 0.
+   Finished configs (`metadata.json` exists) are skipped too.
+2. **Estimate** (`slurm_common.sh`):
+   - measured on this dataset: peak RSS x1.2 and wall time x1.5 (+10 min)
+   - measured on another dataset: scaled by the docs ratio (memory^1.0 for tree, ^0.8 for bins; time^1.0), x1.5
+   - otherwise the model: tree from the DB size (`tree_mem_gb`), bins from vocab x docs-per-bin (`bins_model`),
+     both calibrated so the old msmarco grids fit the 120 GB they ran in
+3. **Groups.** Configs are grouped by memory bucket (16/32/64/100/250/500/1000/1500 GB) and time bucket
+   (1/2/4/6/12/24/48 h). Each group becomes one array with exactly that `--mem`/`--time`: ≤100 GB on
+   `normal` (bins: `run_bins_low.slurm`), larger on `bigmem` (bins: `run_bins_high.slurm`). The config list
+   for each array is in `logs/lists/<timestamp>/`.
+
+Every run goes through `measure_run.sh` (GNU time if installed, otherwise it polls VmHWM) and appends
+`method dataset config peak_GB seconds date` to `$RESULTS_DIR/resource_usage.tsv`. Each submission is
+therefore sized from real numbers for every config that has run before, and new datasets are scaled from
+the closest measured one. A run killed for memory (exit 137, or peak ≥90% of the request) or by the time
+limit is logged at 1.5x the memory or 2x the time. Resubmitting it then lands it in a bigger bucket instead
+of failing again.
 
 ```bash
-DATASET=msmarco bash tree_sweep_grid.sh --tiers     # "bucket count", e.g. 100 790 / 250 171
-DATASET=msmarco bash tree_sweep_grid.sh --mem       # estimate per B/r/s
-MEM_TIER=250 DATASET=msmarco sbatch --array=0-170 --partition=bigmem --mem=250G run_tree_pir_old.slurm   # by hand
+DRY_RUN=1 STAGES="bins tree" bash datasets/run_all.sh nq msmarco    # show groups/skips, submit nothing
+DATASET=nq bash tree_sweep_grid.sh --summary                         # ready/missing per memory bucket
+DATASET=nq bash tree_sweep_grid.sh --plan | head                     # per config: ... GB minutes source missing
 ```
 
-| dataset | buckets (SWEEP=all) |
-|---|---|
-| scifact | all 32 GB |
-| nq, dbpedia-entity | 32 / 100 GB |
-| fever, msmarco | mostly 100 GB, ~10-20% at 250 GB |
-| msmarco-v2-25m | 250 / 500 GB |
-| miracl-en, msmarco-v2-50m | 500 / 1000 GB |
-| msmarco-v2-100m | 1000 / 1500 GB |
-| msmarco-v2 | ≥ ~900 GB; 566 of 961 configs exceed 1.5 TB and are skipped |
-
-msmarco-v2 is big because msmarco's server-side DB is already about 38 GB, and v2 has 15.6x the docs.
-`TREE_CUCKOO_HASHES=3 TREE_CUCKOO_LF=0.88` roughly halves the Stage 1/2 tables. The estimate follows that,
-and those runs go into an `h3_lf0.88/` results sub-folder. Every run now logs its peak RSS (`/usr/bin/time -v`,
-"Maximum resident set size" in the run log). Once real numbers are back, set `TREE_MEM_CAL` from them.
+msmarco-v2 is big because msmarco's server-side tree DB alone is about 38 GB, and v2 has 15.6x the docs.
+`TREE_CUCKOO_HASHES=3 TREE_CUCKOO_LF=0.88` roughly halves the Stage 1/2 tables. The estimate follows that, and
+those runs go into an `h3_lf0.88/` results sub-folder.
