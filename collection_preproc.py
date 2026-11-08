@@ -117,8 +117,84 @@ def parse_line(line, is_jsonl):
     return docid, f"passage: {doctext}"
 
 
+def raw_msmarco_v2_files(path):
+    """msmarco_passage_*.gz in a raw MS MARCO v2 dir (what download.sh untars), else []."""
+    import glob
+    if not os.path.isdir(path):
+        return []
+    return sorted(glob.glob(os.path.join(path, 'msmarco_passage_*.gz'))) or \
+        sorted(glob.glob(os.path.join(path, 'msmarco_v2_passage', 'msmarco_passage_*.gz')))
+
+
+def _count_gz_lines(fp):
+    import zlib
+    d, n = zlib.decompressobj(16 + zlib.MAX_WBITS), 0
+    with open(fp, 'rb') as f:
+        for chunk in iter(lambda: f.read(16 << 20), b''):
+            n += d.decompress(chunk).count(b'\n')
+    return n
+
+
+def _count_indexed(arg):
+    i, fp = arg
+    return i, _count_gz_lines(fp)
+
+
+def raw_line_counts(files):
+    """Passages per .gz, cached in line_counts.json next to them (one parallel pass the first time)."""
+    cache = os.path.join(os.path.dirname(files[0]), 'line_counts.json')
+    if os.path.exists(cache):
+        counts = json.load(open(cache))
+        if sorted(counts) == sorted(os.path.basename(f) for f in files):
+            return [counts[os.path.basename(f)] for f in files]
+    from multiprocessing import Pool
+    print(f"Counting passages in {len(files)} .gz files (once, cached in {cache}) ...")
+    n = [0] * len(files)
+    with Pool(min(len(files), os.cpu_count() or 1)) as pool:
+        for i, c in tqdm(pool.imap_unordered(_count_indexed, list(enumerate(files))), total=len(files),
+                         desc="Counting passages", unit="file"):
+            n[i] = c
+    json.dump({os.path.basename(f): c for f, c in zip(files, n)}, open(cache, 'w'))
+    return n
+
+
+def iter_raw_msmarco_v2(files, lo, hi, batch_size):
+    """Rows [lo, hi) of MS MARCO v2 read straight from the raw .gz files, in exactly the order and text that
+    prepare_dataset.py --format msmarco-v2 writes to corpus.jsonl (ids renumbered 0..N-1, empty title), so the
+    embeddings match a corpus.jsonl-based run row for row. Files entirely before lo are not opened."""
+    import gzip
+    counts = raw_line_counts(files)
+    ids, txt, start = [], [], 0
+    for fp, c in zip(files, counts):
+        if start + c <= lo:
+            start += c
+            continue
+        if start >= hi:
+            break
+        with gzip.open(fp, 'rt', encoding='utf-8') as f:
+            for j, line in enumerate(f):
+                row = start + j
+                if row < lo:
+                    continue
+                if row >= hi:
+                    break
+                ids.append(str(row))
+                txt.append(f"passage:  {json.loads(line)['passage']}".strip())   # == f"passage: {''} {text}"
+                if len(ids) == batch_size:
+                    yield ids, txt
+                    ids, txt = [], []
+        start += c
+    if ids:
+        yield ids, txt
+
+
 def iter_range(path, lo, hi, batch_size=2048):
-    """Batches of docs [lo, hi). Lines before lo are skipped without parsing (fast resume / later shards)."""
+    """Batches of docs [lo, hi). Lines before lo are skipped without parsing (fast resume / later shards).
+    path is a corpus .jsonl/.tsv, or a raw MS MARCO v2 directory of msmarco_passage_*.gz (see above)."""
+    files = raw_msmarco_v2_files(path)
+    if files:
+        yield from iter_raw_msmarco_v2(files, lo, hi, batch_size)
+        return
     is_jsonl = path.endswith('.jsonl')
     ids, txt = [], []
     with open(path, 'r', encoding='utf-8', buffering=16 << 20) as f:
@@ -195,7 +271,7 @@ def make_pca(model, docs_path, sample_size=100000, batch_size=2048, pca_path="pc
      print(f"Collecting ~{sample_size} documents for PCA training...")
      sample_texts = []
 
-     for _, texts in iter_docs(docs_path, batch_size=batch_size):
+     for _, texts in iter_range(docs_path, 0, sample_size, batch_size=batch_size):
          sample_texts.extend(texts)
          if len(sample_texts) >= sample_size:
              break
@@ -238,6 +314,7 @@ def main(args):
     enable_fast_fp32()
     # model = SentenceTransformer('sentence-transformers/msmarco-MiniLM-L-6-v3', device=device)
     model = SentenceTransformer('intfloat/e5-base-v2', device=device)
+    model.eval()   # encode() does this itself; the prefetch path calls the model directly
     if args.fp16 and device == 'cuda':
         model = model.half()  # tensor cores: ~5x the fp32 speed on A100, ~2x on top of TF32
 
@@ -254,7 +331,8 @@ def main(args):
         return
 
     # 1) Count first so we can preallocate on disk
-    num_docs = args.num_docs if args.num_docs > 0 else count_lines(args.documents)
+    raw = raw_msmarco_v2_files(args.documents)
+    num_docs = args.num_docs if args.num_docs > 0 else (sum(raw_line_counts(raw)) if raw else count_lines(args.documents))
     print(f"Total documents: {num_docs:,}")
 
     # Optional sharding (for 100M+ corpora): shard i of n embeds docs [lo, hi) into its own .npy. Merge the shards
@@ -355,7 +433,8 @@ def main(args):
 if __name__ == '__main__':
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument('--documents', type=str, required=True, help='Path to collection.tsv or BEIR corpus.jsonl')
+    ap.add_argument('--documents', type=str, required=True,
+                    help='collection.tsv, BEIR corpus.jsonl, or a raw MS MARCO v2 dir of msmarco_passage_*.gz')
     ap.add_argument('--output', type=str, required=True, help='Path to output embeddings file')
     ap.add_argument('--pca', type=str, default='pca_e5_768_to_192.faiss',
                     help='Where to save (or, with --load-pca, read) the 768->192 PCA. Use one per dataset.')
