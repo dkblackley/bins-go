@@ -162,7 +162,7 @@ var datasetDisplayNames = map[string]string{
 func main() {
 
 	DBSize := flag.Uint("n", 8841823, "Number of items/vectors in DB")
-	searchType := flag.String("t", "bins", "Search type, current options are 'bins'|'pacmann'")
+	searchType := flag.String("t", "bins", "Search type: 'bins'|'pacmann'|'tree', or 'index' to build the bins' Bluge index for -name and exit")
 	dbFileName := flag.String("name", "msmarco", "Identifier for the dataset to be loaded")
 	datasetsDirectory := flag.String("dataset", "../datasets", "Where to look for the dataset/data")
 	topK := flag.Uint("k", 5, "K many items to return in search")
@@ -351,6 +351,14 @@ func main() {
 	})
 
 	logrus.Debugf("Config: %v", config)
+
+	if *searchType == "index" {
+		logrus.Infof("Building bins index %s from %s", meta.IndexDir, meta.OriginalDir)
+		start := time.Now()
+		bins.Must(bins.BuildBinsIndex(meta))
+		logrus.Infof("Index built in %s", time.Since(start))
+		return
+	}
 
 	qids := getQIDS(config)
 	config.QueryNum = uint(len(qids))

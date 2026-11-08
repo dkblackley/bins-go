@@ -326,6 +326,30 @@ func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
 	return nil
 }
 
+// OpenBinsIndex opens the Bluge index the bins use to pick each word's top docs. It used to ignore the error, so a
+// missing index only showed up later as a nil-pointer panic inside MakeUnigramDB.
+func OpenBinsIndex(meta globals.DatasetMetadata) *bluge.Reader {
+	reader, err := bluge.OpenReader(bluge.DefaultConfig(meta.IndexDir))
+	if err != nil {
+		logrus.Fatalf("Can't open the bins index %s (%v). Build it once with: pir_app -t index -name <name> -dataset <dir>",
+			meta.IndexDir, err)
+	}
+	return reader
+}
+
+// BuildBinsIndex builds the Bluge index for a dataset from its corpus.jsonl. It writes to <IndexDir>.tmp and renames,
+// so a half-built index is never picked up.
+func BuildBinsIndex(meta globals.DatasetMetadata) error {
+	tmp := meta.IndexDir + ".tmp"
+	if err := BuildBlugeIndexFromJSONL(meta.OriginalDir, tmp); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(meta.IndexDir); err != nil {
+		return err
+	}
+	return os.Rename(tmp, meta.IndexDir)
+}
+
 func ReadCSV(path string) ([][]string, error) {
 	f, err := os.Open(path)
 	if err != nil {

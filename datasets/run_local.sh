@@ -63,6 +63,10 @@ for d in "$@"; do
   # ---------------- one config per method
   if has run; then
     mkdir -p "$OUT/$d/bins" "$OUT/$d/pacmann" "$OUT/$d/tree"
+    if [[ ! -d "$ROOT/index_${d}" || -n "${FORCE:-}" ]]; then
+      echo "-- bins index"
+      ./pir_app -t index -name "$d" -dataset "$ROOT"
+    fi
     echo "-- bins"
     ./pir_app -n "$N" -t bins -name "$d" -k "$K" -binSize "${BINS_BS:-100000}" -docsPerBin "${BINS_DPB:-100}" \
         -vectors=true -dim 192 -dataset "$ROOT" -outDir "$OUT/$d/bins" -outFile results -debug 1
