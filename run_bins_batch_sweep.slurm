@@ -2,18 +2,30 @@
 #SBATCH --job-name=Bins_Batch
 # PILLAR-Bin (two-stage, vec0) client storage vs embedding-DB batch size / rounds.
 #
-# Each query fetches its candidate embeddings in VecRounds sequential rounds of exactly
-# VecBatch lookups. The client hint grows with sqrt(VecBatch/2 partitions), so a smaller
-# batch saves client storage and costs rounds (latency). Two families are swept:
-#   b<N>   -vecBatch N, rounds chosen automatically to cover as many docs as today
-#   r<N>   -vecRounds N, batch = today's coverage / N
-#   auto   today's setting, for reference
+# Grid search over the bins-only client-storage knobs of the two-stage (vec0) layout.
+# Nothing here touches the documents or embeddings: it only changes how many lookups
+# each PIR batch makes (and so how many partitions, i.e. hints, the client keeps).
 #
-#   sbatch --array=0-$(( $(bash run_bins_batch_sweep.slurm --count | cut -d' ' -f1) - 1 )) run_bins_batch_sweep.slurm
+#   vec batch   -vecBatch   lookups per embedding-DB round. The max is the batch used
+#               so far, min(3*dpb, 3000) for MS MARCO and min(dpb, 500) for SciFact;
+#               the grid tries max, max/2, max/4, max/8
+#   vec rounds  -vecRounds  sequential embedding-DB rounds: 1, 2, 4, 8
+#               (candidates fetched = batch * rounds; the rest are dropped)
+#   id batch    -idBatch    ID-DB batch: 24 (today), 16, 12, 8. A query with more
+#               terms than the batch puts several lookups in one partition: more
+#               sequential Piano queries and more frequent refreshes (it logs a warning)
 #
-# Results go to ${RESULTS_ROOT}/<knob>/bins_vec0_..., so each knob loads on its own:
-#   RESULTS_DIR=${RESULTS_ROOT}/b32 python plotting/main.py
-# metadata.json also records VecBatchSize, VecRounds and IDBatchSize.
+# 4 x 4 x 4 = 64 combinations per (dataset, bs, dpb), plus "auto" (today's run).
+# Some corners (1 round of max/8) will be bad on every metric; that is the point.
+#
+#   bash run_bins_batch_sweep.slurm --count
+#   sbatch --array=0-$(( $(bash run_bins_batch_sweep.slurm --count | cut -d' ' -f1) - 1 ))%64 run_bins_batch_sweep.slurm
+#
+# Results go to ${RESULTS_ROOT}/<tag>/bins_vec0_..., tag = vb<batch>_vr<rounds>_ib<idbatch>
+# (vb is the fraction of the max: 1, 2, 4, 8 = max/1 .. max/8, so a tag means the
+# same thing for every dpb). Load one with:
+#   RESULTS_DIR=${RESULTS_ROOT}/vb1_vr1_ib24 python plotting/main.py
+# metadata.json records VecBatchSize, VecRounds and IDBatchSize.
 #SBATCH --partition=bigmem
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -42,20 +54,17 @@ export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 RESULTS_ROOT="${RESULTS_ROOT:-/scratch/dblackle/results_vecbatch}"
 K_VAL=10
 
-# knob tag | extra pir_app flags
-KNOBS=(
-    "auto|"
-    "b512|-vecBatch 512"
-    "b256|-vecBatch 256"
-    "b128|-vecBatch 128"
-    "b64|-vecBatch 64"
-    "b32|-vecBatch 32"
-    "b16|-vecBatch 16"
-    "r2|-vecRounds 2"
-    "r4|-vecRounds 4"
-    "r8|-vecRounds 8"
-    "r16|-vecRounds 16"
-)
+VEC_DIVS=(1 2 4 8)     # vec batch = max / this
+VEC_ROUNDS=(1 2 4 8)
+ID_BATCHES=(24 16 12 8)
+KNOBS=("auto")
+for vd in "${VEC_DIVS[@]}"; do
+    for vr in "${VEC_ROUNDS[@]}"; do
+        for ib in "${ID_BATCHES[@]}"; do
+            KNOBS+=("${vd}|${vr}|${ib}")
+        done
+    done
+done
 # dataset | hash table size | docs per bin values (edit to the configs you plot)
 SETUPS=(
     "msmarco|1000000|10 50 100 250 500"
@@ -81,13 +90,27 @@ task_id=$SLURM_ARRAY_TASK_ID
 dataset=${DATA_ARR[$task_id]}
 bin_size=${BS_ARR[$task_id]}
 docs_val=${DPB_ARR[$task_id]}
-IFS='|' read -r knob knob_args <<< "${KNOB_ARR[$task_id]}"
+knob_spec=${KNOB_ARR[$task_id]}
 
 case "$dataset" in
     msmarco) DB_SIZE=8841823 ;;
     scifact) DB_SIZE=5183 ;;
     *) echo "Unknown dataset: $dataset"; exit 1 ;;
 esac
+
+if [[ "$knob_spec" == "auto" ]]; then
+    knob="auto"; knob_args=""
+else
+    IFS='|' read -r vd vr ib <<< "$knob_spec"
+    if [[ "$dataset" == "msmarco" ]]; then
+        vec_max=$(( 3 * docs_val < 3000 ? 3 * docs_val : 3000 ))
+    else
+        vec_max=$(( docs_val < 500 ? docs_val : 500 ))
+    fi
+    vb=$(( vec_max / vd )); if (( vb < 2 )); then vb=2; fi
+    knob="vb${vd}_vr${vr}_ib${ib}"
+    knob_args="-vecBatch ${vb} -vecRounds ${vr} -idBatch ${ib}"
+fi
 
 OUT_DIR="${RESULTS_ROOT}/${knob}/bins_vec0_${dataset}_k${K_VAL}_bs${bin_size}_dpb${docs_val}"
 mkdir -p "$OUT_DIR"

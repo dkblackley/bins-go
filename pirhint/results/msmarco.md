@@ -12,6 +12,10 @@ Stage1 items per level: [2599883 19483532 80430370 149982912]; Stage2 items: 219
 | s1 per level per hash, batch/2 | 5.9 GB | 1.00x | 2.2 GB | 658 MB | 3.1 GB | 38.0 GB | 18.1 MB | 57.0 MB | 2 half-size tables per level, half the batch each |
 | s2 one DB per sub-block | 7.8 GB | 1.33x | 2.2 GB | 2.6 GB | 3.1 GB | 62.6 GB | 36.3 MB | 70.2 MB | 4 DBs with 1-byte values |
 | s2 one DB per leaf block | 33.7 GB | 5.72x | 2.2 GB | 28.5 GB | 3.1 GB | 38.0 GB | 455 MB | 578 MB | 276307 small DBs, 1 partition each |
+| cuckoo 3 hashes | 4.9 GB | 0.83x | 1.4 GB | 389 MB | 3.1 GB | 20.7 GB | 19.2 MB | 57.6 MB | --cuckoo-hashes 3 --cuckoo-key-bytes 8 --ub-bits 8 --cuckoo-load-factor 0.88 |
+| cuckoo 2-byte keys | 5.7 GB | 0.97x | 2.2 GB | 458 MB | 3.1 GB | 33.9 GB | 18.6 MB | 55.8 MB | --cuckoo-hashes 2 --cuckoo-key-bytes 2 --ub-bits 8 --cuckoo-load-factor 0.4 |
+| cuckoo 4-bit bounds | 5.2 GB | 0.88x | 1.5 GB | 658 MB | 3.1 GB | 28.6 GB | 18.5 MB | 49.6 MB | --cuckoo-hashes 2 --cuckoo-key-bytes 8 --ub-bits 4 --cuckoo-load-factor 0.4 |
+| cuckoo 3h + 2B keys + 4-bit | 4.3 GB | 0.74x | 997 MB | 269 MB | 3.1 GB | 14.6 GB | 19.0 MB | 47.5 MB | --cuckoo-hashes 3 --cuckoo-key-bytes 2 --ub-bits 4 --cuckoo-load-factor 0.88 |
 | download if cheaper | 5.9 GB | 1.00x | 2.2 GB | 658 MB | 3.1 GB | 38.0 GB | 18.6 MB | 57.9 MB | client takes the plain DB when it is smaller than its hints |
 | s3 fp16 | 4.3 GB | 0.74x | 2.2 GB | 658 MB | 1.6 GB | 34.9 GB | 17.9 MB | 41.3 MB | Stage3 embeddings stored as fp16 |
 | s3 int8 | 3.6 GB | 0.61x | 2.2 GB | 658 MB | 800 MB | 33.3 GB | 17.5 MB | 33.0 MB | Stage3 embeddings stored as int8 |

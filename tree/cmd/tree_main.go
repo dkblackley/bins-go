@@ -76,6 +76,9 @@ func (P *PIRTree) Preprocess() {
 	bc := P.config.BinsConf
 	cuckooConfig := bm25.CuckooBuildConfig{
 		LoadFactor:    bc.CuckooLoadFactor,
+		Hashes:        bc.CuckooHashes,
+		KeyBytes:      bc.CuckooKeyBytes,
+		ValueBits:     bc.CuckooUBBits,
 		MaxKicks:      bc.CuckooMaxKicks,
 		BuildAttempts: bc.CuckooBuildAttempts,
 		CacheDir:      bc.CuckooCacheDir,
@@ -218,6 +221,10 @@ func (P *PIRTree) GetMetaData() map[string]string {
 	meta["cuckoo_hash_functions"] = "2"
 	if len(P.stage1DB.Levels) > 0 && P.stage1DB.Levels[0] != nil {
 		t := P.stage1DB.Levels[0].Table
+		meta["cuckoo_hash_functions"] = strconv.Itoa(max(t.Hashes, 2))
+		meta["cuckoo_key_bytes"] = strconv.Itoa(t.KeyBytes)
+		meta["ub_bits"] = strconv.Itoa(t.ValueBits)
+		meta["stage1_entry_bytes"] = strconv.FormatUint(t.EntryWords*8, 10)
 		meta["cuckoo_load_factor"] = ff(float64(t.ItemCount) / float64(t.SlotCount))
 	}
 
@@ -404,7 +411,7 @@ func Runtree(config *globals.Args) *PIRTree {
 }
 
 // normalizeQueryTerms pads or truncates the query terms to a fixed length.
-// Padding uses OOV tokens: they still cost two Cuckoo probes but score zero.
+// Padding uses OOV tokens: they still cost the same Cuckoo probes but score zero.
 func normalizeQueryTerms(terms []string, targetLength int) ([]string, int) {
 	originalLen := len(terms)
 	if targetLength <= 0 {

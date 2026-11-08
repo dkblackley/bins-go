@@ -106,6 +106,27 @@ What each one does:
   trivially private. This also answers the reviewer's "the client could just
   download the index" literally, for the DBs where that is true.
 
+## Tree-only Cuckoo layouts (flags, defaults unchanged)
+
+These only change how the tree's own (term,node) -> bound tables are stored.
+Documents, embeddings and the bounds themselves are untouched, and PACMANN has
+no such tables, so none of it carries over. MS MARCO, synthetic sizes:
+
+| flag | values | client | what changes |
+|---|---|---|---|
+| `--cuckoo-hashes 3 --cuckoo-load-factor 0.88` | 2 or 3 | 4.9 GB (0.83x) | 3 locations per key fill 88% of rows instead of 40%; 3 probes per key instead of 2 |
+| `--cuckoo-key-bytes 2` | 1..8 | 5.7 GB (0.97x) | a 2-byte fingerprint instead of the 8-byte key; only pays off together with the next one, since rows are whole words |
+| `--ub-bits 4` | 1..8 | 5.2 GB (0.88x) | bounds stored as ceil(v/step), read back as code*step >= v, so still upper bounds, only looser |
+| all three | | 4.3 GB (0.74x) | Stage1 2.2 GB to 1.0 GB, Stage2 658 to 269 MB |
+
+A fingerprint can match a different key (about hashes/2^(8*bytes) a lookup).
+The client takes the element-wise max over every matching probe, and the true
+row is always one of them, so a false match only loosens that node's bound and
+never lowers it. Ranking can get slower to prune, never wrong in the
+upper-bound sense. Each layout gets its own cache file name, so old caches are
+still used for the default layout. `run_tree_grid_sweep.slurm` runs the full
+grid of these with `--pir-batch-size` and `--stage3-batch-size`.
+
 ## Further ideas (not implemented)
 
 * **A stateless PIR for Stage3/the Vec DB.** It fetches a few hundred rows a
@@ -113,10 +134,6 @@ What each one does:
   hint-free single-server scheme such as YPIR or Respire, or a SimplePIR-style
   scheme, moves that cost to server compute. PILLAR does not depend on Piano,
   which is worth saying in the rebuttal.
-* **Shorter Cuckoo keys.** Every Stage1/2 row carries an 8-byte key for 4 to 32
-  bytes of scores (Stage2 at s=8: 8 key + 4 value, padded to 16). A 2 to 4 byte
-  fingerprint plus byte-granular rows would cut Stage1/2 by up to 2x. That
-  needs non-word-aligned PIR rows.
 * **Fewer, fatter Stage3 rows** (16 docs a row) halves the rows but doubles the
   entry, so the hint only grows by `sqrt(2)`. It is only worth it together with
   int8.

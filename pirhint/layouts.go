@@ -70,6 +70,9 @@ type TreeParams struct {
 	Batch       uint64  // --pir-batch-size, Stage1 and Stage2
 	Stage3Batch uint64  // --stage3-batch-size (32 originally)
 	LoadFactor  float64 // --cuckoo-load-factor
+	Hashes      int     // --cuckoo-hashes (0 = 2)
+	KeyBytes    int     // --cuckoo-key-bytes (0 = 8)
+	UBBits      int     // --ub-bits (0 = 8)
 	EmbedDim    int     // Stage3 embedding dimension
 	EmbedBytes  int     // bytes per embedding value: 4 fp32, 2 fp16, 1 int8
 	DocsPerRow3 int     // Stage3 docs per PIR row (8)
@@ -82,13 +85,33 @@ type TreeParams struct {
 var DefaultTree = TreeParams{B: 32, R: 32, S: 8, Batch: 128, Stage3Batch: 32, LoadFactor: 0.4,
 	EmbedDim: 192, EmbedBytes: 4, DocsPerRow3: 8, QueryWords: 8, Beam: 50, Candidates: 128}
 
-func (p TreeParams) keyProbes() uint64 { return uint64(2 * p.QueryWords * p.Beam) } // 2 Cuckoo probes per key
+func (p TreeParams) hashes() int { return max(p.Hashes, 2) }
+
+// keyProbes: every key probes all of its Cuckoo locations
+func (p TreeParams) keyProbes() uint64 { return uint64(p.hashes() * p.QueryWords * p.Beam) }
+
+// cuckooEntry is the Stage1/2 row: CuckooEntryBytes for the original layout,
+// else KeyBytes*8 + UBBits*values bits in whole words (bm25.compactEntryWords).
+func (p TreeParams) cuckooEntry(values uint64) uint64 {
+	k, v := p.KeyBytes, p.UBBits
+	if k == 0 {
+		k = 8
+	}
+	if v == 0 {
+		v = 8
+	}
+	if p.hashes() == 2 && k == 8 && v == 8 {
+		return CuckooEntryBytes(values)
+	}
+	bits := uint64(8*k) + uint64(v)*values
+	return (bits + 63) / 64 * 8
+}
 
 func (p TreeParams) stage1(shape TreeShape) []DB {
 	var dbs []DB
 	for level, items := range shape.Stage1Items {
 		dbs = append(dbs, DB{Name: fmt.Sprintf("s1/level%d", level),
-			Rows: CuckooRows(items, p.LoadFactor), EntryBytes: CuckooEntryBytes(uint64(p.R)), Batch: p.Batch,
+			Rows: CuckooRows(items, p.LoadFactor), EntryBytes: p.cuckooEntry(uint64(p.R)), Batch: p.Batch,
 			Probes: p.keyProbes()})
 	}
 	return dbs
@@ -99,7 +122,7 @@ func (p TreeParams) stage2(shape TreeShape) []DB {
 		return nil
 	}
 	return []DB{{Name: "s2/cuckoo", Rows: CuckooRows(shape.Stage2Items, p.LoadFactor),
-		EntryBytes: CuckooEntryBytes(uint64(p.B / p.S)), Batch: p.Batch, Probes: p.keyProbes()}}
+		EntryBytes: p.cuckooEntry(uint64(p.B / p.S)), Batch: p.Batch, Probes: p.keyProbes()}}
 }
 
 func (p TreeParams) stage3(shape TreeShape) []DB {
@@ -167,6 +190,23 @@ func TreeLayouts(shape TreeShape, p TreeParams) []Layout {
 			Probes: uint64(2 * p.QueryWords)}
 		out = append(out, base("s2 one DB per leaf block", fmt.Sprintf("%d small DBs, 1 partition each", shape.Leaves),
 			append(append(p.stage1(shape), perLeaf), p.stage3(shape)...)))
+	}
+
+	// --- tree-only Cuckoo layouts (tables only, data untouched) ------------
+	for _, c := range []struct {
+		name               string
+		hashes, key, ubits int
+		load               float64
+	}{
+		{"cuckoo 3 hashes", 3, 8, 8, 0.88},
+		{"cuckoo 2-byte keys", 2, 2, 8, p.LoadFactor},
+		{"cuckoo 4-bit bounds", 2, 8, 4, p.LoadFactor},
+		{"cuckoo 3h + 2B keys + 4-bit", 3, 2, 4, 0.88},
+	} {
+		q := p
+		q.Hashes, q.KeyBytes, q.UBBits, q.LoadFactor = c.hashes, c.key, c.ubits, c.load
+		out = append(out, base(c.name, fmt.Sprintf("--cuckoo-hashes %d --cuckoo-key-bytes %d --ub-bits %d --cuckoo-load-factor %g",
+			c.hashes, c.key, c.ubits, c.load), q.all(shape)))
 	}
 
 	// --- fixes ----------------------------------------------------------

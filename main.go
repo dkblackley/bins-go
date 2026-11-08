@@ -196,6 +196,9 @@ func main() {
 	pirDownloadSmall := flag.Bool("pir-download-small", false, "Download a PIR DB in the clear when its Piano hints would be at least as large as the DB (tree and bins)")
 	pirChunkFactor := flag.Float64("pir-chunk-factor", 2.0, "Piano ChunkSize = next pow2 >= factor*sqrt(partition rows); smaller = smaller primary hints, larger uploads (tree)")
 	pirQueryBudget := flag.Float64("pir-query-budget", 1.0, "Scale on the sqrt(n)ln(n) queries between hint refreshes; smaller = smaller backup hints, more re-preprocessing (tree)")
+	cuckooHashes := flag.Int("cuckoo-hashes", 2, "tree: hash locations per Cuckoo key, 2 or 3 (3 allows load factors up to 0.91)")
+	cuckooKeyBytes := flag.Int("cuckoo-key-bytes", 8, "tree: bytes of the (term,node) key kept per Cuckoo row, 1..8 (below 8 = fingerprint)")
+	cuckooUBBits := flag.Int("ub-bits", 8, "tree: bits per Stage1/2 upper bound, 1..8 (rounded up, so still upper bounds)")
 	stage3BatchSize := flag.Int64("stage3-batch-size", 32, "BatchPIR batch size of the Stage3 embedding DB, partitions = batch/2 (tree)")
 	cuckooMaxKicks := flag.Int("cuckoo-max-kicks", 1000, "Maximum displacement steps per Cuckoo insertion")
 	cuckooBuildAttempts := flag.Int("cuckoo-build-attempts", 8, "Maximum full-table Cuckoo rehash attempts")
@@ -303,6 +306,9 @@ func main() {
 			PIRConstantWork:     *pirConstantWork,
 			PIRThreads:          *pirThreads,
 			CuckooLoadFactor:    *cuckooLoadFactor,
+			CuckooHashes:        *cuckooHashes,
+			CuckooKeyBytes:      *cuckooKeyBytes,
+			CuckooUBBits:        *cuckooUBBits,
 			PIRDownloadSmall:    *pirDownloadSmall,
 			PIRChunkFactor:      *pirChunkFactor,
 			PIRQueryBudget:      *pirQueryBudget,
