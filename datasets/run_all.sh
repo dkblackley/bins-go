@@ -20,9 +20,10 @@
 #            <=100 GB on the normal partition, 250/500/1000/1500 GB on bigmem, one job array per bucket.
 #
 # GPU=<profile> sends the embed jobs to another GPU queue instead of embed.slurm's DGX A100.40gb (fp16, short time
-# limits, 32 GB RAM, so they backfill sooner). Run it next to a series that's already queued: whichever embed finishes
+# limits, 32 GB RAM, so they backfill sooner; a job that hits its limit requeues itself and resumes). Run it next to a series that's already queued: whichever embed finishes
 # first wins, the other one exits 3 and its dependants stay pending (DependencyNeverSatisfied) for you to scancel.
 #   a100       A100.80gb on gpuq OR contrib-gpuq (96 GPUs; preemptible on contrib, jobs requeue + resume)   <- default pick
+#   any        any GPU at all (--gres=gpu:1 on gpuq, contrib-gpuq, contrib-h100, incl. MIG slices), 4 h limit
 #   a100-gpuq  A100.80gb on gpuq only (40 GPUs, never preempted)
 #   mig40      MIG 3g.40gb slice on gpuq (24; ~0.4 of an A100)      mig20  MIG 2g.20gb (8; ~0.25 of an A100)
 #   h100       H100.80gb on contrib-h100 (4, preemptible)           b200   B200.180gb on contrib-b200 (8, reserved)
@@ -67,14 +68,15 @@ gpu_args() {   # gpu_args <all|pca|shard|finish>
     [[ -z "${GPU:-}" ]] && return 0
     local part qos=gpu gres requeue="" cpus=8 t_all t_shard
     case "$GPU" in
-        a100)      part=gpuq,contrib-gpuq; gres=A100.80gb;  requeue=1; t_all=3;  t_shard=3 ;;
-        a100-gpuq) part=gpuq;              gres=A100.80gb;             t_all=3;  t_shard=3 ;;
-        dgx)       part=gpuq;              gres=A100.40gb;             t_all=3;  t_shard=3 ;;
+        any)       part=gpuq,contrib-gpuq,contrib-h100; gres="";  cpus=4; requeue=1; t_all=4; t_shard=4 ;;
+        a100)      part=gpuq,contrib-gpuq; gres=A100.80gb;  requeue=1; t_all=2;  t_shard=2 ;;
+        a100-gpuq) part=gpuq;              gres=A100.80gb;             t_all=2;  t_shard=2 ;;
+        dgx)       part=gpuq;              gres=A100.40gb;             t_all=2;  t_shard=2 ;;
         mig40)     part=gpuq;              gres=3g.40gb;    cpus=4;    t_all=6;  t_shard=6 ;;
         mig20)     part=gpuq;              gres=2g.20gb;    cpus=4;    t_all=10; t_shard=10 ;;
         h100)      part=contrib-h100;      gres=H100.80gb;  requeue=1; t_all=2;  t_shard=2 ;;
         b200)      part=contrib-b200;      gres=B200.180gb; requeue=1; t_all=2;  t_shard=2 ;;
-        *) echo "Unknown GPU=$GPU (a100 a100-gpuq dgx mig40 mig20 h100 b200)" >&2; exit 1 ;;
+        *) echo "Unknown GPU=$GPU (any a100 a100-gpuq dgx mig40 mig20 h100 b200)" >&2; exit 1 ;;
     esac
     part="${GPU_PARTITION:-$part}"; gres="${GPU_GRES:-$gres}"; qos="${GPU_QOS:-$qos}"
     local hours mem=32G
@@ -82,7 +84,7 @@ gpu_args() {   # gpu_args <all|pca|shard|finish>
         all) hours=$t_all ;; shard) hours=$t_shard ;; pca) hours=1 ;; finish) hours=4; mem=64G ;;
     esac
     hours="${GPU_HOURS:-$hours}"
-    echo "--partition=$part --qos=$qos --gres=gpu:$gres:1 --cpus-per-task=$cpus --mem=$mem --time=$(printf '0-%02d:00:00' "$hours") --open-mode=append ${requeue:+--requeue}"
+    echo "--partition=$part --qos=$qos --gres=gpu:${gres:+$gres:}1 --cpus-per-task=$cpus --mem=$mem --time=$(printf '0-%02d:00:00' "$hours") --open-mode=append ${requeue:+--requeue}"
 }
 # fp16 + a per-series resume key for the GPU= series (embed.slurm / collection_preproc.py read these)
 EMB_ENV=""
@@ -129,7 +131,10 @@ submit_dataset() {
     fi
 
     embed="$prep $extra"
-    if has embed && [[ ! "$d" =~ ^msmarco-v2-[0-9]+m$ ]]; then   # subsamples copy the full set's embeddings
+    local pfx="$d"; [[ "$d" == trec-covid ]] && pfx=trec
+    if has embed && [[ -f "$DATASETS_ROOT/$d/${pfx}_corpus_embed_f32.npy.done" ]]; then
+        echo "  embed    already done ($d/${pfx}_corpus_embed_f32.npy.done), not queued"
+    elif has embed && [[ ! "$d" =~ ^msmarco-v2-[0-9]+m$ ]]; then   # subsamples copy the full set's embeddings
         if [[ "$d" == "msmarco-v2" || "$d" == "miracl-en" ]]; then
             local n=${NUM_SHARDS:-$([[ "$d" == miracl-en ]] && echo 8 || echo 24)} pca shards
             pca=$(submit "$prep $extra" --export=ALL,DATASET="$d",MODE=pca,NUM_SHARDS=$n$EMB_ENV --time=0-02:00:00 \

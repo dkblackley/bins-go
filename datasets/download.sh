@@ -26,11 +26,15 @@ case "$name" in
     # If the TU Darmstadt mirror is down, the same files are on HF: huggingface-cli download BeIR/<name> (and BeIR/<name>-qrels)
     wget -c --progress=dot:giga -O "${name}.zip" "${BEIR_URL}/${name}.zip"
     unzip -n -q "${name}.zip"
+    [[ -n "${DELETE_TAR:-}" ]] && rm -f "${name}.zip"
     ;;
   msmarco-v2)
     mkdir -p msmarco-v2 && cd msmarco-v2
-    wget -c --progress=dot:giga -O msmarco_v2_passage.tar "${MARCO_URL}/msmarco_v2_passage.tar"
-    tar -xf msmarco_v2_passage.tar          # -> msmarco_v2_passage/msmarco_passage_{00..69}.gz (keep them gzipped)
+    if [[ ! -f msmarco_v2_passage/msmarco_passage_69.gz ]]; then
+      wget -c --progress=dot:giga -O msmarco_v2_passage.tar "${MARCO_URL}/msmarco_v2_passage.tar"
+      tar -xf msmarco_v2_passage.tar        # -> msmarco_v2_passage/msmarco_passage_{00..69}.gz (keep them gzipped)
+    fi
+    [[ -n "${DELETE_TAR:-}" ]] && rm -f msmarco_v2_passage.tar   # saves 20 GB (embed_local.sh sets it)
     for f in passv2_dev_queries.tsv passv2_dev_qrels.tsv passv2_dev2_queries.tsv passv2_dev2_qrels.tsv; do
       wget -c --progress=dot:giga -O "$f" "${MARCO_URL}/$f"
     done

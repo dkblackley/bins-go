@@ -38,7 +38,9 @@ from tqdm import tqdm
 
 import json
 import os
+import queue
 import sys
+import threading
 
 # Exit code when another job (e.g. the same embed queued on a second GPU partition) already finished this output.
 # Non-zero on purpose: the jobs that depend on THIS job (afterok) then never start, so two racing series don't both
@@ -106,6 +108,81 @@ def iter_docs(path, batch_size=2048):
 
     if buf_ids:
         yield buf_ids, buf_txt
+
+def parse_line(line, is_jsonl):
+    if is_jsonl:
+        data = json.loads(line)   # BEIR JSONL
+        return data['_id'], f"passage: {data.get('title', '')} {data.get('text', '')}".strip()
+    docid, doctext = line.rstrip('\n').split('\t', 1)   # TSV
+    return docid, f"passage: {doctext}"
+
+
+def iter_range(path, lo, hi, batch_size=2048):
+    """Batches of docs [lo, hi). Lines before lo are skipped without parsing (fast resume / later shards)."""
+    is_jsonl = path.endswith('.jsonl')
+    ids, txt = [], []
+    with open(path, 'r', encoding='utf-8', buffering=16 << 20) as f:
+        for i, line in enumerate(f):
+            if i < lo:
+                continue
+            if i >= hi:
+                break
+            d, t = parse_line(line, is_jsonl)
+            ids.append(d)
+            txt.append(t)
+            if len(ids) == batch_size:
+                yield ids, txt
+                ids, txt = [], []
+    if ids:
+        yield ids, txt
+
+
+class Prefetcher(threading.Thread):
+    """Reads, parses and tokenizes the next `depth` batches on a CPU thread while the GPU embeds the current one,
+    so disk reads and tokenization overlap with the GPU instead of stalling it. Items: (docids, texts, minibatches)
+    where minibatches is [(row indices, tokenized features)], longest texts first (same order as model.encode)."""
+
+    def __init__(self, batches, model, encode_batch, depth, tokenize=True):
+        super().__init__(daemon=True)
+        self.batches, self.model, self.encode_batch, self.tokenize = batches, model, encode_batch, tokenize
+        self.q = queue.Queue(maxsize=max(1, depth))
+
+    def run(self):
+        try:
+            for docids, texts in self.batches:
+                mbs = None
+                if self.tokenize:
+                    order = np.argsort([-len(t) for t in texts], kind='stable')
+                    mbs = []
+                    for a in range(0, len(order), self.encode_batch):
+                        idx = order[a:a + self.encode_batch]
+                        mbs.append((idx, self.model.tokenize([texts[i] for i in idx])))
+                self.q.put((docids, texts, mbs))
+            self.q.put(None)
+        except BaseException as e:   # hand the error to the main thread
+            self.q.put(e)
+
+    def __iter__(self):
+        self.start()
+        while True:
+            item = self.q.get()
+            if item is None:
+                return
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+
+
+def embed_tokenized(model, mbs, n, device):
+    """model.encode(..., normalize_embeddings=True) on features that the Prefetcher already tokenized."""
+    embs = np.empty((n, 768), dtype=np.float32)
+    with torch.inference_mode():
+        for idx, feats in mbs:
+            feats = {k: (v.to(device, non_blocking=True) if hasattr(v, 'to') else v) for k, v in feats.items()}
+            embs[idx] = model(feats)['sentence_embedding'].float().cpu().numpy()
+    embs /= np.maximum(np.linalg.norm(embs, axis=1, keepdims=True), 1e-12)
+    return embs
+
 
 def count_lines(path):
     print(f"Counting lines in {path}...")
@@ -196,7 +273,7 @@ def main(args):
         return
 
     output_dim = pca.d_out
-    dtype = np.float32
+    dtype = np.dtype(args.dtype)   # float16 halves the file; datasets/f16_to_f32.py widens it losslessly later
     batch = 2048
 
     # 2) Write into a per-job partial file and move it into place only when complete. The partial name carries
@@ -213,12 +290,12 @@ def main(args):
     if os.path.exists(progress) and os.path.exists(part_path) and os.path.exists(part_ids):
         row = int(open(progress).read().strip() or 0)
         out = open_memmap(part_path, mode='r+')
-        assert out.shape == (total, output_dim), f"{part_path} has shape {out.shape}, expected {(total, output_dim)}"
-        with open(part_ids) as f:                      # drop ids written after the last checkpoint
-            kept = [next(f) for _ in range(row)]
-        with open(part_ids, 'w') as f:
-            f.writelines(kept)
-        del kept
+        assert out.shape == (total, output_dim) and out.dtype == dtype, \
+            f"{part_path} is {out.shape} {out.dtype}, expected {(total, output_dim)} {dtype}"
+        with open(part_ids, 'rb+') as f:              # drop ids written after the last checkpoint (streamed:
+            for _ in range(row):                       # 100M+ ids don't fit in a 16 GB machine's RAM)
+                f.readline()
+            f.truncate(f.tell())
         print(f"Resuming {part_path} from row {row:,} of {total:,}")
     else:
         out = open_memmap(part_path, mode='w+', dtype=dtype, shape=(total, output_dim))
@@ -234,24 +311,16 @@ def main(args):
 
     start = lo + row      # first document still to embed
     every = max(1, args.checkpoint_every)
+    batches = iter_range(args.documents, start, hi, batch_size=batch)
+    fetch = Prefetcher(batches, model, args.encode_batch, args.prefetch, tokenize=not args.simple_encode)
     with open(part_ids, 'a') as fid:
-        seen = 0
         n_batches = 0
-        for docids, texts in tqdm(iter_docs(args.documents, batch_size=batch),
-                                   total=(num_docs + batch - 1) // batch,
-                                   desc="Processing documents"):
-            # skip batches before this shard / already embedded, stop after the shard (edge batches are trimmed)
-            b_lo, b_hi = seen, seen + len(docids)
-            seen = b_hi
-            if b_hi <= start:
-                continue
-            if b_lo >= hi:
-                break
-            s0, s1 = max(start, b_lo) - b_lo, min(hi, b_hi) - b_lo
-            docids, texts = docids[s0:s1], texts[s0:s1]
-
-            embs = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True,
-                                batch_size=args.encode_batch)  # (B, 768)
+        for docids, texts, mbs in tqdm(fetch, total=(hi - start + batch - 1) // batch, desc="Processing documents"):
+            if mbs is None:
+                embs = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True,
+                                    batch_size=args.encode_batch)  # (B, 768)
+            else:
+                embs = embed_tokenized(model, mbs, len(texts), device)
             embs_pca = pca.apply_py(np.ascontiguousarray(embs, dtype=np.float32))  # (B, 192) float32
             n = len(docids)
             out[row:row+n] = embs_pca
@@ -298,6 +367,12 @@ if __name__ == '__main__':
     ap.add_argument('--num-docs', type=int, default=0, help='Skip the line count if you already know it')
     ap.add_argument('--encode-batch', type=int, default=32, help='SentenceTransformer encode batch size')
     ap.add_argument('--fp16', action='store_true', help='Encode in half precision (GPU only)')
+    ap.add_argument('--dtype', choices=['float32', 'float16'], default='float32',
+                    help='Storage type of the output .npy (computation precision is --fp16)')
+    ap.add_argument('--prefetch', type=int, default=int(os.environ.get('EMBED_PREFETCH', 8)),
+                    help='Batches of 2048 docs read + tokenized ahead of the GPU')
+    ap.add_argument('--simple-encode', action='store_true',
+                    help='Use model.encode in the main thread (no tokenizing ahead), the old code path')
     ap.add_argument('--checkpoint-every', type=int, default=50,
                     help='Batches (of 2048 docs) between resume checkpoints')
     ap.add_argument('--overwrite', action='store_true',

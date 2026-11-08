@@ -10,6 +10,8 @@
 #SBATCH --time=0-12:00:00
 #SBATCH --output=logs/embed_%x_%A_%a.out
 #SBATCH --error=logs/embed_%x_%A_%a.err
+#SBATCH --signal=B:USR1@300
+#SBATCH --requeue
 #
 # e5-base-v2 -> PCA 192 embeddings for a dataset prepared by prep_datasets.slurm (same model/PCA as msmarco/scifact).
 #
@@ -27,6 +29,8 @@
 #   EMBED_FP16=1   encode in fp16 (default only for the sharded 100M+ corpora; the GPU= profiles turn it on)
 #   OVERWRITE=1    redo an output that is already done
 #   EMBED_TAG=x    resume key for the partial file (run_all.sh sets it per series; default the job id)
+#   REQUEUE_ON_TIMEOUT=0  don't requeue: by default a job that reaches its time limit requeues itself 5 min before
+#                  and resumes from its checkpoint, so a short --time is safe even if it lands on a slow GPU
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
@@ -55,6 +59,20 @@ FP16=""
 OVR=""
 [[ -n "${OVERWRITE:-}" ]] && OVR="--overwrite"
 echo "embed: $DATASET mode=$MODE host=$(hostname) gpu=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1) ${FP16:-fp32/tf32} tag=${EMBED_TAG:-job}" >&2
+
+# Near the time limit slurm sends USR1 (--signal above): requeue this job, it resumes from the last checkpoint.
+on_timeout() {
+    echo "embed: time limit close, requeueing ${SLURM_JOB_ID} (resumes from the checkpoint)" >&2
+    scontrol requeue "${SLURM_JOB_ID}"
+    exit 0
+}
+[[ "${REQUEUE_ON_TIMEOUT:-1}" != 0 && -n "${SLURM_JOB_ID:-}" ]] && trap on_timeout USR1
+python() {   # run python in the background so the trap fires while it runs; keep its exit code
+    local rc=0
+    command python "$@" &
+    wait $! || rc=$?
+    return $rc
+}
 
 case "$MODE" in
   all)
