@@ -9,6 +9,7 @@ import argparse
 from numpy.lib.format import open_memmap
 
 import json
+import os
 
 def load_queries(queries_path):
     """Loads queries into memory, auto-detecting TSV vs JSONL."""
@@ -43,9 +44,14 @@ def main(args):
     queries = load_queries(args.queries)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # model = SentenceTransformer('sentence-transformers/msmarco-MiniLM-L-6-v3', device=device)
+    if os.environ.get('EMBED_TF32', '1') != '0':   # same as collection_preproc.py
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
     model = SentenceTransformer('intfloat/e5-base-v2', device=device)
     query_ids = list(queries.keys())
-    out = open_memmap(args.output, mode='w+', dtype=np.float32, shape=(len(query_ids), 192))
+    # written to a temp file and renamed, so a second job embedding the same dataset never leaves a half-written file
+    tmp = f"{args.output}.tmp{os.getpid()}.npy"
+    out = open_memmap(tmp, mode='w+', dtype=np.float32, shape=(len(query_ids), 192))
     # pca = faiss.read_VectorTransform("../../../datasets/Son/pca_768_to_192.faiss")
     pca = faiss.read_VectorTransform(args.pca)
     batch_size = 256  # Increased for efficiency
@@ -55,6 +61,7 @@ def main(args):
         start_idx = i * batch_size
         out[start_idx:start_idx + len(buf_ids), :] = embeddings_pca
     del out  # flush to disk
+    os.replace(tmp, args.output)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--queries', type=str, required=True, help='Path to queries.tsv')

@@ -71,6 +71,46 @@ DATASET=nq sbatch --array=0-<N-1> run_tree_pir_old.slurm
 `pir_app -name <name>` picks up any dataset laid out this way (see `GetDatasets` in `main.go`), and `-n` comes from
 `num_docs.txt`.
 
+## Racing two GPU queues (embed jobs stuck in Priority)
+
+`embed.slurm` asks for a DGX `A100.40gb`: only 16 GPUs on 2 nodes, often held by multi-day jobs. `GPU=<profile>`
+queues the same embed (+ tree-db) chain on another pool with fp16, 32 GB RAM and 1-6 h limits so it backfills
+sooner. Run it next to the series that's already queued:
+
+```bash
+git pull                                    # in the dir you submitted from: the queued jobs pick up the new python too
+sgpu                                        # which A100.80gb / MIG slices are free right now
+GPU=a100 STAGES="embed tree-db" bash datasets/build_all.sh nq hotpotqa fever msmarco-v2-all
+squeue --start -u $USER                     # slurm's estimated start times
+```
+
+| `GPU=` | pool | preemptible | ~speed vs RTX 5060 Ti (fp32) |
+|---|---|---|---|
+| `a100` (pick this) | A100.80gb on gpuq **or** contrib-gpuq, 96 GPUs | on contrib (jobs requeue and resume) | ~5x |
+| `a100-gpuq` | A100.80gb on gpuq, 40 | no | ~5x |
+| `dgx` | A100.40gb on gpuq, 16 (same pool as embed.slurm) | no | ~5x |
+| `mig40` | MIG 3g.40gb on gpuq, 24 | no | ~2x |
+| `mig20` | MIG 2g.20gb on gpuq, 8 | no | ~1.3x |
+| `h100` | H100.80gb on contrib-h100, 4 | yes | ~8x |
+| `b200` | B200.180gb on contrib-b200, 8 (reserved) | yes | ~10x |
+
+Override any piece with `GPU_PARTITION`, `GPU_GRES`, `GPU_QOS`, `GPU_HOURS`. Speeds are estimates from peak specs
+(fp16 tensor cores; H100/B200 are capped by CPU tokenisation), check the tqdm rate in the first log.
+
+**Who wins.** The first job to finish an output creates `<output>.done` and moves its copy into place; any other job
+for the same output throws its copy away and exits 3, so its tree-db / prep jobs never start (they sit in
+`DependencyNeverSatisfied`). Shards and the PCA are shared between series (one PCA per dataset, reused if it
+exists), so a shard finished by either series counts. When one series has won, clean up the other:
+
+```bash
+scancel -n emb_nq            # or emb_nq_a100 etc.: cancel the loser's embed jobs
+squeue -u $USER -h -t PD -o "%i %r" | awk '$2=="DependencyNeverSatisfied"{print $1}' | xargs -r scancel
+```
+
+**Resume.** Embeddings go to `<output>.partial-<tag>.npy` with a checkpoint every ~100k docs. A preempted (requeued)
+job, or one resubmitted with the same `GPU=`, carries on from the checkpoint. `OVERWRITE=1` redoes a finished output.
+All embed jobs now also use TF32 for fp32 matmuls (`EMBED_TF32=0` turns it off): ~3x faster on A100 than plain fp32.
+
 ## Notes
 
 - Doc IDs are renumbered `0..N-1` (`docid_map.tsv` keeps the originals). This keeps the PIR ID entries short and

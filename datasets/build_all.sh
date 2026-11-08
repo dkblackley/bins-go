@@ -7,6 +7,7 @@
 #   bash datasets/build_all.sh msmarco-v2-all          # msmarco-v2, then the 25m/50m/100m subsamples once it's embedded
 #   STAGES="embed tree-db" bash datasets/build_all.sh nq   # skip stages that are already done
 #   DRY_RUN=1 bash datasets/build_all.sh nq            # print the sbatch commands, submit nothing
+#   GPU=a100 STAGES="embed tree-db" bash datasets/build_all.sh nq   # embed on A100.80gb (gpuq+contrib), see run_all.sh
 #
 # Stages, in order (default: all three):
 #   prep     download + convert                 datasets/prep_datasets.slurm
@@ -15,7 +16,7 @@
 # Doesn't need pir_app. DATASETS_ROOT (default ../datasets), NUM_SHARDS and WORKERS work as in run_all.sh.
 set -euo pipefail
 
-[[ $# -gt 0 ]] || { sed -n 2,15p "$0"; exit 1; }
+[[ $# -gt 0 ]] || { sed -n 2,16p "$0"; exit 1; }
 
 export STAGES="${STAGES:-prep embed tree-db}"
 for s in $STAGES; do

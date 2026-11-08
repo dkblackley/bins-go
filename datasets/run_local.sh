@@ -52,7 +52,7 @@ for d in "$@"; do
   PCA="$D/pca_e5_768_to_192.faiss"
   if has embed && { [[ -n "${FORCE:-}" ]] || [[ ! -f "$D/${d}_query_embed_f32.npy" ]]; }; then
     python3 collection_preproc.py --documents "$D/corpus.jsonl" --output "$D/${d}_corpus_embed_f32.npy" --pca "$PCA" \
-        --num-docs "$N" --encode-batch "${ENCODE_BATCH:-128}" ${FP16:+--fp16}
+        --num-docs "$N" --encode-batch "${ENCODE_BATCH:-128}" ${FP16:+--fp16} --skip-if-done ${FORCE:+--overwrite}
     python3 query_preproc.py --queries "$D/queries.jsonl" --output "$D/${d}_query_embed_f32.npy" --pca "$PCA"
   fi
 

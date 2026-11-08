@@ -19,6 +19,14 @@
 #   MODE=pca -> MODE=shard (array, one shard per task) -> MODE=finish (merge shards + embed queries)
 #
 # Output: ../datasets/<name>/<name>_corpus_embed_f32.npy(.ids), <name>_query_embed_f32.npy, pca_e5_768_to_192.faiss
+#
+# The header asks for a DGX A100.40gb (16 GPUs, often busy for days). To queue the same jobs on other GPUs instead
+# (A100.80gb on gpuq+contrib-gpuq, MIG slices, H100, B200) use GPU=<profile> with run_all.sh / build_all.sh; see
+# datasets/README.md "Racing two GPU queues". Jobs are safe to race: the first to finish an output writes <out>.done,
+# any other copy is thrown away and its job exits 3 so its dependants never start. Interrupted jobs resume.
+#   EMBED_FP16=1   encode in fp16 (default only for the sharded 100M+ corpora; the GPU= profiles turn it on)
+#   OVERWRITE=1    redo an output that is already done
+#   EMBED_TAG=x    resume key for the partial file (run_all.sh sets it per series; default the job id)
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
@@ -40,23 +48,27 @@ NUM_DOCS="$(cat "$D/num_docs.txt")"
 
 source datasets/env.sh   # conda env + HF cache (override CONDA_BASE / CONDA_ENV / HF_HOME)
 
-# fp16 only for the 100M+ corpus: halves encode time, the PCA'd vectors are essentially unchanged
+# fp16 by default only for the 100M+ corpus (EMBED_FP16=1 for all): ~2x faster than TF32, the PCA'd vectors are
+# essentially unchanged
 FP16=""
-[[ "$NUM_SHARDS" -gt 1 ]] && FP16="--fp16"
+[[ "$NUM_SHARDS" -gt 1 || "${EMBED_FP16:-0}" == 1 ]] && FP16="--fp16"
+OVR=""
+[[ -n "${OVERWRITE:-}" ]] && OVR="--overwrite"
+echo "embed: $DATASET mode=$MODE host=$(hostname) gpu=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1) ${FP16:-fp32/tf32} tag=${EMBED_TAG:-job}" >&2
 
 case "$MODE" in
   all)
     python collection_preproc.py --documents "$D/corpus.jsonl" --output "$CORPUS_OUT" --pca "$PCA" \
-        --num-docs "$NUM_DOCS" --encode-batch 256
+        --num-docs "$NUM_DOCS" --encode-batch 256 $FP16 $OVR
     python query_preproc.py --queries "$D/queries.jsonl" --output "$QUERY_OUT" --pca "$PCA"
     ;;
   pca)
-    python collection_preproc.py --documents "$D/corpus.jsonl" --output "$CORPUS_OUT" --pca "$PCA" --pca-only
+    python collection_preproc.py --documents "$D/corpus.jsonl" --output "$CORPUS_OUT" --pca "$PCA" --pca-only $OVR
     ;;
   shard)
     python collection_preproc.py --documents "$D/corpus.jsonl" --output "$CORPUS_OUT" --pca "$PCA" --load-pca \
         --num-docs "$NUM_DOCS" --num-shards "$NUM_SHARDS" --shard-id "${SLURM_ARRAY_TASK_ID:?run as an array}" \
-        --encode-batch 512 $FP16
+        --encode-batch 512 $FP16 $OVR
     ;;
   finish)
     python datasets/merge_embed_shards.py --output "$CORPUS_OUT" --num-shards "$NUM_SHARDS" --delete-shards
