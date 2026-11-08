@@ -76,3 +76,31 @@ data is byte-identical to `build_small_test_artifacts.py`. Like the other
 scripts, it uses avgdl-based bounds and no `min_dl_map`. If the original
 msmarco artifacts were built with a `min_dl_map`, rebuild them with `FORCE=1`
 for a like-for-like comparison.
+
+## Memory tiers
+
+Each config gets a rough server RAM estimate from its dataset and B/r/s (`tree_mem_gb` in
+`tree_sweep_grid.sh`, calibrated so the old msmarco grid fits the 120 GB it ran in). Configs are grouped into
+buckets of 32/100/250/500/1000/1500 GB, with 20% headroom. `datasets/run_all.sh` submits one array per bucket:
+≤100 GB on `normal` (6 h), 250 GB on bigmem (12 h), 500 GB (1 day), and 1000/1500 GB (2 days).
+
+```bash
+DATASET=msmarco bash tree_sweep_grid.sh --tiers     # "bucket count", e.g. 100 790 / 250 171
+DATASET=msmarco bash tree_sweep_grid.sh --mem       # estimate per B/r/s
+MEM_TIER=250 DATASET=msmarco sbatch --array=0-170 --partition=bigmem --mem=250G run_tree_pir_old.slurm   # by hand
+```
+
+| dataset | buckets (SWEEP=all) |
+|---|---|
+| scifact | all 32 GB |
+| nq, dbpedia-entity | 32 / 100 GB |
+| fever, msmarco | mostly 100 GB, ~10-20% at 250 GB |
+| msmarco-v2-25m | 250 / 500 GB |
+| miracl-en, msmarco-v2-50m | 500 / 1000 GB |
+| msmarco-v2-100m | 1000 / 1500 GB |
+| msmarco-v2 | ≥ ~900 GB; 566 of 961 configs exceed 1.5 TB and are skipped |
+
+msmarco-v2 is big because msmarco's server-side DB is already about 38 GB, and v2 has 15.6x the docs.
+`TREE_CUCKOO_HASHES=3 TREE_CUCKOO_LF=0.88` roughly halves the Stage 1/2 tables. The estimate follows that,
+and those runs go into an `h3_lf0.88/` results sub-folder. Every run now logs its peak RSS (`/usr/bin/time -v`,
+"Maximum resident set size" in the run log). Once real numbers are back, set `TREE_MEM_CAL` from them.

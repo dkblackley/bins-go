@@ -16,7 +16,8 @@
 #   pacmann  pacmann grid                        run_pacmann.slurm                       (after embed)
 #   tree     tree grid                           run_tree_pir_old.slurm                  (after tree-db)
 #            SWEEP=legacy|oat|grid|all picks the tree grid (tree_sweep_grid.sh, default all). msmarco/scifact
-#            already have their data, so for them use STAGES="tree-db tree".
+#            already have their data, so for them use STAGES="tree-db tree". Tree runs are split by estimated RAM:
+#            <=100 GB on the normal partition, 250/500/1000/1500 GB on bigmem, one job array per bucket.
 # A stage you leave out is assumed to be done already. If a job fails, the jobs that depend on it stay pending
 # with reason DependencyNeverSatisfied: fix it, scancel them and re-run with STAGES set to the remaining stages.
 #
@@ -117,15 +118,28 @@ submit_dataset() {
     fi
 
     if has tree; then
-        local n big=() off chunk=${MAX_ARRAY:-1000}
-        n=$(count_of DATASET="$d" run_tree_pir_old.slurm)
-        is_big "$d" && big=(--partition=bigmem --mem=1000G)
-        # the tree sweep can be bigger than MaxArraySize, so submit it in chunks with ARRAY_OFFSET
-        for (( off = 0; off < n; off += chunk )); do
-            local m=$(( n - off < chunk ? n - off : chunk ))
-            echo "  tree     $(submit "$treedb $embed" --export=ALL,DATASET="$d",SWEEP="${SWEEP:-all}",ARRAY_OFFSET=$off \
-                 --array=0-$((m - 1)) "${big[@]}" --job-name="tree_$d" run_tree_pir_old.slurm) (configs $off-$((off + m - 1)) of $n)"
-        done
+        # One submission per memory bucket (tree_sweep_grid.sh --tiers), so the configs that fit in <=100 GB never
+        # wait behind bigmem. Each bucket is chunked past MaxArraySize with ARRAY_OFFSET. "over" (more than the
+        # biggest node) is reported and skipped.
+        local tier n off chunk=${MAX_ARRAY:-1000} part mem time
+        while read -r tier n; do
+            [[ -n "$tier" ]] || continue
+            if [[ "$tier" == over ]]; then
+                echo "  tree     SKIPPED $n configs estimated above the largest bucket (DATASET=$d bash tree_sweep_grid.sh --mem)"
+                continue
+            fi
+            if (( tier <= 100 )); then part=normal; time=0-06:00:00
+            elif (( tier <= 250 )); then part=bigmem; time=0-12:00:00
+            elif (( tier <= 500 )); then part=bigmem; time=1-00:00:00
+            else part=bigmem; time=2-00:00:00; fi
+            for (( off = 0; off < n; off += chunk )); do
+                local m=$(( n - off < chunk ? n - off : chunk ))
+                echo "  tree     $(submit "$treedb $embed" \
+                     --export=ALL,DATASET="$d",SWEEP="${SWEEP:-all}",MEM_TIER="$tier",ARRAY_OFFSET=$off \
+                     --array=0-$((m - 1)) --partition="$part" --mem="${tier}G" --time="$time" \
+                     --job-name="tree_${d}_${tier}G" run_tree_pir_old.slurm) (${tier}G $part: configs $off-$((off + m - 1)) of $n)"
+            done
+        done < <(DATASET="$d" SWEEP="${SWEEP:-all}" bash tree_sweep_grid.sh --tiers)
     fi
 }
 

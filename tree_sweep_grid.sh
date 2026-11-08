@@ -8,6 +8,8 @@
 #   bash tree_sweep_grid.sh --count    number of run configs (for --array=0-N)
 #   bash tree_sweep_grid.sh --list     every run config
 #   bash tree_sweep_grid.sh --shapes   the B/r/s artifact dirs those configs need
+#   bash tree_sweep_grid.sh --mem      estimated RAM per B/r/s and the memory bucket it lands in
+#   bash tree_sweep_grid.sh --tiers    "bucket count" per memory bucket (MEM_TIER=<bucket> keeps one bucket)
 #
 # Parameters (one PIR stage each, see tree/internal/bm25/search.go):
 #   B  docs per leaf block          r  tree arity (Round 1 rows are r bytes, height = ceil(log_r(N/B)))
@@ -127,6 +129,87 @@ build_tree_grid() {
     esac
 }
 
+# ------------------------------------------------------------------------------------------ memory tiers
+# Rough server RAM for one tree run, per (dataset, B, r, s); L, q and c barely matter.
+# (term, node) row counts come from the measured msmarco B32 r32 s8 layout (pirhint/results/msmarco.md):
+# rows per node as a function of docs under the node, log-log interpolated, scaled by words/doc.
+#   tables = rows * (8-byte key + r or B/s bytes, rounded up to 8) / Cuckoo load factor (TREE_CUCKOO_LF, default 0.4)
+#   mem    = TREE_MEM_CAL * (1.5 * (stage1 + stage2 tables + fp32 stage3 embeddings) + raw data/idmap files) + 4 GB
+# TREE_MEM_CAL=0.75 is calibrated so the worst shape of the old msmarco grid (B16 r128) comes out at ~107 GB, since
+# every old msmarco config ran in 120 GB. Then msmarco B32 r32 s8 is ~62 GB. The peak RSS of every run is now logged
+# (MaxRSS in the run log, via /usr/bin/time -v), so set TREE_MEM_CAL from real numbers once some runs are back.
+#   name:docs:words_per_doc
+TREE_DATASET_SIZES="msmarco:8841823:56 scifact:5183:214 nq:2681468:79 dbpedia-entity:4635922:50 fever:5416568:85
+hotpotqa:5233329:46 miracl-en:32893221:100 msmarco-v2:138364198:70 msmarco-v2-25m:25000000:70
+msmarco-v2-50m:50000000:70 msmarco-v2-100m:100000000:70"
+TREE_MEM_CAL="${TREE_MEM_CAL:-0.75}"
+TREE_MEM_BUCKETS="32 100 250 500 1000 1500"   # GB; 32 and 100 go to the normal partition, the rest to bigmem
+declare -A _TREE_MEM=()
+
+tree_mem_gb() {   # dataset B r s -> estimated GB (integer)
+    local key="$1|$2|$3|$4|${TREE_CUCKOO_LF:-0.4}"
+    if [[ -z "${_TREE_MEM[$key]:-}" ]]; then
+        _TREE_MEM[$key]=$(awk -v d="$1" -v B="$2" -v r="$3" -v s="$4" -v sizes="$TREE_DATASET_SIZES" -v cal="$TREE_MEM_CAL" -v lf="${TREE_CUCKOO_LF:-0.4}" '
+        function ppn(x,   i, lx) {   # (term,node) rows per node holding x docs, msmarco-like text
+            lx = log(x)
+            if (lx <= LX[1]) return exp(LY[1] + (lx - LX[1]) * (LY[2] - LY[1]) / (LX[2] - LX[1]))
+            for (i = 1; i < 6; i++) if (lx <= LX[i+1]) return exp(LY[i] + (lx - LX[i]) * (LY[i+1] - LY[i]) / (LX[i+1] - LX[i]))
+            return exp(LY[6] + (lx - LX[6]) * (LY[6] - LY[5]) / (LX[6] - LX[5]))
+        }
+        function up8(x) { return int((x + 7) / 8) * 8 }
+        BEGIN {
+            split("1 32 1024 32768 1048576 8841823", X, " "); split("35 796 17370 297900 2160000 2600000", Y, " ")
+            for (i = 1; i <= 6; i++) { LX[i] = log(X[i]); LY[i] = log(Y[i]) }
+            n = split(sizes, S, /[ \n]+/)
+            for (i = 1; i <= n; i++) { split(S[i], f, ":"); if (f[1] == d) { N = f[2]; w = f[3] / 56 } }
+            if (!N) { print 1500; exit }
+            nl = int((N + B - 1) / B); H = (nl > 1) ? int(log(nl) / log(r) + 0.999999999) : 0
+            s1 = 0; s1raw = 0
+            for (l = 0; l < H; l++) {
+                span = B * r ^ (H - l); nodes = int((nl + r ^ (H - l) - 1) / r ^ (H - l))
+                rows = nodes * w * ppn(span < N ? span : N)
+                s1 += rows * (8 + up8(r)) / lf; s1raw += rows * (r + 16)
+            }
+            rows2 = nl * w * ppn(B)
+            s2 = rows2 * (8 + up8(B / s)) / lf; s2raw = rows2 * (B / s + 16)
+            s3 = N * 192 * 4
+            printf "%d\n", cal * (1.5 * (s1 + s2 + s3) + s1raw + s2raw) / 1e9 + 4
+        }')
+    fi
+    echo "${_TREE_MEM[$key]}"
+}
+
+tree_mem_bucket() {   # GB estimate -> smallest bucket with ~20% headroom, or "over"
+    local est=$1 b
+    for b in $TREE_MEM_BUCKETS; do
+        (( est * 12 <= b * 10 )) && { echo "$b"; return; }
+    done
+    echo "over"   # more than the biggest node can hold: listed by --tiers, never submitted by run_all.sh
+}
+
+# Keep only the configs whose memory bucket is $1 (MEM_TIER=32|100|250|...). Fills MEM_ARR either way.
+filter_tree_mem_tier() {
+    local want=${1:-} i
+    local -a D=() Bv=() Rv=() Sv=() Lv=() Qv=() Cv=() Mv=() ME=()
+    for i in "${!DATA_ARR[@]}"; do
+        local gb; gb=$(tree_mem_gb "${DATA_ARR[$i]}" "${B_ARR[$i]}" "${R_ARR[$i]}" "${S_ARR[$i]}")
+        local bucket; bucket=$(tree_mem_bucket "$gb")
+        [[ -n "$want" && "$bucket" != "$want" ]] && continue
+        D+=("${DATA_ARR[$i]}"); Bv+=("${B_ARR[$i]}"); Rv+=("${R_ARR[$i]}"); Sv+=("${S_ARR[$i]}")
+        Lv+=("${L_ARR[$i]}"); Qv+=("${QWORDS_ARR[$i]}"); Cv+=("${KCAND_ARR[$i]}"); Mv+=("${MAX_Q_ARR[$i]}"); ME+=("$gb")
+    done
+    DATA_ARR=("${D[@]}"); B_ARR=("${Bv[@]}"); R_ARR=("${Rv[@]}"); S_ARR=("${Sv[@]}")
+    L_ARR=("${Lv[@]}"); QWORDS_ARR=("${Qv[@]}"); KCAND_ARR=("${Cv[@]}"); MAX_Q_ARR=("${Mv[@]}"); MEM_ARR=("${ME[@]}")
+}
+
+# "bucket count" for each non-empty memory bucket of the current arrays
+tree_mem_tiers() {
+    local i
+    for i in "${!DATA_ARR[@]}"; do
+        tree_mem_bucket "$(tree_mem_gb "${DATA_ARR[$i]}" "${B_ARR[$i]}" "${R_ARR[$i]}" "${S_ARR[$i]}")"
+    done | sort | uniq -c | awk '{print $2, $1}' | sort -n
+}
+
 # Unique "B r s" triples the current arrays need.
 tree_grid_shapes() {
     local i
@@ -136,10 +219,13 @@ tree_grid_shapes() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     set -euo pipefail
     build_tree_grid "${DATASET:?set DATASET (see the top of this file)}" "${SWEEP:-all}"
+    [[ -n "${MEM_TIER:-}" ]] && filter_tree_mem_tier "$MEM_TIER"
     case "${1:---count}" in
         --count)  echo "${#DATA_ARR[@]} configs, $(tree_grid_shapes | wc -l) B/r/s artifact dirs for ${DATASET} SWEEP=${SWEEP:-all} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))" ;;
         --list)   for i in "${!DATA_ARR[@]}"; do echo "$i ${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]} L=${L_ARR[$i]} q=${QWORDS_ARR[$i]} c=${KCAND_ARR[$i]}"; done ;;
         --shapes) tree_grid_shapes ;;
-        *) echo "usage: $0 [--count|--list|--shapes]" >&2; exit 1 ;;
+        --mem)    for sh in $(tree_grid_shapes | tr ' ' ','); do IFS=, read -r b r s <<< "$sh"; gb=$(tree_mem_gb "$DATASET" "$b" "$r" "$s"); echo "B=$b r=$r s=$s ~${gb} GB -> ${MEM_TIER:-$(tree_mem_bucket "$gb")}G"; done ;;
+        --tiers)  tree_mem_tiers ;;
+        *) echo "usage: $0 [--count|--list|--shapes|--mem|--tiers]" >&2; exit 1 ;;
     esac
 fi

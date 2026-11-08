@@ -6,8 +6,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=120G
-#SBATCH --time=0-13:30:00
+#SBATCH --mem=100G
+#SBATCH --time=0-06:00:00
 #SBATCH --constraint=amd
 #SBATCH --array=0-960
 #SBATCH --output=logs/Tree_%A_%a.out
@@ -33,9 +33,13 @@ source "${ROOT_DIR}/tree_sweep_grid.sh"
 DATASET="${DATASET:?set DATASET (see tree_sweep_grid.sh)}"
 SWEEP="${SWEEP:-all}"
 build_tree_grid "$DATASET" "$SWEEP" || exit 1
+# MEM_TIER=<GB bucket> keeps only the configs whose estimated RAM lands in that bucket (tree_sweep_grid.sh --tiers),
+# so each bucket can be submitted with a matching --mem/--partition. datasets/run_all.sh does that for you:
+#   32/100 GB -> normal partition, 250/500/1000/1500 GB -> bigmem. Unset = every config.
+[[ -n "${MEM_TIER:-}" ]] && filter_tree_mem_tier "$MEM_TIER"
 
 if [[ "${1:-}" == "--count" ]]; then
-    echo "${#DATA_ARR[@]} configs for ${DATASET} SWEEP=${SWEEP} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
+    echo "${#DATA_ARR[@]} configs for ${DATASET} SWEEP=${SWEEP}${MEM_TIER:+ MEM_TIER=$MEM_TIER} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
     exit 0
 fi
 
@@ -55,7 +59,14 @@ embed_val=192
 
 BINARY="${ROOT_DIR}/pir_app"
 # _c<k_candidates> is part of the name now that k_candidates is swept (load_results.py reads it)
-OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10"
+# Non-default Cuckoo settings (TREE_CUCKOO_HASHES=3 TREE_CUCKOO_LF=0.88 roughly halves the Stage 1/2 tables, worth it
+# for msmarco-v2) go in their own sub-folder so they never mix with the default runs.
+CUCKOO_HASHES="${TREE_CUCKOO_HASHES:-2}"
+CUCKOO_LF="${TREE_CUCKOO_LF:-0.4}"
+CUCKOO_KICKS=$([[ "$CUCKOO_HASHES" == 3 ]] && echo 5000 || echo 1000)
+CUCKOO_TAG=""
+[[ "$CUCKOO_HASHES" != 2 || "$CUCKOO_LF" != 0.4 ]] && CUCKOO_TAG="h${CUCKOO_HASHES}_lf${CUCKOO_LF}/"
+OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${CUCKOO_TAG}tree_grid_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10"
 if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
     echo "Already done: ${OUT_DIR} (set FORCE=1 to rerun)"; exit 0
 fi
@@ -70,7 +81,7 @@ echo "s Value:       $s_val"
 echo "L Value:       $L_val"
 echo "k_candidates:  $k_cand_val"
 echo "Query Words:   $q_words_val"
-echo "Sweep:         $SWEEP (config $task_id of ${#DATA_ARR[@]})"
+echo "Sweep:         $SWEEP${MEM_TIER:+ MEM_TIER=$MEM_TIER} (config $task_id of ${#DATA_ARR[@]}), estimated ${MEM_ARR[$task_id]:-?} GB"
 echo "Output Dir:    $OUT_DIR"
 echo "========================================"
 
@@ -165,7 +176,10 @@ LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q
 
 SECONDS=0
 echo "Running tree search..."
-"$BINARY" \
+# /usr/bin/time -v puts "Maximum resident set size" in the log: real numbers to recalibrate TREE_MEM_CAL with
+TIMER=()
+[[ -x /usr/bin/time ]] && TIMER=(/usr/bin/time -v)
+"${TIMER[@]}" "$BINARY" \
     -t tree \
     -name "$dataset" \
     -n "$DB_SIZE" \
@@ -186,8 +200,9 @@ echo "Running tree search..."
     --scale 10 \
     --precompute \
     --pir-batch-size 128 \
-    --cuckoo-load-factor 0.4 \
-    --cuckoo-max-kicks 1000 \
+    --cuckoo-load-factor "$CUCKOO_LF" \
+    --cuckoo-hashes "$CUCKOO_HASHES" \
+    --cuckoo-max-kicks "$CUCKOO_KICKS" \
     --cuckoo-build-attempts 8 \
     --layout-path "$LAYOUT_PATH" \
     --index "$INDEX" \
