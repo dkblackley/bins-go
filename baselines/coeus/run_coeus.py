@@ -44,6 +44,7 @@ Usage
 """
 
 import argparse
+from array import array
 import json
 import math
 import os
@@ -105,42 +106,75 @@ def make_tokenizer(kind):
     return (lambda s: [t for t in tok.findall(s.lower()) if t not in STOPWORDS]), "regex"
 
 
-def build_tfidf(docs, features, tokenize, tf_mode):
-    """CSC-style term -> (doc rows, weights) for the top-`features` terms by document frequency."""
-    vocab, doc_terms = {}, []
-    t0 = time.time()
-    for i, (_, title, text) in enumerate(docs):
-        ids = [vocab.setdefault(t, len(vocab)) for t in tokenize(f"{title} {text}")]
-        doc_terms.append(np.asarray(ids, dtype=np.int32))
-        if i % 500_000 == 0 and i:
-            print(f"  tokenised {i}/{len(docs)} ({time.time() - t0:.0f}s)", flush=True)
-    df = np.zeros(len(vocab), dtype=np.int64)
-    for ids in doc_terms:
-        df[np.unique(ids)] += 1
-    keep = np.argsort(-df, kind="stable")[:features]
-    remap = np.full(len(vocab), -1, dtype=np.int64)
-    remap[keep] = np.arange(len(keep))
-    idf = np.log(len(docs) / np.maximum(df[keep], 1)).astype(np.float64)
+def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir):
+    """CSC-style term -> (doc rows, weights) for the top-`features` terms by document frequency.
 
-    rows, terms, tfs = [], [], []
-    for r, ids in enumerate(doc_terms):
-        ids = remap[ids]
-        ids = ids[ids >= 0]
-        if not len(ids):
-            continue
-        u, c = np.unique(ids, return_counts=True)
-        rows.append(np.full(len(u), r, dtype=np.int32))
-        terms.append(u.astype(np.int32))
-        tfs.append(c.astype(np.float32))
-    rows, terms, tfs = np.concatenate(rows), np.concatenate(terms), np.concatenate(tfs)
-    if tf_mode == "log":
-        tfs = 1 + np.log(tfs)
-    w = tfs * idf[terms]
-    order = np.argsort(terms, kind="stable")
-    rows, terms, w = rows[order], terms[order], w[order]
-    ptr = np.searchsorted(terms, np.arange(len(keep) + 1))
+    Streams the corpus once: token ids go to a temporary int32 file, so nothing but the vocabulary and the final
+    postings (12 B each) is held in memory. That is what makes msmarco-v2 (138M docs) possible on one node.
+    Returns (term_id, ptr, rows, w, n_docs); rows are in doc order within each term."""
+    vocab, df, lens = {}, np.zeros(1 << 20, dtype=np.int64), array("I")
+    os.makedirs(tmp_dir, exist_ok=True)
+    tok_path = os.path.join(tmp_dir, f"coeus_tokens_{os.getpid()}.bin")
+    t0 = time.time()
+    try:
+        with open(tok_path, "wb") as out:
+            buf = []
+            for n, (_, title, text) in enumerate(common.iter_corpus(corpus_path)):
+                ids = np.fromiter((vocab.setdefault(t, len(vocab)) for t in tokenize(f"{title} {text}")), dtype=np.int32)
+                if len(vocab) > len(df):
+                    df = np.concatenate([df, np.zeros(len(df), dtype=np.int64)])
+                if len(ids):
+                    df[np.unique(ids)] += 1
+                lens.append(len(ids))
+                buf.append(ids)
+                if len(buf) >= 100_000:
+                    out.write(np.concatenate(buf).tobytes())
+                    buf = []
+                if n % 1_000_000 == 0 and n:
+                    print(f"  tokenised {n} docs ({time.time() - t0:.0f}s, {len(vocab)} terms)", flush=True)
+            if buf:
+                out.write(np.concatenate(buf).tobytes())
+        n_docs = len(lens)
+        df = df[:len(vocab)]
+        keep = np.argsort(-df, kind="stable")[:features]
+        nkeep = len(keep)
+        remap = np.full(len(vocab), -1, dtype=np.int64)
+        remap[keep] = np.arange(nkeep)
+        idf = np.log(n_docs / np.maximum(df[keep], 1)).astype(np.float64)
+
+        # Fill the postings in place: term t's docs go to rows[ptr[t]:ptr[t+1]], in doc order
+        ptr = np.concatenate([[0], np.cumsum(df[keep])]).astype(np.int64)
+        rows, w = np.empty(ptr[-1], dtype=np.int32), np.empty(ptr[-1], dtype=np.float64)
+        cursor = ptr[:-1].copy()
+        lens = np.frombuffer(lens, dtype=np.uint32).astype(np.int64)
+        offs = np.concatenate([[0], np.cumsum(lens)])
+        tokens = np.memmap(tok_path, dtype=np.int32, mode="r") if offs[-1] else np.zeros(0, dtype=np.int32)
+        step = 200_000
+        for a in range(0, n_docs, step):
+            b = min(a + step, n_docs)
+            tok = remap[tokens[offs[a]:offs[b]]]
+            doc = np.repeat(np.arange(b - a, dtype=np.int64), lens[a:b])
+            m = tok >= 0
+            if not m.any():
+                continue
+            uk, cnt = np.unique(doc[m] * nkeep + tok[m], return_counts=True)   # sorted by (doc, term)
+            d, t = uk // nkeep + a, uk % nkeep
+            tf = cnt.astype(np.float32)
+            if tf_mode == "log":
+                tf = 1 + np.log(tf)
+            o = np.argsort(t, kind="stable")                                     # by term, doc order kept
+            d, t, wt = d[o], t[o], tf[o] * idf[t[o]]
+            per_t = np.bincount(t, minlength=nkeep)
+            first = np.cumsum(per_t) - per_t
+            pos = cursor[t] + np.arange(len(t)) - first[t]
+            rows[pos], w[pos] = d, wt
+            cursor += per_t
+        del tokens
+    finally:
+        if os.path.exists(tok_path):
+            os.remove(tok_path)
     term_id = {t: remap[i] for t, i in vocab.items() if remap[i] >= 0}
-    return term_id, ptr, rows, w.astype(np.float64)
+    return term_id, ptr, rows, w, n_docs
 
 
 def coeus_topk(query, k, n_docs, tokenize, term_id, ptr, rows, w):
@@ -237,6 +271,8 @@ def main():
     ap.add_argument("--tokenizer", choices=["auto", "lucene", "regex"], default="auto",
                     help="auto = pyserini's Lucene analyzer (same as our BM25) if installed")
     ap.add_argument("--max-queries", type=int, default=0, help="0 = all")
+    ap.add_argument("--tmp-dir", default="", help="where the temporary token file goes (default: --results-root); "
+                    "about 4 B per token, ~25 GB for msmarco-v2")
     ap.add_argument("--results-root", default="../results")
     ap.add_argument("--opt2-bin", default="", help="Coeus_artifact/matmult/bin/opt2, to measure server time")
     ap.add_argument("--opt2-cache", default="", help="JSON cache for the opt2 calibration (default next to the binary)")
@@ -247,19 +283,18 @@ def main():
     args = ap.parse_args()
 
     paths = common.dataset_paths(args.dataset, args.name)
-    print(f"loading {paths['corpus']}", flush=True)
-    docs = common.load_corpus(paths["corpus"])
     queries = common.load_queries(paths["queries"])
     qrels = common.load_qrels(paths["qrels"])
     if args.max_queries:
         queries = queries[:args.max_queries]
     tokenize, tok_name = make_tokenizer(args.tokenizer)
-    print(f"{len(docs)} docs, {len(queries)} queries, tokenizer={tok_name}", flush=True)
+    print(f"{len(queries)} queries, tokenizer={tok_name}, streaming {paths['corpus']}", flush=True)
 
     t0 = time.time()
-    term_id, ptr, rows, w = build_tfidf(docs, args.features, tokenize, args.tf)
+    term_id, ptr, rows, w, n_docs = build_tfidf(paths["corpus"], args.features, tokenize, args.tf,
+                                                args.tmp_dir or args.results_root)
     pre_time = time.time() - t0
-    print(f"tf-idf built over {len(term_id)} keywords in {pre_time:.1f}s", flush=True)
+    print(f"tf-idf built over {n_docs} docs and {len(term_id)} keywords in {pre_time:.1f}s", flush=True)
     # A dictionary padded past the vocabulary only adds empty query ciphertexts: same results, more bytes.
     # Coeus would never be configured like that, so skip it instead of plotting a needlessly worse point.
     if len(term_id) <= args.features - S1_N:
@@ -269,18 +304,19 @@ def main():
 
     results = {}
     for qid, text in queries:
-        results[qid] = [docs[i][0] for i in coeus_topk(text, args.k, len(docs), tokenize, term_id, ptr, rows, w)]
+        results[qid] = coeus_topk(text, args.k, n_docs, tokenize, term_id, ptr, rows, w)   # corpus rows
 
     # Same local cosine rerank every other method gets in main.go
     doc_vecs = np.load(paths["corpus_vec"], mmap_mode="r")
     qvecs = np.load(paths["query_vec"], mmap_mode="r")
-    doc_index = {d[0]: i for i, d in enumerate(docs)}
     qvec_by_id = {qid: np.asarray(qvecs[i], dtype=np.float32) for i, (qid, _) in enumerate(common.load_queries(paths["queries"]))
                   if i < len(qvecs)}
-    reranked = common.cosine_rerank(results, args.k, doc_index, doc_vecs, qvec_by_id)
+    reranked = common.cosine_rerank(results, args.k, common.AllRows(), doc_vecs, qvec_by_id)
+    idmap = common.ids_for_rows(paths["corpus"], {r for rs in results.values() for r in rs})
+    results, reranked = common.rows_to_ids(results, idmap), common.rows_to_ids(reranked, idmap)
 
     n_q = len(results)
-    cost = coeus_cost(len(docs), len(term_id), args.k)   # F = keywords actually in the dictionary
+    cost = coeus_cost(n_docs, len(term_id), args.k)   # F = keywords actually in the dictionary
     meta = {
         "Method": "coeus",
         "NumQueries": n_q,

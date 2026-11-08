@@ -4,11 +4,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=120G
+#SBATCH --mem=32G
 #SBATCH --time=0-02:30:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-1343%64
+#SBATCH --array=0-895%64
 #SBATCH --output=logs/Tiptoe_%A_%a.out
 #SBATCH --error=logs/Tiptoe_%A_%a.err
 #SBATCH --signal=B:TERM@120
@@ -26,24 +26,28 @@
 #   BUNDLE docs per URL bundle (Tiptoe: 160): bigger = more docs returned, bigger round-2 download
 #   HINT   embedding hint size in MB (Tiptoe: 500): moves bytes between upload (DB width) and download (DB height)
 #   k      10, 100
-#   per dataset: 7 DPC x 2 MA x 4 BUNDLE x 2 HINT x 2 k = 224 tasks; 6 datasets = 1344.
+#   per dataset: 7 DPC x 2 MA x 4 BUNDLE x 2 HINT x 2 k = 224 tasks; 4 datasets = 896.
+# msmarco-v2 and its subsamples have their own script, run_tiptoe_msmarco_v2.slurm (longer preprocessing, one task
+# per preprocessed DB instead of per config).
 #
 # Usage:
 #   bash run_tiptoe.slurm --count                                   # prints the --array range for $TIPTOE_DATASETS
 #   sbatch run_tiptoe.slurm                                         # all of the default datasets below
 #   TIPTOE_DATASETS="nq fever" bash run_tiptoe.slurm --count        # a subset (then sbatch --array=0-<N-1>%64 ...)
 #   TIPTOE_DATASETS="nq fever" sbatch --array=0-447%64 run_tiptoe.slurm
-# If the cluster's MaxArraySize is below 1344, submit the datasets in groups like that.
+# If the cluster's MaxArraySize is below 896, submit the datasets in groups like that.
 #
-# Memory: preprocessing loads the whole float32 embedding matrix, and the simulator loads every doc ID from
-# corpus.jsonl. 120G is fine up to MS MARCO (8.8M). msmarco-v2 (138M docs, ~106 GB of vectors) needs a lot more,
-# e.g. TIPTOE_DATASETS="msmarco-v2-50m msmarco-v2" sbatch --mem=500G --array=0-447%16 run_tiptoe.slurm
+# Memory: preprocessing reads the embeddings memory-mapped (peak ~4 GB + <100 B per doc, measured on a 2M-doc set)
+# and the simulator holds almost nothing; the simplepir_bench timing run is capped at 8 GB (--bench-max-gb, it
+# times a slice and scales linearly; that run peaks at ~2x the cap). So sim mode stays under ~20 GB for every
+# dataset here. MODE=real on msmarco: Tiptoe builds its SimplePIR DB unsquished first (~16 GB at 8.8M docs) plus
+# the parsed corpus, so submit that with --mem=64G.
 #
 # Preprocessing (k-means + bundling, ~minutes to an hour on the big sets) is shared by every (hint, k) of one
 # (DPC, MA, BUNDLE) via flock, and the k-means itself by every (MA, BUNDLE) of one cluster count via
 # --kmeans-cache (also flocked), so 1344 tasks still only run one k-means per (dataset, cluster count).
 
-TIPTOE_DATASETS="${TIPTOE_DATASETS:-scifact nq fever msmarco msmarco-v2-50m msmarco-v2}"
+TIPTOE_DATASETS="${TIPTOE_DATASETS:-scifact nq fever msmarco}"
 DATA_ARR=(); DPC_ARR=(); MA_ARR=(); B_ARR=(); H_ARR=(); K_ARR=()
 for d in $TIPTOE_DATASETS; do
   for dpc in 250 500 1000 2500 5000 10000 40000; do
@@ -122,8 +126,10 @@ mkdir -p "$(dirname "$TT_DIR")"
     fi
 ) 9>"${TT_DIR}.lock"
 
-C=$(python -c "import json;print(json.load(open('${TT_DIR}/tiptoe_meta.json'))['num_clusters'])")
-OUT_DIR="${RESULTS_ROOT}/${method}_${dataset}_c${C}_m${ma}_b${bundle}_h${hint}_k${k_val}"
+# multi-assign as applied (capped at the number of clusters): the simulator names its folder with it, so on a
+# 1-cluster scifact config ma=2 lands in the m1 folder and is skipped here instead of racing the ma=1 task
+read -r C MA_USED < <(python -c "import json;m=json.load(open('${TT_DIR}/tiptoe_meta.json'));print(m['num_clusters'],m['multi_assign'])")
+OUT_DIR="${RESULTS_ROOT}/${method}_${dataset}_c${C}_m${MA_USED}_b${bundle}_h${hint}_k${k_val}"
 if [[ -f "${OUT_DIR}/metadata.json" ]]; then
     # several DPC values can give the same cluster count (1 on scifact, the 25196 cap on msmarco-v2); first one wins
     echo "${OUT_DIR} already has results, skipping"; finished=1; exit 0
@@ -150,7 +156,7 @@ EOF
 if [[ "$MODE" == "sim" ]]; then
     srun python baselines/tiptoe/simulate_tiptoe.py \
         --dataset "$DATASET_DIR" --name "$dataset" --tiptoe-dir "$TT_DIR" --k "$k_val" \
-        --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" --bench-bin ./simplepir_bench --bench-max-gb 32 \
+        --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" --bench-bin ./simplepir_bench --bench-max-gb 8 \
         --parallelism "${SLURM_CPUS_PER_TASK:-1}" &
     srun_pid=$!
     wait "$srun_pid"

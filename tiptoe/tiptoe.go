@@ -62,6 +62,7 @@ type preprocMeta struct {
 	BundleSize  int     `json:"bundle_size"`
 	NumBundles  int     `json:"num_bundles"`
 	MaxCluster  int     `json:"max_cluster_size"`
+	Format      string  `json:"format"`
 }
 
 type TiptoeSearch struct {
@@ -146,6 +147,10 @@ func MakeTiptoe(cfg *globals.Args) *TiptoeSearch {
 	t.embHintMB, t.urlHintMB = cfg.BinsConf.TiptoeEmbHintMB, cfg.BinsConf.TiptoeURLHintMB
 	if uint64(t.meta.Dim) != t.conf.EMBEDDINGS_DIM() {
 		logrus.Fatalf("embedding dim %d != Tiptoe text dim %d", t.meta.Dim, t.conf.EMBEDDINGS_DIM())
+	}
+	if t.meta.Format == "npy" {
+		logrus.Fatalf("%s was preprocessed with --format npy, which only the simulator reads; rerun "+
+			"baselines/tiptoe/preprocess_tiptoe.py with --format txt for the real run", dir)
 	}
 	if t.meta.NumClusters > t.conf.TOTAL_NUM_CLUSTERS() {
 		logrus.Fatalf("%d clusters > Tiptoe's TOTAL_NUM_CLUSTERS %d", t.meta.NumClusters, t.conf.TOTAL_NUM_CLUSTERS())

@@ -40,6 +40,7 @@ import math
 import os
 import sys
 import time
+import zlib
 
 import numpy as np
 
@@ -58,7 +59,7 @@ SUBCLUSTER_DELIM = "-------------------------"   # search/corpus/utils.go
 TIPTOE_MAX_CLUSTERS = 25196                      # search/config/constants.go TOTAL_NUM_CLUSTERS (text)
 
 # Same file layout as GetDatasets() in main.go
-DATASET_EMBEDS = {
+DATASET_EMBEDS = {   # anything else uses the generic layout <name>/<name>_corpus_embed_f32.npy
     "msmarco": "msmarco/msmarco_corpus_embed_f32.npy",
     "scifact": "scifact/scifact_corpus_embed_f32.npy",
     "trec-covid": "trec-covid/trec_corpus_embed_f32.npy",
@@ -132,7 +133,7 @@ def nearest(data, centroids, n, chunk=0, desc=None):
     dist = np.empty((len(data), n), dtype=np.float32)
     starts = range(0, len(data), chunk)
     for s in (bar(starts, desc) if desc else starts):
-        x = data[s:s + chunk]
+        x = np.asarray(data[s:s + chunk], dtype=np.float32)   # data may be a memmap
         d = (x ** 2).sum(1, keepdims=True) - 2 * x @ centroids.T + c_norm[None, :]
         part = np.argpartition(d, n - 1, axis=1)[:, :n] if n < d.shape[1] else np.tile(np.arange(d.shape[1]), (len(x), 1))
         pd = np.take_along_axis(d, part, axis=1)
@@ -142,13 +143,14 @@ def nearest(data, centroids, n, chunk=0, desc=None):
     return idx, dist
 
 
-def make_bundles(members, data, bundle_size, seed):
-    """Tiptoe's url-cluster step: group a cluster's docs into bundles of similar docs, <= bundle_size each."""
+def make_bundles(members, vecs, bundle_size, seed):
+    """Tiptoe's url-cluster step: group a cluster's docs into bundles of similar docs, <= bundle_size each.
+    vecs[i] is the embedding of doc members[i]."""
     if len(members) <= bundle_size:
         return [members]
     nb = math.ceil(len(members) / bundle_size)
-    cents, _ = kmeans(data[members], nb, seed, niter=10)
-    assign, _ = nearest(data[members], cents, 1)
+    cents, _ = kmeans(vecs, nb, seed, niter=10)
+    assign, _ = nearest(vecs, cents, 1)
     bundles = []
     for b in range(nb):
         m = members[assign[:, 0] == b]
@@ -175,6 +177,9 @@ def main():
                     help="|value| at this percentile is mapped to the largest 5-bit value")
     ap.add_argument("--train-sample", type=int, default=2_000_000, help="max docs used to train k-means")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--format", choices=["txt", "npy"], default="txt",
+                    help="txt = Tiptoe's own cluster files (needed for the real run); npy = compact arrays the "
+                         "simulator reads, ~3x smaller and much faster (use it for 25M+ docs)")
     ap.add_argument("--kmeans-cache", default="",
                     help="dir to cache the main k-means centroids in. They only depend on the embeddings, C, seed and "
                          "train sample, not on --multi-assign/--bundle-size, so those sweeps reuse one k-means")
@@ -185,18 +190,20 @@ def main():
     log(f"loading {path}")
     data = np.load(path, mmap_mode="r")
     N, dim = data.shape
-    data = np.asarray(data, dtype=np.float32)
+    # Kept memory-mapped: msmarco-v2 is 106 GB of float32. Everything below reads it in chunks or per cluster.
 
     C = args.num_clusters or max(1, round(N / args.docs_per_cluster))
     if C > TIPTOE_MAX_CLUSTERS:
         log(f"WARNING: {C} clusters > Tiptoe's TOTAL_NUM_CLUSTERS={TIPTOE_MAX_CLUSTERS}; capping")
         C = TIPTOE_MAX_CLUSTERS
     out = args.out or os.path.join(args.dataset, "tiptoe", f"{args.name}_c{C}")
-    os.makedirs(os.path.join(out, "clusters"), exist_ok=True)
+    os.makedirs(os.path.join(out, "clusters") if args.format == "txt" else out, exist_ok=True)
     log(f"N={N} dim={dim} clusters={C} multi_assign={args.multi_assign} -> {out}")
 
     rng = np.random.default_rng(args.seed)
-    train = data if N <= args.train_sample else data[rng.choice(N, args.train_sample, replace=False)]
+    # same sample (and order) as before, so existing --kmeans-cache files stay valid; only the sample is loaded
+    train = np.asarray(data if N <= args.train_sample else data[rng.choice(N, args.train_sample, replace=False)],
+                       dtype=np.float32)
     log(f"k-means: {len(train)} points -> {C} clusters, 20 iterations")
     cache = None
     if args.kmeans_cache:
@@ -251,13 +258,35 @@ def main():
     # 5-bit quantisation (Tiptoe clips to [-16, 15])
     lo, hi = -(1 << (args.slot_bits - 1)), (1 << (args.slot_bits - 1)) - 1
     scale = hi / float(np.percentile(np.abs(train), args.scale_percentile))
-    q = np.clip(np.round(data * scale), lo, hi).astype(np.int8)
 
     sizes, n_bundles = [], 0
+    if args.format == "npy":
+        # Same content as the txt files, cluster by cluster and bundle by bundle, in file order
+        total = sum(len(m) for m in members)
+        emb_out = np.lib.format.open_memmap(os.path.join(out, "emb.npy"), mode="w+", dtype=np.int8, shape=(total, dim))
+        rows_out = np.lib.format.open_memmap(os.path.join(out, "rows.npy"), mode="w+", dtype=np.int64, shape=(total,))
+        bun_out = np.lib.format.open_memmap(os.path.join(out, "bundle.npy"), mode="w+", dtype=np.int32, shape=(total,))
+        cluster_ptr, bundle_ptr, bundle_bytes, pos = [0], [0], [], 0
     for c in bar(range(C), "bundle + write clusters"):
-        bundles = make_bundles(members[c], data, args.bundle_size, args.seed + c)
+        rows = np.sort(members[c])                       # sorted = sequential reads from the memmap
+        vecs = np.asarray(data[rows], dtype=np.float32)
+        q = dict(zip(rows.tolist(), np.clip(np.round(vecs * scale), lo, hi).astype(np.int8)))
+        bundles = make_bundles(rows, vecs, args.bundle_size, args.seed + c)
         n_bundles += len(bundles)
         sizes.append(len(members[c]))
+        if args.format == "npy":
+            for b, bundle in enumerate(bundles):
+                e = pos + len(bundle)
+                emb_out[pos:e] = np.stack([q[i] for i in bundle])
+                rows_out[pos:e], bun_out[pos:e] = bundle, b
+                # what ReadUrlsTxt compresses: the bundle's URLs (= row numbers here) joined by ' ', zlib level 9
+                bundle_bytes.append(len(zlib.compress(" ".join(map(str, bundle.tolist())).encode(), 9)))
+                pos = e
+            cluster_ptr.append(pos)
+            bundle_ptr.append(len(bundle_bytes))
+            if c % 500 == 0:
+                log(f"wrote cluster {c}/{C}")
+            continue
         lines = []
         for b, bundle in enumerate(bundles):
             if b > 0:
@@ -269,13 +298,18 @@ def main():
         if c % 500 == 0:
             log(f"wrote cluster {c}/{C}")
 
+    if args.format == "npy":
+        emb_out.flush(), rows_out.flush(), bun_out.flush()
+        np.save(os.path.join(out, "cluster_ptr.npy"), np.asarray(cluster_ptr, dtype=np.int64))
+        np.save(os.path.join(out, "bundle_ptr.npy"), np.asarray(bundle_ptr, dtype=np.int64))
+        np.save(os.path.join(out, "bundle_bytes.npy"), np.asarray(bundle_bytes, dtype=np.int64))
     np.save(os.path.join(out, "centroids.npy"), centroids.astype(np.float32))
     meta = {
         "source": path, "num_docs": int(N), "dim": int(dim), "num_clusters": int(C),
         "slot_bits": args.slot_bits, "scale": scale, "multi_assign": ma,
         "boundary_copies": int(over), "bundle_size": args.bundle_size, "num_bundles": int(n_bundles),
         "max_cluster_size": int(max(sizes)), "mean_cluster_size": float(np.mean(sizes)),
-        "kmeans_backend": backend, "seed": args.seed,
+        "kmeans_backend": backend, "seed": args.seed, "format": args.format,
     }
     with open(os.path.join(out, "tiptoe_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)

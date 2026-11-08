@@ -60,6 +60,30 @@ run both, `MRRPreReRank` should agree (apart from the order of exactly tied scor
 32 MiB per query whatever the corpus size. That is the biggest per-query client cost in Tiptoe, and PILLAR doesn't
 pay it.
 
+### New datasets (nq, dbpedia-entity, fever, miracl-en, msmarco-v2 and its subsamples)
+
+Anything laid out by `datasets/prepare_dataset.py` + the embed step works with no code change, as in `GetDatasets`:
+
+```bash
+TIPTOE_DATASETS="nq dbpedia-entity fever" bash run_tiptoe.slurm --count     # prints the --array range
+TIPTOE_DATASETS="nq dbpedia-entity fever" sbatch --array=0-<N-1> run_tiptoe.slurm
+COEUS_DATASETS="nq dbpedia-entity fever" bash run_coeus.slurm --count
+bash datasets/run_local.sh nq                                               # one Tiptoe + one Coeus config locally
+```
+
+* **Tiptoe**, scifact / nq / fever / msmarco: `run_tiptoe.slurm` (simulated by default, full grid, 32G).
+  **msmarco-v2 and its subsamples**: `run_tiptoe_msmarco_v2.slurm`. It runs one task per preprocessed DB, merges
+  DPC values that hit the same cluster count (Tiptoe's cap is 25196), writes the DB as compact arrays
+  (`--format npy`) and deletes them after the 4 simulations. That's 64 tasks for msmarco-v2-50m + msmarco-v2.
+* **Memory** (measured on a 2M-doc synthetic set, extrapolated): preprocessing reads the embeddings memory-mapped
+  and peaks at about 4 GB + under 100 B per doc, so about 15 GB on msmarco-v2. The simulator itself holds almost
+  nothing. The `simplepir_bench` timing run peaks at about 2x `--bench-max-gb` (8 in the slurms). So 32G is enough
+  for every dataset in sim mode. Real mode on msmarco needs about `--mem=64G`.
+* **Coeus** streams the corpus, so memory is only the postings, about 12 B per (doc, term): roughly 50 GB on
+  msmarco-v2. Tokenising 138M docs takes hours, which is why the slurm limit is 2 days. It also writes a temporary
+  token file (4 B per token, about 25 GB) to `--tmp-dir`, which defaults to the results root.
+* Neither script loads the corpus text into memory any more. Doc IDs are looked up only for the rows a run returns.
+
 ## 3. The knobs we sweep, and why
 
 The paper argues with Pareto frontiers, so both baselines are swept over every knob that genuinely changes a cost
