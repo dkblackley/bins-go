@@ -23,7 +23,7 @@ type Stage3Reranker struct {
 	docFile       *os.File
 	docEmbedMmap  []byte
 	EmbedDim      int // e.g., 192
-	BytesPerElem  int // 4 for float32, 8 for float64
+	BytesPerElem  int // 1 int8, 2 float16, 4 float32, 8 float64
 
 	// Document ID map: maps internal doc index to external doc ID
 	DocIDMap []string
@@ -260,7 +260,46 @@ func parseDocIDs(data string) []string {
 	return ids
 }
 
-// parseQueryEmbeddings parses embeddings from raw bytes (supports both float32 and float64)
+// decodeEmbedValue reads one embedding value of the .npy dtype width: 1 byte is
+// int8 (per-vector absmax quantized by tree/tools/quantize_embeddings.py), 2 is
+// float16, 4 float32, 8 float64. Cosine similarity ignores a per-vector scale,
+// so int8 values are used as they are, without the scale.
+func decodeEmbedValue(b []byte, bytesPerElem int) float32 {
+	switch bytesPerElem {
+	case 1:
+		return float32(int8(b[0]))
+	case 2:
+		return float16ToFloat32(binary.LittleEndian.Uint16(b))
+	case 4:
+		return math.Float32frombits(binary.LittleEndian.Uint32(b))
+	case 8:
+		return float32(math.Float64frombits(binary.LittleEndian.Uint64(b)))
+	}
+	return 0
+}
+
+// float16ToFloat32 converts an IEEE 754 half-precision value.
+func float16ToFloat32(h uint16) float32 {
+	sign := uint32(h>>15) << 31
+	exp := uint32(h>>10) & 0x1f
+	frac := uint32(h) & 0x3ff
+	switch {
+	case exp == 0 && frac == 0:
+		return math.Float32frombits(sign)
+	case exp == 0: // subnormal: renormalise
+		e := uint32(127 - 15 + 1)
+		for frac&0x400 == 0 {
+			frac <<= 1
+			e--
+		}
+		return math.Float32frombits(sign | e<<23 | (frac&0x3ff)<<13)
+	case exp == 0x1f:
+		return math.Float32frombits(sign | 0xff<<23 | frac<<13)
+	}
+	return math.Float32frombits(sign | (exp+127-15)<<23 | frac<<13)
+}
+
+// parseQueryEmbeddings parses embeddings from raw bytes (int8, float16, float32 or float64)
 func parseQueryEmbeddings(data []byte, numQueries, embedDim, bytesPerElem int) [][]float32 {
 	embeddings := make([][]float32, numQueries)
 	for i := 0; i < numQueries; i++ {
@@ -268,12 +307,7 @@ func parseQueryEmbeddings(data []byte, numQueries, embedDim, bytesPerElem int) [
 		for j := 0; j < embedDim; j++ {
 			offset := (i*embedDim + j) * bytesPerElem
 			if offset+bytesPerElem <= len(data) {
-				switch bytesPerElem {
-				case 4:
-					emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-				case 8:
-					emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(data[offset : offset+8])))
-				}
+				emb[j] = decodeEmbedValue(data[offset:offset+bytesPerElem], bytesPerElem)
 			}
 		}
 		embeddings[i] = emb
@@ -291,12 +325,7 @@ func (sr *Stage3Reranker) GetDocEmbedding(docIdx int) []float32 {
 	for j := 0; j < sr.EmbedDim; j++ {
 		offset := (docIdx*sr.EmbedDim + j) * sr.BytesPerElem
 		if offset+sr.BytesPerElem <= len(sr.docEmbedMmap) {
-			switch sr.BytesPerElem {
-			case 4:
-				emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(sr.docEmbedMmap[offset : offset+4]))
-			case 8:
-				emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(sr.docEmbedMmap[offset : offset+8])))
-			}
+			emb[j] = decodeEmbedValue(sr.docEmbedMmap[offset:offset+sr.BytesPerElem], sr.BytesPerElem)
 		}
 	}
 	return emb
@@ -393,11 +422,7 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 				emb := make([]float32, sr.EmbedDim)
 				for j := 0; j < sr.EmbedDim; j++ {
 					bOffset := j * sr.BytesPerElem
-					if sr.BytesPerElem == 4 {
-						emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(embBytes[bOffset : bOffset+4]))
-					} else {
-						emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(embBytes[bOffset : bOffset+8])))
-					}
+					emb[j] = decodeEmbedValue(embBytes[bOffset:bOffset+sr.BytesPerElem], sr.BytesPerElem)
 				}
 				result[docIdx] = emb
 			} else {
@@ -425,12 +450,7 @@ func (sr *Stage3Reranker) getDocEmbeddingDirect(docIdx int) []float32 {
 	for j := 0; j < sr.EmbedDim; j++ {
 		offset := (docIdx*sr.EmbedDim + j) * sr.BytesPerElem
 		if offset+sr.BytesPerElem <= len(sr.docEmbedMmap) {
-			switch sr.BytesPerElem {
-			case 4:
-				emb[j] = math.Float32frombits(binary.LittleEndian.Uint32(sr.docEmbedMmap[offset : offset+4]))
-			case 8:
-				emb[j] = float32(math.Float64frombits(binary.LittleEndian.Uint64(sr.docEmbedMmap[offset : offset+8])))
-			}
+			emb[j] = decodeEmbedValue(sr.docEmbedMmap[offset:offset+sr.BytesPerElem], sr.BytesPerElem)
 		}
 	}
 	// Debug: Check for specific NaN-producing index

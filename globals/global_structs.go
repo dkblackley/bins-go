@@ -16,6 +16,9 @@ type Args struct {
 	DBSize            uint
 	BinSize           uint
 	DocsPerBin        uint
+	IDBatch           uint // bins vec0: batch size of the ID DB (0 = 24)
+	VecBatch          uint // bins vec0: batch size of each embedding-DB round (0 = automatic)
+	VecRounds         uint // bins vec0: embedding-DB rounds per query (0 = automatic)
 	Threshold         uint
 	DChoice           uint
 	Save              bool
@@ -91,6 +94,13 @@ type BinsConf struct {
 	PIRConstantWork     bool
 	PIRThreads          int
 	CuckooLoadFactor    float64
+	CuckooHashes        int     // tree: 2 or 3 hash locations per Cuckoo key (2 = original)
+	CuckooKeyBytes      int     // tree: bytes of the (term,node) key kept per row (8 = original)
+	CuckooUBBits        int     // tree: bits per upper bound in Stage1/2 rows (8 = original)
+	PIRDownloadSmall    bool    // pir-old: download a DB whose hints would be larger than it
+	PIRChunkFactor      float64 // pir-old: ChunkSize factor (2 = original)
+	PIRQueryBudget      float64 // pir-old: queries between refreshes, as a fraction of sqrt(n)ln(n)
+	Stage3BatchSize     int64   // tree: Stage3 BatchPIR batch size
 	CuckooMaxKicks      int
 	CuckooBuildAttempts int
 	CuckooCacheDir      string

@@ -15,6 +15,7 @@ import (
 	"github.com/dkblackley/bins-go/Pacmann"
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
+	"github.com/dkblackley/bins-go/pianopir"
 	testpir "github.com/dkblackley/bins-go/testPIR"
 	"github.com/dkblackley/bins-go/tiptoe"
 	"github.com/dkblackley/bins-go/tree/cmd"
@@ -173,6 +174,9 @@ func main() {
 	dChoice := flag.Uint("d", 1, "Number of bins to choose from")
 	binSize := flag.Uint("binSize", 1000000, "How many total bins to use, it's vocab size times this number")
 	docsPerBin := flag.Uint("docsPerBin", 100, "How many documents to put into each bin.")
+	idBatch := flag.Uint("idBatch", 0, "bins vec0: batch size of the ID DB, partitions = batch/2 (0 = 24)")
+	vecBatch := flag.Uint("vecBatch", 0, "bins vec0: embeddings fetched per embedding-DB round; partitions = batch/2, so smaller = less client storage (0 = automatic)")
+	vecRounds := flag.Uint("vecRounds", 0, "bins vec0: embedding-DB rounds per query (0 = automatic: enough rounds to cover as many docs as the automatic setting)")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
 	debugLevel := flag.Int("debug", 0, "Debug level, 0 for info, 1 for debug, 2 for trace and -1 for no debug")
@@ -226,6 +230,14 @@ func main() {
 	pirConstantWork := flag.Bool("pir-constant-work", false, "Use public fixed BatchPIR padding and dummy work for cache hits (tree)")
 	pirThreads := flag.Int("pir-threads", 15, "Maximum number of BatchPIR partitions processed concurrently (tree)")
 	cuckooLoadFactor := flag.Float64("cuckoo-load-factor", 0.4, "Cuckoo table load factor (must be below 0.5 for two hashes)")
+	// client-storage knobs (tree, pir-old). Defaults reproduce the original runs.
+	pirDownloadSmall := flag.Bool("pir-download-small", false, "Download a PIR DB in the clear when its Piano hints would be at least as large as the DB (tree and bins)")
+	pirChunkFactor := flag.Float64("pir-chunk-factor", 2.0, "Piano ChunkSize = next pow2 >= factor*sqrt(partition rows); smaller = smaller primary hints, larger uploads (tree)")
+	pirQueryBudget := flag.Float64("pir-query-budget", 1.0, "Scale on the sqrt(n)ln(n) queries between hint refreshes; smaller = smaller backup hints, more re-preprocessing (tree)")
+	cuckooHashes := flag.Int("cuckoo-hashes", 2, "tree: hash locations per Cuckoo key, 2 or 3 (3 allows load factors up to 0.91)")
+	cuckooKeyBytes := flag.Int("cuckoo-key-bytes", 8, "tree: bytes of the (term,node) key kept per Cuckoo row, 1..8 (below 8 = fingerprint)")
+	cuckooUBBits := flag.Int("ub-bits", 8, "tree: bits per Stage1/2 upper bound, 1..8 (rounded up, so still upper bounds)")
+	stage3BatchSize := flag.Int64("stage3-batch-size", 32, "BatchPIR batch size of the Stage3 embedding DB, partitions = batch/2 (tree)")
 	cuckooMaxKicks := flag.Int("cuckoo-max-kicks", 1000, "Maximum displacement steps per Cuckoo insertion")
 	cuckooBuildAttempts := flag.Int("cuckoo-build-attempts", 8, "Maximum full-table Cuckoo rehash attempts")
 	cuckooCacheDir := flag.String("cuckoo-cache-dir", "", "Optional directory for persistent physical Cuckoo tables")
@@ -237,6 +249,7 @@ func main() {
 	tiptoeMaxQueries := flag.Int("tiptoe-max-queries", 0, "Tiptoe: answer only the first N queries (0 = all)")
 
 	flag.Parse()
+	pianopir.DownloadIfCheaper = *pirDownloadSmall // bins; the tree sets pir-old's copy from BinsConf
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
 
@@ -270,6 +283,9 @@ func main() {
 		DChoice:           *dChoice,
 		BinSize:           *binSize,
 		DocsPerBin:        *docsPerBin,
+		IDBatch:           *idBatch,
+		VecBatch:          *vecBatch,
+		VecRounds:         *vecRounds,
 		DBSize:            *DBSize,
 		Save:              *save,
 		Load:              *load,
@@ -334,6 +350,13 @@ func main() {
 			PIRConstantWork:     *pirConstantWork,
 			PIRThreads:          *pirThreads,
 			CuckooLoadFactor:    *cuckooLoadFactor,
+			CuckooHashes:        *cuckooHashes,
+			CuckooKeyBytes:      *cuckooKeyBytes,
+			CuckooUBBits:        *cuckooUBBits,
+			PIRDownloadSmall:    *pirDownloadSmall,
+			PIRChunkFactor:      *pirChunkFactor,
+			PIRQueryBudget:      *pirQueryBudget,
+			Stage3BatchSize:     *stage3BatchSize,
 			CuckooMaxKicks:      *cuckooMaxKicks,
 			CuckooBuildAttempts: *cuckooBuildAttempts,
 			CuckooCacheDir:      *cuckooCacheDir,

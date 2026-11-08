@@ -225,6 +225,19 @@ func NewPianoPIRClient(config *PianoPIRConfig) *PianoPIRClient {
 	}
 }
 
+// hintStorageBytes is LocalStorageSize for a client of this config, computed
+// without allocating one (same counts as NewPianoPIRClient).
+func hintStorageBytes(config *PianoPIRConfig) float64 {
+	maxQueryNum := uint64(math.Sqrt(float64(config.DBSize)) * math.Log(float64(config.DBSize)))
+	primaryHintNum := primaryNumParam(float64(maxQueryNum), float64(config.ChunkSize), config.FailureProbLog2+1)
+	primaryHintNum = (primaryHintNum + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
+	maxQueryPerChunk := 3 * uint64(float64(maxQueryNum)/float64(config.SetSize))
+	maxQueryPerChunk = (maxQueryPerChunk + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
+	backups := float64(config.SetSize) * float64(maxQueryPerChunk)
+	e := float64(config.DBEntryByteNum)
+	return float64(primaryHintNum)*(16+e) + backups*(16+2*e)
+}
+
 // return the local storage in bytes
 func (c *PianoPIRClient) LocalStorageSize() float64 {
 	localStorageSize := float64(0)
