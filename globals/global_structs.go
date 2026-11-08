@@ -36,6 +36,18 @@ type Args struct {
 	NeighbhourNum   uint
 	StepN           uint
 	DocIDMapPacmann map[int]string
+	Text            TextConf
+}
+
+// TextConf is the bins text-retrieval mode (-text): bins hold compressed document text instead of embeddings and
+// the client re-ranks with BM25.
+type TextConf struct {
+	Enabled   bool
+	Format    string // "bow" (sorted stems + tf) or "seq" (stems in order)
+	Order     int    // context length of the character model
+	IDFBits   uint   // log2 cells per row of the client's IDF sketch (0 = no idf, plain tf/length)
+	TrainDocs int    // documents used to train the model
+	K1, B     float64
 }
 
 type BinsConf struct {

@@ -17,6 +17,9 @@ finishes, so a folder without metadata.json is skipped (counted in the log).
     bins_vec{0|1}_{dataset}_k{K}_bs{BS}_dpb{DPB}
         vec0     two DBs: BM25 bins DB, then a separate embedding (Vec) DB  -> "2-stage"
         vec1     one single DB holding everything                           -> "1-stage"
+    bins_text_{dataset}_k{K}_bs{BS}_dpb{DPB}
+        text     one DB of compressed doc text, client BM25 re-rank (-text)  -> vec=2,
+                 loaded as its own method 'bins-text' so it never mixes into the embedding bins
         dataset  msmarco | scifact
         k        documents returned per query in the final list (10 or 100)
         bs       bin size: number of entries in the DB (same as RealBinSize)
@@ -124,7 +127,8 @@ import globals as g
 
 log = logging.getLogger('load')
 
-BINS_NAME = re.compile(r'^bins_vec(?P<vec>\d)_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
+# bins_text_* = the -text mode (compressed doc text in one DB, client BM25 re-rank); parsed as vec=2
+BINS_NAME = re.compile(r'^bins_(?:vec(?P<vec>\d)|(?P<text>text))_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
 PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
 TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?(?:_c(?P<c>\d+))?_k(?P<k>10)$')
 
@@ -241,9 +245,11 @@ def parse_bins(folder, meta):
     if run is None:
         return None
 
-    vec, bs, dpb = int(name['vec']), int(name['bs']), int(name['dpb'])
-    run.update(method='bins', dataset=name['dataset'], k=int(name['k']),
-               vec=vec, bs=bs, dpb=dpb, config=f'vec{vec}_bs{bs}_dpb{dpb}',
+    vec = 2 if name['text'] else int(name['vec'])
+    bs, dpb = int(name['bs']), int(name['dpb'])
+    tag = 'text' if vec == 2 else f'vec{vec}'
+    run.update(method='bins-text' if vec == 2 else 'bins', dataset=name['dataset'], k=int(name['k']),
+               vec=vec, bs=bs, dpb=dpb, config=f'{tag}_bs{bs}_dpb{dpb}',
                pir_rounds=2 if vec == 0 else 1,   # vec0 queries the BM25 DB, then the Vec DB
                real_bin_size=read_float(meta, 'RealBinSize'),
                empty_bins=read_float(meta, 'EmptyBins'),
@@ -252,8 +258,8 @@ def parse_bins(folder, meta):
     has_vec_keys = 'VecTotalByteSent' in meta
     if vec == 0 and not has_vec_keys:
         log.warning("%s: vec0 run without Vec* keys, totals will be NaN", folder)
-    if vec == 1 and has_vec_keys:
-        log.warning("%s: vec1 run has Vec* keys, they are ignored", folder)
+    if vec >= 1 and has_vec_keys:
+        log.warning("%s: single-DB run has Vec* keys, they are ignored", folder)
     if run['real_bin_size'] != bs:
         log.warning("%s: RealBinSize=%s but folder says bs=%d", folder, meta.get('RealBinSize'), bs)
 
@@ -431,7 +437,7 @@ def _load_folder(results_dir, folder):
     run = PARSERS[method](folder, meta)
     if run is None:
         return 'skipped', None, None
-    return 'ok', method, run
+    return 'ok', run.get('method', method), run   # bins_text_* folders load as 'bins-text'
 
 
 def load_results(results_dirs=None, max_workers=32):
@@ -488,6 +494,8 @@ def load_results(results_dirs=None, max_workers=32):
                 skipped.append(folder)
                 continue
             log.debug("loaded %s", folder)
+            if method == 'bins-text' and method not in g.METHOD_ORDER:   # g.TEXT_BINS = []
+                continue
             nested_data.setdefault(method, {}).setdefault(run['dataset'], []).append(run)
 
     if no_metadata:

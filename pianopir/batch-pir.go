@@ -127,7 +127,7 @@ func NewSimpleBatchPianoPIR(DBSize uint64, MaxDBEntrySize uint64, DBEntryByteNum
 	if DownloadIfCheaper {
 		sub := partitionConfig(PartitionSize, MaxDBEntrySize, DBEntryByteNum, FailureProbLog2)
 		hintBytes := float64(PartitionNum) * hintStorageBytes(&sub)
-		dbBytes := float64(DBSize) * float64(DBEntryByteNum)
+		dbBytes := float64(rawDBBytes(rawDB)) // real (unpadded) size: variable-size entries are stored as they are
 		if hintBytes >= dbBytes {
 			logrus.Infof("BatchPIR: hints would take %.2f MB but the DB is only %.2f MB, the client downloads the DB instead",
 				hintBytes/1024/1024, dbBytes/1024/1024)
@@ -197,7 +197,7 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 
 	metadata := make(map[string]string)
 	if p.download {
-		dbBytes := float64(p.config.DBSize) * float64(p.config.DBEntryByteNum)
+		dbBytes := float64(rawDBBytes(p.rawDB))
 		fmt.Printf("BatchPIR (downloaded): DBSize: %v, DBEntryByteNum: %v, client storage = %v MB\n",
 			p.config.DBSize, p.config.DBEntryByteNum, dbBytes/1024/1024)
 		metadata["TotalByteSent"] = "0"
@@ -206,6 +206,8 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 		metadata["DBSizeInBytesMB"] = fmt.Sprintf("%v", dbBytes/1024/1024)
 		metadata["FailureProbLog2"] = fmt.Sprintf("%v", p.config.FailureProbLog2)
 		metadata["ClientStorageMB"] = fmt.Sprintf("%v", dbBytes/1024/1024)
+		metadata["ClientStoragePaddedMB"] = fmt.Sprintf("%v", float64(p.config.DBSize)*float64(p.config.DBEntryByteNum)/1024/1024)
+		metadata["TotalByteSentPadded"] = "0"
 		metadata["CommCostPerBatchKB"] = "0"
 		metadata["PreprocessingTime"] = "0"
 		metadata["MaintainenceTime"] = "0"
@@ -217,6 +219,7 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 
 	DBSizeInBytes := 0
 	totalByte := uint64(0)
+	totalBytePadded := uint64(0)
 	totalLANTime := float64(0)
 	totalWANTime := float64(0)
 
@@ -227,10 +230,13 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 			DBSizeInBytes += len(v) * 8
 		}
 		totalByte += p.subPIR[i].server.RetrievalCount
+		totalBytePadded += p.subPIR[i].server.RetrievalCountPadded
 
 	}
 	totalWANTime += netTime(totalByte, p.roundsMade, 400, 0.05)
 	totalLANTime += netTime(totalByte, p.roundsMade, 1000, 0.005)
+	paddedWANTime := netTime(totalBytePadded, p.roundsMade, 400, 0.05)
+	paddedLANTime := netTime(totalBytePadded, p.roundsMade, 1000, 0.005)
 
 	fmt.Printf("DB size in MB = %v\n", DBSizeInBytes/1024/1024)
 	fmt.Printf("DBSize: %v, DBEntryByteNum: %v, BatchSize: %v, PartitionNum: %v, PartitionSize: %v, ThreadNum: %v,"+
@@ -239,11 +245,11 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	maxQuery := p.subPIR[0].client.MaxQueryNum / QueryPerPartition
 	fmt.Printf("max query num = %v\n", maxQuery)
 	fmt.Printf("max query per chunk = %v\n", p.subPIR[0].client.maxQueryPerChunk)
-	fmt.Printf("total storage = %v MB\n", p.LocalStorageSize()/1024/1024)
+	fmt.Printf("total storage = %v MB (padded to the largest entry: %v MB)\n", p.LocalStorageSizeTrimmed()/1024/1024, p.LocalStorageSize()/1024/1024)
 	fmt.Printf("comm cost per batch = %v KB\n", p.CommCostPerBatchOnline()/1024)
 	fmt.Printf("amortized preprocessing comm cost = %v KB\n", float64(DBSizeInBytes)/float64(maxQuery)/1024)
 	fmt.Printf("total amortized comm cost = %v KB\n", float64(DBSizeInBytes)/float64(maxQuery)/1024+float64(p.CommCostPerBatchOnline())/1024)
-	fmt.Printf("total bytes sent = %v\n", totalByte)
+	fmt.Printf("total bytes sent = %v (padded to the largest entry: %v)\n", totalByte, totalBytePadded)
 	fmt.Printf("total LAN and WAN time = %v   %v\n", totalLANTime, totalWANTime)
 	fmt.Printf("-----------------------------\n")
 
@@ -257,7 +263,14 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	metadata["TotalWANTime"] = fmt.Sprintf("%v", totalWANTime)
 	metadata["DBSizeInBytesMB"] = fmt.Sprintf("%v", DBSizeInBytes/1024/1024)
 	metadata["FailureProbLog2"] = fmt.Sprintf("%v", PIR.config.FailureProbLog2)
-	metadata["ClientStorageMB"] = fmt.Sprintf("%v", p.LocalStorageSize()/1024/1024)
+	// ClientStorageMB / TotalByteSent / Total*Time drop the zero padding of entries shorter than the largest one
+	// (see LocalStorageSizeTrimmed and PrivateQuery). The *Padded keys are the old numbers, which charged every
+	// hint and every response the size of the largest entry.
+	metadata["ClientStorageMB"] = fmt.Sprintf("%v", p.LocalStorageSizeTrimmed()/1024/1024)
+	metadata["ClientStoragePaddedMB"] = fmt.Sprintf("%v", p.LocalStorageSize()/1024/1024)
+	metadata["TotalByteSentPadded"] = fmt.Sprintf("%d", totalBytePadded)
+	metadata["TotalLANTimePadded"] = fmt.Sprintf("%v", paddedLANTime)
+	metadata["TotalWANTimePadded"] = fmt.Sprintf("%v", paddedWANTime)
 	metadata["CommCostPerBatchKB"] = fmt.Sprintf("%v", p.CommCostPerBatchOnline()/1024)
 	metadata["PreprocessingTime"] = fmt.Sprintf("%v", p.InitialPreprocessingTime)
 	metadata["MaintainenceTime"] = fmt.Sprintf("%v", p.MaintainenceTime)
@@ -606,4 +619,25 @@ func (p *SimpleBatchPianoPIR) CommCostPerBatchOffline() uint64 {
 
 func (p *SimpleBatchPianoPIR) Config() *SimpleBatchPianoPIRConfig {
 	return p.config
+}
+
+// LocalStorageSizeTrimmed is the client hint size with each stored entry charged its real (unpadded) length.
+func (p *SimpleBatchPianoPIR) LocalStorageSizeTrimmed() float64 {
+	if p.download {
+		return float64(rawDBBytes(p.rawDB))
+	}
+	ret := float64(0)
+	for i := uint64(0); i < p.config.PartitionNum; i++ {
+		ret += p.subPIR[i].LocalStorageSizeTrimmed()
+	}
+	return ret
+}
+
+// rawDBBytes is the stored size of a DB whose entries may have different lengths.
+func rawDBBytes(rawDB [][]uint64) uint64 {
+	var n uint64
+	for _, e := range rawDB {
+		n += uint64(len(e)) * 8
+	}
+	return n
 }

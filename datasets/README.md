@@ -60,6 +60,7 @@ DATASET=msmarco-v2-100m sbatch datasets/prep_datasets.slurm
 DATASET=nq sbatch datasets/bins_index.slurm             # bins only: Bluge index (= ./pir_app -t index -name nq)
 BINS_DATASETS="nq hotpotqa fever" bash run_bins_high.slurm --count
 BINS_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_bins_high.slurm      # and run_bins_low.slurm
+#    the bins grid includes the -text layout (bins/TEXT.md); BINS_VECS="true false" leaves it out, BINS_VECS=text runs only it
 PACMANN_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_pacmann.slurm
 
 # 5. tree: Lucene index + every (B, r, s) of the grid in one pass (tree/build_tree_artifacts.py), then run the grid

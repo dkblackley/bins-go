@@ -67,9 +67,10 @@ for d in "$@"; do
   if has run; then
     BS="${BINS_BS:-100000}"; DPB="${BINS_DPB:-100}"; L="${TREE_L:-100}"; Q="${QUERY_WORDS:-8}"
     OB="$OUT/bins_vec1_${d}_k${K}_bs${BS}_dpb${DPB}"
+    OX="$OUT/bins_text_${d}_k${K}_bs${BS}_dpb${DPB}"
     OP="$OUT/pacmann_${d}_k${K}_steps15_neighb32"
     OT="$OUT/tree_grid_${d}_b${B}_r${R}_s${S}_L${L}_q${Q}_k${K}"
-    mkdir -p "$OB" "$OP" "$OT"
+    mkdir -p "$OB" "$OX" "$OP" "$OT"
     if [[ ! -d "$ROOT/index_${d}" || -n "${FORCE:-}" ]]; then
       echo "-- bins index"
       ./pir_app -t index -name "$d" -dataset "$ROOT"
@@ -77,6 +78,9 @@ for d in "$@"; do
     echo "-- bins"
     ./pir_app -n "$N" -t bins -name "$d" -k "$K" -binSize "$BS" -docsPerBin "$DPB" \
         -vectors=true -dim 192 -dataset "$ROOT" -outDir "$OB" -outFile results -debug 1
+    echo "-- bins (text: compressed doc text + client BM25, bins/TEXT.md)"
+    ./pir_app -n "$N" -t bins -text -name "$d" -k "$K" -binSize "$BS" -docsPerBin "$DPB" \
+        -dataset "$ROOT" -outDir "$OX" -outFile results -debug 1
     echo "-- pacmann"
     ./pir_app -n "$N" -t pacmann -name "$d" -k "$K" -steps 15 -neighb 32 -dim 192 \
         -dataset "$ROOT" -outDir "$OP" -outFile results -debug 1
@@ -91,7 +95,7 @@ for d in "$@"; do
         -queries "$T/queries.qrels.tsv" -qrels "$T/qrels.trec" \
         -doc-embed "$T/stage3_doc.npy" -doc-id-map "$T/stage3_doc.npy.ids" \
         -query-embed "$D/${d}_query_embed_f32.npy" -embed-dim 192
-    echo "Results: $OB, $OP, $OT (metadata.json in each)"
+    echo "Results: $OB, $OX, $OP, $OT (metadata.json in each)"
   fi
 
   # ---------------- Tiptoe + Coeus (baselines/README.md), Tiptoe's and Coeus' paper defaults

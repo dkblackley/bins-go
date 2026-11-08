@@ -145,10 +145,17 @@ estimate_resources() {
 
 # ------------------------------------------------------------------------------------------ bins
 
-bins_config_key() { echo "vec$([[ $1 == true ]] && echo 1 || echo 0)_k$2_bs$3_dpb$4"; }   # vec k bs dpb
+# vec is true (1 DB of embeddings), false (ID DB + embedding DB) or text (1 DB of compressed text, -text)
+bins_config_key() {   # vec k bs dpb
+    case $1 in
+        text) echo "text_k$2_bs$3_dpb$4" ;;
+        true) echo "vec1_k$2_bs$3_dpb$4" ;;
+        *)    echo "vec0_k$2_bs$3_dpb$4" ;;
+    esac
+}
 
-bins_missing() {   # dataset -> the first missing input of pir_app -t bins (paths as in main.go GetDatasets), or nothing
-    local d=$1 root="${DATASET_DIR:-../../datasets}" f
+bins_missing() {   # dataset [vec] -> the first missing input of pir_app -t bins (paths as in main.go GetDatasets), or nothing
+    local d=$1 vec=${2:-} root="${DATASET_DIR:-../../datasets}" f
     local -a need
     case $d in
         msmarco) need=("$root/index_marco" "$root/msmarco/corpus.jsonl" "$root/msmarco/queries.dev.small.jsonl"
@@ -161,7 +168,11 @@ bins_missing() {   # dataset -> the first missing input of pir_app -t bins (path
                        "$root/$d/${d}_corpus_embed_f32.npy" "$root/$d/${d}_query_embed_f32.npy") ;;
     esac
     [[ $d == msmarco || $d == scifact || $d == trec-covid ]] || need+=("$root/$d/num_docs.txt")
-    for f in "${need[@]}"; do [[ -e "$f" ]] || { echo "$f"; return; }; done
+    [[ $vec == text ]] && need=("${need[@]/*_embed_f32.npy/}")   # -text reads no embeddings
+    for f in "${need[@]}"; do
+        [[ -n "$f" ]] || continue
+        [[ -e "$f" ]] || { echo "$f"; return; }
+    done
 }
 
 # Model until measured: bins keeps every vocab word's top-dpb doc IDs in RAM while building the bins
@@ -169,10 +180,13 @@ bins_missing() {   # dataset -> the first missing input of pir_app -t bins (path
 # plus the corpus vectors twice (fp32 load + PIR copy). Vocab ~2.9M words for msmarco, growing as docs^0.6.
 # Calibrated so the worst old low-tier msmarco config (dpb 750) comes out just under 100 GB with headroom (it ran in 120 GB).
 # Time: msmarco runs took minutes to 2 h, so 2 h scaled by the RAM estimate, x2 since unmeasured, >= 20 min.
-bins_model() {   # dataset vec dpb -> "GB minutes"
-    awk -v n="$(dataset_docs "$1")" -v vec="$2" -v dpb="$3" 'BEGIN {
+# -text: no vectors; instead ~110 B per doc of compressed text + slice header, and the bin entries themselves,
+# ~75 B per (bin, doc) slot (MS MARCO-like passages; longer docs, e.g. scifact, cost more). Measured runs replace it.
+bins_model() {   # dataset vec dpb [bs] -> "GB minutes"
+    awk -v n="$(dataset_docs "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
         V = 2.9e6 * (n / 8841823) ^ 0.6; per = (vec == "true") ? 120 : 30
-        gb = (V * dpb * per + n * 192 * 4 * 2) / 1e9 * 1.2 + 2
+        if (vec == "text") gb = (V * dpb * per + n * 110 + bs * dpb * 75) / 1e9 * 1.2 + 2
+        else               gb = (V * dpb * per + n * 192 * 4 * 2) / 1e9 * 1.2 + 2
         m = 2 * 120 * gb / 100; if (m < 20) m = 20
         printf "%.0f %d\n", gb, m }'
 }
@@ -184,13 +198,15 @@ bins_plan() {
     local d k bs dpb vec
     while read -r d k bs dpb vec; do
         [[ -n "$d" ]] || continue
-        [[ -n "${model[$d.$vec.$dpb]:-}" ]] || model[$d.$vec.$dpb]=$(bins_model "$d" "$vec" "$dpb")
-        local fb=(${model[$d.$vec.$dpb]})
+        local mk="$d.$vec.$dpb"; [[ $vec == text ]] && mk+=".$bs"   # the text model depends on bs too
+        [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs")
+        local fb=(${model[$mk]})
         local est; est=$(estimate_resources bins "$d" "$(bins_config_key "$vec" "$k" "$bs" "$dpb")" "${fb[0]}" "${fb[1]}")
         local m="-"
         if [[ "${CHECK_INPUTS:-1}" == 1 ]]; then
-            [[ -n "${miss[$d]+x}" ]] || miss[$d]=$(bins_missing "$d")
-            m=${miss[$d]:--}
+            local mv="$d"; [[ $vec == text ]] && mv+=".text"
+            [[ -n "${miss[$mv]+x}" ]] || miss[$mv]=$(bins_missing "$d" "$vec")
+            m=${miss[$mv]:--}
         fi
         echo "$d $k $bs $dpb $vec $est $m"
     done

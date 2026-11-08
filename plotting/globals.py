@@ -63,18 +63,22 @@ BINS_FIXED_BS = {'msmarco': 1000000, 'scifact': 5000}  # bin size when sweeping 
 # from every plot; methods without runs are skipped anyway, only the bar widths change.
 EXTRA_BASELINES = ['coeus', 'tiptoe']
 
-METHOD_ORDER = ['bins', 'tree', 'pacmann'] + EXTRA_BASELINES   # order of lines, bars and legend entries
+# The bins -text mode (bins_text_* folders: compressed doc text + client BM25). Set to [] to leave it out of the
+# method comparisons (keeps the old bar widths); its runs are then not loaded.
+TEXT_BINS = ['bins-text']
 
-METHOD_LABELS = {'bins': 'PILLAR-Bin', 'tree': 'PILLAR-Tree', 'pacmann': 'PACMANN',
+METHOD_ORDER = ['bins'] + TEXT_BINS + ['tree', 'pacmann'] + EXTRA_BASELINES   # order of lines, bars and legend entries
+
+METHOD_LABELS = {'bins': 'PILLAR-Bin', 'bins-text': 'PILLAR-Bin (text)', 'tree': 'PILLAR-Tree', 'pacmann': 'PACMANN',
                  'tiptoe': 'Tiptoe', 'coeus': 'Coeus'}
-METHOD_COLORS = {'bins': '#009E73', 'tree': '#E69F00', 'pacmann': '#0072B2',
+METHOD_COLORS = {'bins': '#009E73', 'bins-text': '#000000', 'tree': '#E69F00', 'pacmann': '#0072B2',
                  'coeus': '#D55E00', 'tiptoe': '#CC79A7'}
 # Okabe-Ito has 8 colours, so the baselines reuse ones from elsewhere that never
 # share a figure with a method comparison: Coeus = VEC_COLORS[0] (bins-only
 # plots), Tiptoe = DATASET_COLORS['msmarco']. Sky blue (#56B4E9) is left out
 # because it is too close to PACMANN's blue, yellow because it vanishes on white
-METHOD_MARKERS = {'bins': 's', 'tree': '^', 'pacmann': 'o', 'coeus': 'v', 'tiptoe': 'D'}
-METHOD_HATCHES = {'bins': '///', 'tree': 'xxx', 'pacmann': '',
+METHOD_MARKERS = {'bins': 's', 'bins-text': 'P', 'tree': '^', 'pacmann': 'o', 'coeus': 'v', 'tiptoe': 'D'}
+METHOD_HATCHES = {'bins': '///', 'bins-text': '++', 'tree': 'xxx', 'pacmann': '',
                   'coeus': '\\\\', 'tiptoe': '...'}   # greyscale-safe second channel
 
 # Methods whose 'mrr' is read from MRRPreReRank instead of MRR: the local
@@ -211,8 +215,8 @@ LEGEND_STYLE = dict(frameon=False, fontsize=LEGEND_SIZE, handlelength=1.0,
 
 # The method legend (pu.method_legend), used by every plot with a line or bar
 # per method: under the figure, one line per row, each line centred
-METHOD_LEGEND_ROWS = [['bins', 'tree'], ['pacmann'] + EXTRA_BASELINES]
-METHOD_LEGEND_LABELS = {'bins': 'PILLAR-Bin (Ours)', 'tree': 'PILLAR-Tree (Ours)',
+METHOD_LEGEND_ROWS = [['bins'] + TEXT_BINS + ['tree'], ['pacmann'] + EXTRA_BASELINES]
+METHOD_LEGEND_LABELS = {'bins': 'PILLAR-Bin (Ours)', 'bins-text': 'PILLAR-Bin text (Ours)', 'tree': 'PILLAR-Tree (Ours)',
                         'pacmann': 'PACMANN', 'tiptoe': 'Tiptoe', 'coeus': 'Coeus'}
 METHOD_LEGEND_STYLE = dict(fontsize=15, columnspacing=0.25,   # columnspacing in font-size units
                            borderpad=0, borderaxespad=0)      # no padding, so the lines sit close

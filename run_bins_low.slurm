@@ -65,6 +65,9 @@ tier_of() {
         echo "high"
     elif [[ "$vec" == "true" && "$dpb" -ge 250 ]]; then
         echo "high"
+    elif [[ "$vec" == "text" && "$bs" -ge 1000000 && "$dpb" -ge 1000 ]]; then
+        echo "high"   # >= 1e9 (bin, doc) slots of ~75 B
+        echo "high"
     else
         echo "low"
     fi
@@ -74,7 +77,7 @@ tier_of() {
 add_bins_ablations() {
     local d=$1
 
-    for vec in true false; do
+    for vec in $BINS_VECS; do
         for k in 10 100; do
             for bs in "${BS_LIST[@]}"; do
                 for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
@@ -94,6 +97,12 @@ add_bins_ablations() {
 #   BINS_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_bins_high.slurm
 # Big corpora: BINS_DATASETS="msmarco-v2-25m msmarco-v2-50m msmarco-v2-100m msmarco-v2"
 BINS_DATASETS="${BINS_DATASETS:-msmarco scifact}"
+# Layouts: true = 1 DB of embeddings (vec1), false = ID DB + embedding DB (vec0), text = 1 DB of compressed doc
+# text with a client BM25 re-rank (-text, bins/TEXT.md; needs no embeddings). E.g. BINS_VECS=text for text only.
+BINS_VECS="${BINS_VECS:-true false text}"
+# -text coder settings (bins/TEXT.md); non-default ones get a _<format>o<order> suffix on the results folder
+TEXT_FORMAT="${TEXT_FORMAT:-bow}"
+TEXT_ORDER="${TEXT_ORDER:-3}"
 for d in $BINS_DATASETS; do
     add_bins_ablations "$d"
 done
@@ -142,7 +151,7 @@ else
 fi
 CFG_KEY=$(bins_config_key "$vec_val" "$k_val" "$bin_size" "$docs_val")
 
-missing=$(bins_missing "$dataset")
+missing=$(bins_missing "$dataset" "$vec_val")
 if [[ -n "$missing" ]]; then
     echo "SKIP bins ${dataset} ${CFG_KEY}: missing ${missing} (data/embeddings/Bluge index: datasets/run_all.sh)"
     finished=1; exit 0
@@ -151,12 +160,18 @@ method="bins"
 
 DB_SIZE=$(db_size_of "$dataset")
 
-if [[ "$vec_val" == "true" ]]; then
+LAYOUT_ARGS=(-vectors="$vec_val")
+TAG_SUFFIX=""
+if [[ "$vec_val" == "text" ]]; then
+    VEC_TAG="_text"
+    LAYOUT_ARGS=(-text -text-format "$TEXT_FORMAT" -text-order "$TEXT_ORDER")
+    [[ "$TEXT_FORMAT" != bow || "$TEXT_ORDER" != 3 ]] && TAG_SUFFIX="_${TEXT_FORMAT}o${TEXT_ORDER}"
+elif [[ "$vec_val" == "true" ]]; then
     VEC_TAG="_vec1"
 else
     VEC_TAG="_vec0"
 fi
-OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}"
+OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}${TAG_SUFFIX}"
 if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
     echo "Already done: ${OUT_DIR} (set FORCE=1 to rerun)"; finished=1; exit 0
 fi
@@ -199,7 +214,7 @@ srun ./measure_run.sh "${OUT_DIR}/time_v.txt" ./pir_app \
     -outFile "results" \
     -dataset "$DATASET_DIR" \
     -debug 1 \
-    -vectors="$vec_val" \
+    "${LAYOUT_ARGS[@]}" \
     -dim 192 &
 
 srun_pid=$!

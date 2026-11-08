@@ -33,8 +33,12 @@ type PianoPIRServer struct {
 	// Dimentions is the index and then the second is all the items stored at that index
 	rawDB [][]uint64
 
-	RetrievalCount uint64
+	RetrievalCount       uint64 // bytes sent, responses trimmed to their longest XORed entry (what is really sent)
+	RetrievalCountPadded uint64 // bytes sent if every response were padded to MaxDBEntrySize (the old count)
 }
+
+// ResponseLengthHeaderBytes is charged per trimmed response / stored hint so the receiver knows its length.
+const ResponseLengthHeaderBytes = 4
 
 // an initialization function for the server
 func NewPianoPIRServer(config *PianoPIRConfig, rawDB [][]uint64) *PianoPIRServer {
@@ -80,11 +84,15 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 		tempRet[0][i] = 0
 	}
 
+	maxLen := 0 // longest entry XORed in = the response with its trailing zero words dropped
 	for i := uint64(0); i < s.config.SetSize; i++ {
 		idx := uint64(offsets[i]) + i*s.config.ChunkSize
 
 		if idx >= s.config.DBSize {
 			continue
+		}
+		if n := len(s.rawDB[idx]); n > maxLen {
+			maxLen = n
 		}
 
 		// xor the idx*DBEntrySize-th to (idx+1)*DBEntrySize-th elements to temp_ret[0]
@@ -113,8 +121,12 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 	for i := 0; i < len(tempRet); i++ {
 		totalBytes += uint64(len(tempRet[i])) * 8
 	}
+	s.RetrievalCountPadded += totalBytes
 
-	s.RetrievalCount += totalBytes
+	// What actually has to go over the wire: the XOR of entries shorter than MaxDBEntrySize ends in zero words,
+	// and XORing with zeros is a no-op, so the server only sends the first maxLen words plus a 4-byte length.
+	// The server already knows every entry's length and which entries it XORed, so the length leaks nothing new.
+	s.RetrievalCount += uint64(len(offsets)*4) + uint64(maxLen)*8 + ResponseLengthHeaderBytes
 
 	return tempRet, nil
 }
@@ -758,4 +770,47 @@ func (p *PianoPIR) CommCostPerQuery() float64 {
 
 func (p *PianoPIR) Config() *PianoPIRConfig {
 	return p.config
+}
+
+// trimmedWords is len(e) without its trailing zero words. Every hint parity / stored entry is an XOR of DB entries,
+// and an entry shorter than MaxDBEntrySize is implicitly padded with zeros, so those zero words carry no information
+// and the client does not need to store them (it stores the length instead).
+func trimmedWords(e []uint64) int {
+	n := len(e)
+	for n > 0 && e[n-1] == 0 {
+		n--
+	}
+	return n
+}
+
+// LocalStorageSizeTrimmed is LocalStorageSize, but each parity / replacement entry is charged its real length
+// (trailing zero words dropped) plus a ResponseLengthHeaderBytes length, instead of DBEntryByteNum. For a DB whose
+// entries all have the same size this is the same as LocalStorageSize (plus the small length fields); for the bins,
+// where a bin can be shorter than the largest one, it is what the client actually has to keep.
+func (c *PianoPIRClient) LocalStorageSizeTrimmed() float64 {
+	words := uint64(0)
+	stored := uint64(0)
+	for _, p := range c.primaryParity {
+		words += uint64(trimmedWords(p))
+		stored++
+	}
+	for i := range c.backupParity {
+		for _, p := range c.backupParity[i] {
+			words += uint64(trimmedWords(p))
+			stored++
+		}
+	}
+	for i := range c.replacementVal {
+		for _, p := range c.replacementVal[i] {
+			words += uint64(trimmedWords(p))
+			stored++
+		}
+	}
+	totalBackupHintNum := c.config.SetSize * c.maxQueryPerChunk
+	tags := 2*c.primaryHintNum*8 + 2*totalBackupHintNum*8 // short tags, program points, replacement indices
+	return float64(tags + words*8 + stored*ResponseLengthHeaderBytes)
+}
+
+func (p *PianoPIR) LocalStorageSizeTrimmed() float64 {
+	return p.client.LocalStorageSizeTrimmed()
 }
