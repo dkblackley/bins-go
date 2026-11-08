@@ -126,7 +126,7 @@ log = logging.getLogger('load')
 
 BINS_NAME = re.compile(r'^bins_vec(?P<vec>\d)_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
 PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
-TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?_k(?P<k>10)$')
+TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?(?:_c(?P<c>\d+))?_k(?P<k>10)$')
 
 TREE_STAGES = [1, 2, 3]   # each stage is one PIR DB; totals are the sum over these
 
@@ -306,15 +306,20 @@ def parse_tree(folder, meta):
     name = TREE_NAME.match(folder)
     if not name:
         if not "k100" in folder:
-            log.warning("%s: doesn't match tree_<dataset>_b<B>_r<R>_s<S>_L<L>_k<K>, skipping", folder)
+            log.warning("%s: doesn't match tree_<dataset>_b<B>_r<R>_s<S>_L<L>[_q<Q>][_c<C>]_k<K>, skipping", folder)
         return None
     run = parse_common(folder, meta, 'tree')
     if run is None:
         return None
 
     b, r, s, L = int(name['b']), int(name['r']), int(name['s']), int(name['L'])
+    # q / c (k_candidates) only appear in newer folder names; keep them in the label so
+    # configs that differ only in q or c don't collapse into one point.
+    q = int(name['q']) if name['q'] else None
+    c = int(name['c']) if name['c'] else None
+    config = f'b{b}_r{r}_s{s}_L{L}' + (f'_q{q}' if q is not None else '') + (f'_c{c}' if c is not None else '')
     run.update(method='tree', dataset=name['dataset'], k=int(name['k']),
-               b=b, r=r, s=s, L=L, config=f'b{b}_r{r}_s{s}_L{L}')
+               b=b, r=r, s=s, L=L, q=q, k_candidates=c, config=config)
 
     parts, missing = {}, []
     for stage in TREE_STAGES:

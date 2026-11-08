@@ -15,6 +15,9 @@
 #   bins     bins grid, high + low tiers         run_bins_high.slurm, run_bins_low.slurm (after embed + bins-index)
 #   pacmann  pacmann grid                        run_pacmann.slurm                       (after embed)
 #   tree     tree grid                           run_tree_pir_old.slurm                  (after tree-db)
+#            SWEEP=legacy|oat|grid|all picks the tree grid (tree_sweep_grid.sh, default all). msmarco/scifact
+#            already have their data, so for them use STAGES="tree-db tree". Tree runs are split by estimated RAM:
+#            <=100 GB on the normal partition, 250/500/1000/1500 GB on bigmem, one job array per bucket.
 # A stage you leave out is assumed to be done already. If a job fails, the jobs that depend on it stay pending
 # with reason DependencyNeverSatisfied: fix it, scancel them and re-run with STAGES set to the remaining stages.
 #
@@ -50,9 +53,36 @@ count_of() {   # count_of <env assignment> <script> -> number of array tasks
 
 is_big() { [[ "$1" == msmarco-v2* || "$1" == miracl-en ]]; }
 
+source ./slurm_common.sh
+LIST_DIR="logs/lists/$(date +%Y%m%d_%H%M%S)"   # CONFIG_LIST files, kept so you can see what each array runs
+mkdir -p "$LIST_DIR"
+
+# true if any of these upstream jobs is being queued now (their outputs don't exist yet, so don't check inputs)
+inputs_pending() { [[ -n "$(echo $1)" ]]; }
+
+# submit_groups <method> <dataset> <plan file> <dependencies> <script for normal> <script for bigmem>
+submit_groups() {
+    local method=$1 d=$2 plan=$3 deps=$4 s_normal=$5 s_big=$6 gb min n f chunk=${MAX_ARRAY:-1000} off
+    local total; total=$(grep -c . "$plan" || true)
+    while read -r gb min n f; do
+        case $gb in
+            missing) echo "  $method  SKIPPED $min of $total configs: inputs not there yet (first missing: $n)"; continue ;;
+            over)    echo "  $method  SKIPPED $min configs: estimated above ${MEM_BUCKETS##* } GB"; continue ;;
+        esac
+        local part script
+        part=$(partition_for "$gb"); [[ $part == normal ]] && script=$s_normal || script=$s_big
+        for (( off = 0; off < n; off += chunk )); do
+            local m=$(( n - off < chunk ? n - off : chunk ))
+            echo "  $method  $(submit "$deps" --export=ALL,CONFIG_LIST="$f",ARRAY_OFFSET=$off --array=0-$((m - 1)) \
+                 --partition="$part" --mem="${gb}G" --time="$(slurm_time "$min")" \
+                 --job-name="${method}_${d}_${gb}G" "$script") (${gb}G ${min}min $part: $m configs, $(basename "$f"))"
+        done
+    done < <(group_plan "$plan" "$LIST_DIR" "${method}_${d}")
+}
+
 # submit_dataset <name> [extra dependency] ; sets EMBED_JOB to the job the dataset's embeddings come from
 submit_dataset() {
-    local d="$1" extra="${2:-}" prep="" embed="" treedb=""
+    local d="$1" extra="${2:-}" prep="" embed="" treedb="" binsidx=""
     echo "== $d"
 
     if has prep; then
@@ -81,12 +111,11 @@ submit_dataset() {
     if has tree-db; then
         local big=()
         is_big "$d" && big=(--partition=bigmem --mem=1000G)
-        treedb=$(submit "$embed" --export=ALL,DATASET="$d",WORKERS="${WORKERS:-$(is_big "$d" && echo 12 || echo 16)}" \
+        treedb=$(submit "$embed" --export=ALL,DATASET="$d",SWEEP="${SWEEP:-all}",WORKERS="${WORKERS:-$(is_big "$d" && echo 12 || echo 16)}" \
                  "${big[@]}" --job-name="treedb_$d" datasets/tree_artifacts.slurm)
         echo "  tree-db  $treedb"
     fi
 
-    local binsidx=""
     if has bins-index; then
         local big=()
         is_big "$d" && big=(--partition=bigmem --mem=500G)
@@ -96,14 +125,13 @@ submit_dataset() {
     fi
 
     if has bins; then
-        local tier n
-        for tier in high low; do
-            n=$(count_of BINS_DATASETS="$d" "run_bins_${tier}.slurm")
-            if [[ "$n" -gt 0 ]]; then
-                echo "  bins-$tier $(submit "$embed $binsidx" --export=ALL,BINS_DATASETS="$d" --array=0-$((n - 1)) \
-                     --job-name="bins_${tier}_$d" "run_bins_${tier}.slurm") ($n tasks)"
-            fi
-        done
+        # every config of both tiers, estimated (measured usage if any, else the model in slurm_common.sh), split
+        # into one array per (memory, time) bucket: <=100 GB -> run_bins_low.slurm on normal, else run_bins_high on bigmem
+        local plan="$LIST_DIR/bins_${d}.plan"
+        { BINS_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_bins_low.slurm --list-raw
+          BINS_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_bins_high.slurm --list-raw; } \
+            | CHECK_INPUTS=$(inputs_pending "$prep $embed $binsidx" && echo 0 || echo 1) bins_plan > "$plan"
+        submit_groups bins "$d" "$plan" "$embed $binsidx" run_bins_low.slurm run_bins_high.slurm
     fi
 
     if has pacmann; then
@@ -115,11 +143,11 @@ submit_dataset() {
     fi
 
     if has tree; then
-        local n big=()
-        n=$(count_of DATASET="$d" run_tree_pir_old.slurm)
-        is_big "$d" && big=(--partition=bigmem --mem=1000G)
-        echo "  tree     $(submit "$treedb $embed" --export=ALL,DATASET="$d" --array=0-$((n - 1)) "${big[@]}" \
-             --job-name="tree_$d" run_tree_pir_old.slurm) ($n tasks)"
+        # every config of the sweep, estimated and split by (memory, time) like bins; one script for both partitions
+        local plan="$LIST_DIR/tree_${d}.plan"
+        ( DATASET="$d" SWEEP="${SWEEP:-all}" CHECK_INPUTS=$(inputs_pending "$prep $embed $treedb" && echo 0 || echo 1) \
+            bash tree_sweep_grid.sh --plan ) > "$plan"
+        submit_groups tree "$d" "$plan" "$treedb $embed" run_tree_pir_old.slurm run_tree_pir_old.slurm
     fi
 }
 

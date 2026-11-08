@@ -105,7 +105,7 @@ def part_paths(out, w):
 
 
 def worker(args_tuple):
-    out, index, terms_file, w, W, combos_B, Rs, Ss, cfg = args_tuple
+    out, index, terms_file, w, W, plan, cfg = args_tuple   # plan = {B: {r: [s, ...]}}
     rd = open_reader(index)
     N = cfg["N"]
     pdir = part_paths(out, w)
@@ -119,9 +119,9 @@ def worker(args_tuple):
         return files[key]
 
     geo = {}
-    for B in combos_B:
+    for B, by_r in plan.items():
         nl = math.ceil(N / B)
-        for r in Rs:
+        for r in by_r:
             geo[(B, r)] = tree_height(nl, r)
 
     t0, n_terms = time.time(), 0
@@ -139,9 +139,9 @@ def worker(args_tuple):
             docs, tfs = docs[order], tfs[order]
             idf = math.log(1 + (N - len(docs) + 0.5) / (len(docs) + 0.5))
 
-            for B in combos_B:
+            for B, by_r in plan.items():
                 leaf_ids, leaf_max = group_max(docs // B, tfs)
-                for r in Rs:
+                for r, s_list in by_r.items():
                     h = geo[(B, r)]
                     # ---- stage 1 (depends on B, r)
                     d, m, cnt = f(f"s1_B{B}_r{r}")
@@ -151,9 +151,7 @@ def worker(args_tuple):
                         rec["row"] = np.arange(cnt[0], cnt[0] + nodes.size, dtype=np.uint64)
                         d.write(rows.tobytes()); m.write(rec.tobytes()); cnt[0] += nodes.size
                     # ---- stage 2 (depends on B, r via leaf numbering, and s)
-                    for s in Ss:
-                        if B % s:
-                            continue
+                    for s in s_list:
                         d, m, cnt = f(f"s2_B{B}_r{r}_s{s}")
                         nodes, rows = stage2_rows(docs, tfs, B, s, r ** h, idf, cfg)
                         rec = np.empty(nodes.size, dtype=IDMAP_DT)
@@ -211,6 +209,12 @@ def main():
     ap.add_argument("--B", type=int, nargs="+", default=[16, 32, 64])
     ap.add_argument("--r", type=int, nargs="+", default=[8, 32, 128])
     ap.add_argument("--s", type=int, nargs="+", default=[4, 8, 16])
+    ap.add_argument("--combos", nargs="+", default=None, metavar="B,r,s",
+                    help="Explicit (B, r, s) triples instead of the --B x --r x --s product, e.g. 32,32,8 4,2,1 "
+                         "(what tree_sweep_grid.sh --shapes lists)")
+    ap.add_argument("--db-only", action="store_true",
+                    help="Only write the stage 1/2 DBs, vocab and layouts; leave docmap/stage3/queries alone "
+                         "(for msmarco/scifact, whose index and stage-3 files already exist)")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--k1", type=float, default=0.9)
     ap.add_argument("--b", type=float, default=0.4)
@@ -227,13 +231,20 @@ def main():
     N, avgdl = index_stats(rd)
     cfg = {"N": N, "avgdl": avgdl, "ia": int(avgdl), "iar": int(round(avgdl)),
            "k1": args.k1, "b": args.b, "scale": args.scale}
-    print(f"N={N:,} avgdl={avgdl:.2f} B={args.B} r={args.r} s={args.s} workers={args.workers}")
+    print(f"N={N:,} avgdl={avgdl:.2f} workers={args.workers}")
 
-    combos = [(B, r, s) for B in args.B for r in args.r for s in args.s if B % s == 0]
+    if args.combos:
+        combos = sorted({tuple(int(x) for x in c.split(",")) for c in args.combos})
+        bad = [c for c in combos if len(c) != 3 or c[2] <= 0 or c[0] % c[2] or c[1] < 2]
+        if bad:
+            ap.error(f"--combos needs B,r,s with s dividing B and r >= 2, got {bad}")
+    else:
+        combos = [(B, r, s) for B in args.B for r in args.r for s in args.s if B % s == 0]
     todo = [c for c in combos if args.force or
             not os.path.exists(f"{T}/B{c[0]}_r{c[1]}_s{c[2]}/stage2/idmap.bin")]
     if args.skip_db:
         todo = []
+    print(f"{len(combos)} (B, r, s) combos, {len(todo)} to build: {todo}")
 
     # ---------------- vocab (term id = Lucene term enumeration order, like build_small_test_artifacts.py)
     vocab_path = f"{T}/stage1_vocab.json"
@@ -251,9 +262,12 @@ def main():
 
     # ---------------- stage 1 / stage 2 DBs for every combo still missing
     if todo:
-        Bs = sorted({c[0] for c in todo}); Rs = sorted({c[1] for c in todo}); Ss = sorted({c[2] for c in todo})
+        # only the (B, r, s) still missing, not the product of their values
+        plan = {}
+        for B, r, s in todo:
+            plan.setdefault(B, {}).setdefault(r, []).append(s)
         W = max(1, args.workers)
-        jobs = [(T, idx, terms_file, w, W, Bs, Rs, Ss, cfg) for w in range(W)]
+        jobs = [(T, idx, terms_file, w, W, plan, cfg) for w in range(W)]
         t0 = time.time()
         if W == 1:
             counts = [worker(jobs[0])]
@@ -263,13 +277,11 @@ def main():
                 counts = pool.map(worker, jobs)
         print(f"postings pass done in {time.time() - t0:.0f}s, merging")
 
-        for B in Bs:
-            for r in Rs:
+        for B, by_r in plan.items():
+            for r, s_list in by_r.items():
                 s1 = f"{T}/stage1/B{B}_r{r}"
                 n1 = merge(T, W, f"s1_B{B}_r{r}", f"{s1}/data.bin", f"{s1}/idmap.bin", counts)
-                for s in Ss:
-                    if B % s:
-                        continue
+                for s in s_list:
                     out = f"{T}/B{B}_r{r}_s{s}"
                     n2 = merge(T, W, f"s2_B{B}_r{r}_s{s}", f"{out}/stage2/data.bin", f"{out}/stage2/idmap.bin", counts)
                     json.dump({"N": N, "B": B, "r": r, "min_dl_map": {}}, open(f"{out}/layout.json", "w"))
@@ -281,6 +293,9 @@ def main():
         shutil.rmtree(f"{T}/_parts", ignore_errors=True)
     if os.path.exists(terms_file):
         os.remove(terms_file)
+    if args.db_only:
+        print(f"--db-only: skipped docmap/stage3/queries. Done: {T}")
+        return
 
     # ---------------- docmap.bin (tools/create_docmap.py): internal docid -> external (integer) id
     ext = [rd.convert_internal_docid_to_collection_docid(i) for i in range(N)]
