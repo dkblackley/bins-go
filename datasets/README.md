@@ -169,15 +169,34 @@ Disk on your machine (fp16, raw downloads kept, the .tar/.zip deleted after extr
 To get back ~30 GB, delete `raw/` once a dataset is prepared. In fp32, msmarco-v2 alone would push the total
 past 200 GB.
 
-Time on an RTX 5060 Ti 16 GB. These are estimates scaled from NQ taking 2 h in fp32, and fp16 is about 2x on that card:
+Time on an RTX 5060 Ti 16 GB, fp16:
 
 | | nq | hotpotqa | fever | dbpedia | msmarco-v2 |
 |---|---|---|---|---|---|
-| fp16 embed | ~1 h | ~1.2 h | ~2.2 h | ~1.1 h | ~35-40 h (~1.5 h per 1/24 shard) |
+| fp16 embed (measured) | 37 min | 46 min | 72 min | 45 min | ~25 h (estimate, ~1 h per 1/24 shard) |
 | download + prepare | minutes | minutes | minutes | minutes | 20 GB download + ~2-3 h |
 
-So all four small sets take ~6 h. msmarco-v2 doesn't fit in 12 h locally; it's quicker as shards on the server
-A100s, or split between both.
+The four small sets took ~3.3 h in total. msmarco-v2 is the long one; Colab (below) is ~$2-4.
+
+## MS MARCO v2 on Colab
+
+`datasets/colab_msmarco_v2.ipynb` (open it in Colab from GitHub or upload it) embeds msmarco-v2 in 48 shards
+straight from the raw `.gz` files, so no 58 GB corpus.jsonl prep is needed, and copies each finished shard to
+Google Drive. The rows, ids and text match the server's `prepare_dataset.py` output exactly. It resumes if the
+session dies, and it can be split across 2-3 sessions (`SESSION` / `NUM_SESSIONS`). When all 48 shards are on
+Drive, put them and the PCA in the server's `datasets/msmarco-v2/local_import/` and run
+`bash datasets/import_local_embeds.sh msmarco-v2`. It merges the shards into float32, installs the PCA and
+embeds the queries. `collection_preproc.py --documents <raw msmarco dir>` works the same way anywhere.
+
+Estimated cost for all 138M passages. Times are scaled from the measured local rate (~1,500 passages/s on an
+RTX 5060 Ti in fp16). Compute units are community-measured rates from March 2026, at $0.10 per unit; Colab's
+runtime picker shows the current rate:
+
+| Colab GPU | units/h | ~time | ~cost |
+|---|---|---|---|
+| L4 | 1.7 | ~13 h (~16 min per shard) | ~$2.20 |
+| A100 40GB | 5.4 | ~6.5 h | ~$3.50 |
+| T4 | 1.2 | ~35 h | ~$4.20 |
 
 ## Notes
 
