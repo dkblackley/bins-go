@@ -3,7 +3,7 @@
 #SBATCH --qos=gpu
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:A100.40gb:1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=100G

@@ -66,7 +66,7 @@ count_of() {   # count_of <env assignment> <script> -> number of array tasks
 SFX="${GPU:+_$GPU}"     # job name suffix, so two series are told apart in squeue
 gpu_args() {   # gpu_args <all|pca|shard|finish>
     [[ -z "${GPU:-}" ]] && return 0
-    local part qos=gpu gres requeue="" cpus=8 t_all t_shard
+    local part qos=gpu gres requeue="" cpus=16 t_all t_shard
     case "$GPU" in
         any)       part=gpuq,contrib-gpuq,contrib-h100; gres="";  cpus=4; requeue=1; t_all=4; t_shard=4 ;;
         a100)      part=gpuq,contrib-gpuq; gres=A100.80gb;  requeue=1; t_all=2;  t_shard=2 ;;

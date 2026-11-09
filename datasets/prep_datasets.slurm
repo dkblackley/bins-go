@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=rag_prep
 #SBATCH --partition=normal
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=16
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=64G

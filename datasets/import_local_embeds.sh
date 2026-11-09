@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=import_emb
 #SBATCH --partition=normal
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
 #SBATCH --time=0-06:00:00
 #SBATCH --output=logs/import_%j.out
