@@ -276,8 +276,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         --shapes) tree_grid_shapes ;;
         --plan)   tree_plan ;;
         --mem)    for sh in $(tree_grid_shapes | tr ' ' ','); do IFS=, read -r b r s <<< "$sh"; gb=$(tree_mem_gb "$DATASET" "$b" "$r" "$s"); echo "B=$b r=$r s=$s model ~${gb} GB"; done ;;
-        --summary) tree_plan | awk '{ ready = ($12 == "-") ? "ready" : ($12 == "done" || $12 == "queued" ? $12 : "missing"); g = $9 + 0
-                     b = "over"; split(ENVIRON["MEM_BUCKETS"] ? ENVIRON["MEM_BUCKETS"] : "16 32 64 100 250 500 1000 1500", B, " ")
+        --summary) tree_plan | awk -v mb="$MEM_BUCKETS" '{ ready = ($12 == "-") ? "ready" : ($12 == "done" || $12 == "queued" ? $12 : "missing"); g = $9 + 0
+                     b = "over"; split(mb, B, " ")
                      for (i = 1; i in B; i++) if (g <= B[i]) { b = B[i] "G"; break }
                      n[ready " " b]++ } END { for (k in n) print k, n[k] }' | sort -k1,1 -k2,2n ;;
         *) echo "usage: $0 [--count|--list|--shapes|--plan|--mem|--summary]" >&2; exit 1 ;;

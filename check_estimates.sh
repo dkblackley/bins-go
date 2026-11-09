@@ -32,9 +32,9 @@ sacct -u "$user" -S "$(date -d "-${DAYS:-7} days" +%F)" -n -P -o JobID,JobName,R
     function med(s,  a, n, i, j, x) { n = split(s, a, " "); for (i = 2; i <= n; i++) { x = a[i]; for (j = i - 1; j >= 1 && a[j] + 0 > x + 0; j--) a[j+1] = a[j]; a[j+1] = x }
         return n ? a[int((n + 1) / 2)] : 0 }
     $1 !~ /\./ {   # the job / array task line: name, request, state
-        if ($7 ~ /PENDING|RUNNING|CANCELLED by/) next
+        if ($7 ~ /PENDING|RUNNING|CANCELLED by/ || mins($5) < 1) next   # < 1 min = crashed at start (exec bit, libngt), says nothing about size
         name[$1] = $2; req[$1] = gb($3); lim[$1] = mins($4); el[$1] = mins($5); st[$1] = $7; next }
-    $1 ~ /\.batch$/ { id = $1; sub(/\.batch$/, "", id); rss[id] = gb($6) }
+    $1 ~ /\./ { id = $1; sub(/\..*/, "", id); r = gb($6); if (!(id in rss) || r > rss[id]) rss[id] = r }   # max over steps: pir_app runs in an srun step, not .batch
     END {
         for (id in name) {
             n = name[id]; if (n !~ filt || !(id in rss)) continue
@@ -65,6 +65,6 @@ while IFS=$'\t' read -r jid list off; do
               printf "  %-10s %-32s %6s %5d  %6.0f %6.0f %6.0f  %8s %6d  ", j, nm, mem, n, G[1], G[int((n + 1) / 2)], G[n], lim, mt
               for (s in src) printf "%s %d  ", s, src[s]; printf "%s\n", (why ~ /Held/ ? "[held]" : "") }'
 done < "$sub" | sort -k2,2
-echo "  (medGB far below ASKGB = bucket rounding: e.g. 260G estimates land in the 500G bucket)"
+echo "  (medGB far below ASKGB = bucket rounding; buckets are 5G steps up to 100G and 50G steps above, since 2026-11-09)"
 echo "  The estimates and their sources: slurm_common.sh (estimate_resources, bins_model) and tree_sweep_grid.sh (tree_mem_gb)."
 echo "  Measured usage they learn from: ${USAGE_FILE:-${RESULTS_DIR:-/scratch/$user/results}/resource_usage.tsv}"

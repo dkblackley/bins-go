@@ -22,7 +22,9 @@ SCALED_HEADROOM="${SCALED_HEADROOM:-1.5}" # scaled from another dataset (mem and
 declare -A MEM_SCALE_EXP=([tree]=1.0 [bins]=0.8)
 declare -A TIME_SCALE_EXP=([tree]=1.0 [bins]=1.0)
 
-MEM_BUCKETS="${MEM_BUCKETS:-16 32 64 100 250 500 1000 1500}"   # GB, <=100 runs on the normal partition
+# GB: 5G steps up to 100 (normal partition), then 50G steps up to 1500 (bigmem), so a request is at most 5G / 50G above
+# its estimate (it used to round 260G up to 500G)
+MEM_BUCKETS="${MEM_BUCKETS:-$(seq -s' ' 5 5 100) $(seq -s' ' 150 50 1500)}"
 NORMAL_MAX_GB="${NORMAL_MAX_GB:-100}"
 TIME_BUCKETS="${TIME_BUCKETS:-60 120 240 360 720 1440 2880}"  # minutes
 
