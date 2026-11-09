@@ -331,6 +331,8 @@ unfinished configs only.
 bash check_runs.sh            # queue, failed jobs, done / queued / crashed / not started per method + dataset, errors
 bash run_me.sh                # after every fix: pull, rebuild pir_app if needed, resubmit crashed + not started
 DRY_RUN=1 bash run_me.sh      # what it would submit
+bash hold_jobs.sh --dry-run   # busy queue: hold pending jobs asking >= 500G (--mem 250G, --name, --except, --list)
+bash hold_jobs.sh --release   # let them go again
 ```
 
 `run_me.sh` never deletes results (unlike `build.sh`). It pulls, restores the scripts' exec bits, rebuilds `pir_app`
