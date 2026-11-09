@@ -414,8 +414,9 @@ func main() {
 	config.QueryNum = uint(len(qids))
 
 	if config.QueryNum <= 19 {
+		// exit non-zero: returning here wrote no metadata.json but looked like a success to the slurm scripts
 		logrus.Errorf("Only %d queries, skipping loaded from %s", config.QueryNum, config.DatasetMeta.Queries)
-		return
+		os.Exit(3)
 	}
 
 	var PIRImplemented PIRImplement

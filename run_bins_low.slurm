@@ -205,7 +205,7 @@ echo "========================================"
 
 SECONDS=0
 # peak RSS + wall time -> time_v.txt -> usage log (slurm_common.sh), which later estimates use
-srun ./measure_run.sh "${OUT_DIR}/time_v.txt" ./pir_app \
+srun bash ./measure_run.sh "${OUT_DIR}/time_v.txt" ./pir_app \
     -n "$DB_SIZE" \
     -t "$method" \
     -name "$dataset" \

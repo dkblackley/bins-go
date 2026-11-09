@@ -15,6 +15,10 @@
 #   bins     bins grid, high + low tiers         run_bins_high.slurm, run_bins_low.slurm (after embed + bins-index)
 #   pacmann  pacmann grid                        run_pacmann.slurm                       (after embed)
 #   tree     tree grid                           run_tree_pir_old.slurm                  (after tree-db)
+#   tiptoe   Tiptoe baseline (simulated: quality + bytes, no server time)                     (after embed)
+#            run_tiptoe.slurm, or run_tiptoe_msmarco_v2.slurm for msmarco-v2*. Not in the default STAGES.
+#   coeus    Coeus baseline (quality + bytes, no server time) run_coeus.slurm               (after prep)
+#            Not in the default STAGES. Both skip configs that already have a metadata.json.
 #            SWEEP=legacy|oat|grid|all picks the tree grid (tree_sweep_grid.sh, default all). msmarco/scifact
 #            already have their data, so for them use STAGES="tree-db tree". Tree runs are split by estimated RAM:
 #            <=100 GB on the normal partition, 250/500/1000/1500 GB on bigmem, one job array per bucket.
@@ -95,9 +99,36 @@ is_big() { [[ "$1" == msmarco-v2* || "$1" == miracl-en ]]; }
 source ./slurm_common.sh
 LIST_DIR="logs/lists/$(date +%Y%m%d_%H%M%S)"   # CONFIG_LIST files, kept so you can see what each array runs
 mkdir -p "$LIST_DIR"
+# Configs a job in the queue already covers are skipped (slurm_common.sh queued_dirs), so re-running this after a
+# fix only submits what's missing. Worked out once here; run_me.sh passes its own QUEUED_FILE.
+export QUEUED_FILE="${QUEUED_FILE:-$LIST_DIR/queued.tsv}"
+[[ -f "$QUEUED_FILE" ]] || queued_dirs > "$QUEUED_FILE"
+if grep -q '^?' "$QUEUED_FILE"; then
+    echo "NOTE: can't tell which configs these queued arrays run (no CONFIG_LIST in sacct's SubmitLine), so nothing is"
+    echo "      submitted for their method + dataset until they leave the queue:"
+    awk -F'\t' '$1 == "?" { print "        " $2 " " $3 " (job " $4 ")" }' "$QUEUED_FILE" | sort -u
+fi
 
 # true if any of these upstream jobs is being queued now (their outputs don't exist yet, so don't check inputs)
 inputs_pending() { [[ -n "$(echo $1)" ]]; }
+
+# pacmann_todo <dataset> <grid size> -> slurm --array list (e.g. "0-3,7,9-71") of the configs still to run; same
+# order as run_pacmann.slurm: k (10 100) x steps (5..30) x neighbours (8..48). FORCE=1 lists every config.
+pacmann_todo() {
+    local d=$1 n=$2 i k st nb od res="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}" idx=()
+    load_queued
+    for (( i = 0; i < n; i++ )); do
+        k=$(( i < 36 ? 10 : 100 )); st=$(( (i % 36 / 6 + 1) * 5 )); nb=$(( (i % 6 + 1) * 8 ))
+        od="$res/pacmann_${d}_k${k}_steps${st}_neighb${nb}"
+        [[ -z "${FORCE:-}" && -s "$od/metadata.json" ]] && continue
+        is_queued pacmann "$d" "$od" && continue
+        idx+=("$i")
+    done
+    printf '%s\n' "${idx[@]}" | awk 'NF { if ($1 == p + 1 && c) { p = $1; next }
+        if (c) out = out (s == p ? s : s "-" p) ","; s = p = $1; c = 1 }
+        END { if (c) out = out (s == p ? s : s "-" p); print out }'
+}
+pacmann_count() { awk -v a="$1" 'BEGIN { n = split(a, P, ","); for (i = 1; i <= n; i++) { split(P[i], r, "-"); t += (r[2] == "" ? 1 : r[2] - r[1] + 1) } print t }'; }
 
 # submit_groups <method> <dataset> <plan file> <dependencies> <script for normal> <script for bigmem>
 submit_groups() {
@@ -108,14 +139,18 @@ submit_groups() {
             missing) echo "  $method  SKIPPED $min of $total configs: inputs not there yet (first missing: $n)"; continue ;;
             over)    echo "  $method  SKIPPED $min configs: estimated above ${MEM_BUCKETS##* } GB"; continue ;;
             done)    echo "  $method  SKIPPED $min of $total configs: already finished (metadata.json; FORCE=1 reruns them)"; continue ;;
+            queued)  echo "  $method  SKIPPED $min of $total configs: a job in the queue already runs them"; continue ;;
         esac
         local part script
         part=$(partition_for "$gb"); [[ $part == normal ]] && script=$s_normal || script=$s_big
         for (( off = 0; off < n; off += chunk )); do
-            local m=$(( n - off < chunk ? n - off : chunk ))
-            echo "  $method  $(submit "$deps" --export=ALL,CONFIG_LIST="$f",ARRAY_OFFSET=$off --array=0-$((m - 1)) \
+            local m=$(( n - off < chunk ? n - off : chunk )) jid
+            jid=$(submit "$deps" --export=ALL,CONFIG_LIST="$f",ARRAY_OFFSET=$off --array=0-$((m - 1)) \
                  --partition="$part" --mem="${gb}G" --time="$(slurm_time "$min")" \
-                 --job-name="${method}_${d}_${gb}G$SFX" "$script") (${gb}G ${min}min $part: $m configs, $(basename "$f"))"
+                 --job-name="${method}_${d}_${gb}G$SFX" "$script")
+            # which list + offset this array runs, so queued_dirs (slurm_common.sh) can map its tasks to configs
+            [[ -n "${DRY_RUN:-}" ]] || printf '%s\t%s\t%s\n' "$jid" "$f" "$off" >> "$SUBMITTED_FILE"
+            echo "  $method  $jid (${gb}G ${min}min $part: $m configs, $(basename "$f"))"
         done
     done < <(group_plan "$plan" "$LIST_DIR" "${method}_${d}")
 }
@@ -180,11 +215,17 @@ submit_dataset() {
     fi
 
     if has pacmann; then
-        local n big=()
+        # only the configs without a metadata.json that no queued job covers (task i = config i of the grid)
+        local n big=() todo
         n=$(count_of PACMANN_DATASETS="$d" run_pacmann.slurm)
+        todo=$(pacmann_todo "$d" "$n")
         is_big "$d" && big=(--partition=bigmem --mem=1500G)
-        echo "  pacmann  $(submit "$embed" --export=ALL,PACMANN_DATASETS="$d" --array=0-$((n - 1)) "${big[@]}" \
-             --job-name="pacmann_$d$SFX" run_pacmann.slurm) ($n tasks)"
+        if [[ -z "$todo" ]]; then
+            echo "  pacmann  SKIPPED: all $n configs finished or already queued"
+        else
+            echo "  pacmann  $(submit "$embed" --export=ALL,PACMANN_DATASETS="$d" --array="$todo" "${big[@]}" \
+                 --job-name="pacmann_$d$SFX" run_pacmann.slurm) ($(pacmann_count "$todo") of $n tasks: $todo)"
+        fi
     fi
 
     if has tree; then
@@ -193,6 +234,31 @@ submit_dataset() {
         ( DATASET="$d" SWEEP="${SWEEP:-all}" CHECK_INPUTS=$(inputs_pending "$prep $embed $treedb" && echo 0 || echo 1) \
             bash tree_sweep_grid.sh --plan ) > "$plan"
         submit_groups tree "$d" "$plan" "$treedb $embed" run_tree_pir_old.slurm run_tree_pir_old.slurm
+    fi
+
+    if has tiptoe; then
+        local n
+        if [[ "$d" == msmarco-v2* ]]; then
+            n=$(env TIPTOE_V2_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_tiptoe_msmarco_v2.slurm --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0)
+            echo "  tiptoe   $(submit "$embed" --export=ALL,TIPTOE_V2_DATASETS="$d" --array=0-$((n - 1))%8 \
+                 --job-name="tiptoe_$d$SFX" run_tiptoe_msmarco_v2.slurm) ($n preprocessed DBs x 4 configs)"
+        else
+            n=$(count_of TIPTOE_DATASETS="$d" run_tiptoe.slurm)
+            echo "  tiptoe   $(submit "$embed" --export=ALL,TIPTOE_DATASETS="$d" --array=0-$((n - 1))%64 \
+                 --job-name="tiptoe_$d$SFX" run_tiptoe.slurm) ($n tasks)"
+        fi
+    fi
+
+    if has coeus; then
+        # postings ~12 B per (doc, term): ~5 GB on msmarco, ~50 GB on msmarco-v2; tokenising 138M docs takes hours
+        local n res=()
+        n=$(count_of COEUS_DATASETS="$d" run_coeus.slurm)
+        case $d in
+            msmarco-v2)     res=(--mem=120G --time=2-00:00:00) ;;
+            msmarco-v2-*)   res=(--mem=64G --time=1-00:00:00) ;;
+        esac
+        echo "  coeus    $(submit "$embed" --export=ALL,COEUS_DATASETS="$d" --array=0-$((n - 1)) "${res[@]}" \
+             --job-name="coeus_$d$SFX" run_coeus.slurm) ($n tasks)"
     fi
 }
 

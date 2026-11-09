@@ -10,7 +10,8 @@
 #   data/<name>_tree/stage3_doc.npy(.ids)     doc embeddings in index order
 #   data/<name>_tree/queries.qrels.tsv, queries.qrels.analyzed.json, qrels.trec
 # msmarco / scifact keep their original index and stage-3 files; only the missing B<B>_r<r>_s<s>/ dirs are added
-# to data/<name>/pir/ (--db-only).
+# to data/<name>/pir/ (--db-only). msmarco is built like a new dataset (data/msmarco_tree) when its original files
+# are incomplete (tree_msmarco_layout in slurm_common.sh).
 # Needs Java 21 + pyserini. Combos that already exist are skipped (pass FORCE=1 to rebuild).
 set -euo pipefail
 name="${1:?name}"
@@ -31,7 +32,10 @@ else
   echo "SWEEP=${SWEEP:-all}: ${#combos[@]} (B, r, s) combos for $name"
 fi
 
-if [[ "$name" == "msmarco" || "$name" == "scifact" ]]; then
+source "$(dirname "$0")/../slurm_common.sh"
+original=""
+[[ "$name" == scifact || ( "$name" == msmarco && "$(ROOT_DIR="$PWD" tree_msmarco_layout)" == original ) ]] && original=1
+if [[ -n "$original" ]]; then
   if [[ "$name" == "msmarco" ]]; then IDX=data/msmarco_reordered; else IDX=indexes/scifact; fi
   T="${TREE_OUT:-data/${name}/pir}"
   python3 tree/build_tree_artifacts.py --dataset-dir "$D" --out "$T" --name "$name" --index "$IDX" --db-only \

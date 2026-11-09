@@ -67,8 +67,7 @@ embed_val=192
 BINARY="${ROOT_DIR}/pir_app"
 # Non-default Cuckoo settings (TREE_CUCKOO_HASHES=3 TREE_CUCKOO_LF=0.88 roughly halves the Stage 1/2 tables, worth it
 # for msmarco-v2) go in their own sub-folder so they never mix with the default runs.
-CUCKOO_HASHES="${TREE_CUCKOO_HASHES:-2}"
-CUCKOO_LF="${TREE_CUCKOO_LF:-0.4}"
+read -r CUCKOO_HASHES CUCKOO_LF <<< "$(tree_cuckoo "$dataset")"   # msmarco-v2 defaults to 3 / 0.88 (slurm_common.sh)
 CUCKOO_KICKS=$([[ "$CUCKOO_HASHES" == 3 ]] && echo 5000 || echo 1000)
 CUCKOO_TAG=""
 [[ "$CUCKOO_HASHES" != 2 || "$CUCKOO_LF" != 0.4 ]] && CUCKOO_TAG="h${CUCKOO_HASHES}_lf${CUCKOO_LF}/"
@@ -111,7 +110,7 @@ LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q
 SECONDS=0
 echo "Running tree search..."
 # peak RSS + wall time go to time_v.txt and then the usage log (slurm_common.sh record_usage)
-"${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
+bash "${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
     -t tree \
     -name "$dataset" \
     -n "$DB_SIZE" \
@@ -153,7 +152,7 @@ echo "Running tree search..."
     --pir-threads 16 \
     $CACHE_ARGS > "$LOG_FILE" 2>&1 &
 run_pid=$!
-CFG_KEY=$(tree_config_key "$B_val" "$r_val" "$s_val" "$L_val" "$q_words_val" "$k_cand_val")
+CFG_KEY=$(tree_config_key "$B_val" "$r_val" "$s_val" "$L_val" "$q_words_val" "$k_cand_val" "$dataset")
 # time limit (SIGTERM 120 s before it, see --signal) or OOM: log it so the next estimate for this config is bigger
 trap 'kill -TERM "$run_pid" 2>/dev/null; record_failure tree "$dataset" "$CFG_KEY" "${OUT_DIR}/time_v.txt" 143 "$SECONDS" timeout; exit 143' TERM
 rc=0

@@ -37,9 +37,8 @@ mkdir -p $OUT/tiptoe $OUT/coeus $LOGS
 JOBFILE=$(mktemp); trap 'rm -f "$JOBFILE"' EXIT
 TIPTOE_MAX_CLUSTERS=25196   # preprocess_tiptoe.py caps the cluster count here
 
-has tiptoe && go build -o simplepir_bench ./cmd/simplepir_bench   # measures the simulated online server time
-OPT2=$HOME/opt/src/Coeus_artifact/matmult/bin/opt2
-OPT2_ARG=""; [ -x "$OPT2" ] && OPT2_ARG="--opt2-bin $OPT2 --parallelism $NCPU"
+# Quality + communication only: no server-time benchmarks (simplepir_bench / opt2) are run.
+OPT2_ARG=""
 
 # Runs the job lines in $JOBFILE (one shell command each), $jobs at a time. A failing config doesn't stop the rest.
 run_jobs() {
@@ -126,7 +125,7 @@ EOF
               SEEN[$run]=1
               if [ "$FORCE" != 1 ] && [ -f "$TT_OUT/metadata.json" ]; then continue; fi
               cmd="python3 baselines/tiptoe/simulate_tiptoe.py --dataset $DATASETS --name $name --tiptoe-dir $TT --k $k \
---emb-hint-mb $hint --results-root $OUT/tiptoe --bench-bin ./simplepir_bench --parallelism $NCPU"
+--emb-hint-mb $hint --results-root $OUT/tiptoe --parallelism $NCPU"
               echo "echo '=== $run'; GOMAXPROCS=$threads OMP_NUM_THREADS=$threads $cmd > $LOGS/$run.log 2>&1 || echo 'FAILED $run'" >> "$JOBFILE"
             done
           done
@@ -139,10 +138,6 @@ EOF
 
   # ---------- coeus ----------
   # F x tf x k. F values past the dataset's vocabulary are skipped by run_coeus.py (e.g. F>32768 on scifact).
-  # Server time comes from running opt2 once per (R, C) and caching it in opt2_calibration.json next to the binary.
-  # That cache is a plain read-modify-write JSON file, so one config per F runs serially first (uncontended timing,
-  # fills the cache); the parallel runs after it only read the cache.
-  # --parallelism divides the single-machine opt2 time (Coeus shards across servers), it's not local threads.
   if has coeus; then
     for F in 8192 16384 32768 65536 131072 262144; do
       warmed=0
@@ -154,7 +149,7 @@ EOF
 --results-root $OUT/coeus $OPT2_ARG"
           if [ $warmed = 0 ]; then
             warmed=1
-            echo "=== $run (serial, warms the opt2 cache)"
+            echo "=== $run (serial)"
             $cmd > $LOGS/$run.log 2>&1 || echo "FAILED $run"
           else
             echo "echo '=== $run'; OMP_NUM_THREADS=$threads $cmd > $LOGS/$run.log 2>&1 || echo 'FAILED $run'" >> "$JOBFILE"

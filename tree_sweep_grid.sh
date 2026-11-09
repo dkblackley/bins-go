@@ -146,9 +146,10 @@ TREE_MEM_CAL="${TREE_MEM_CAL:-0.75}"
 declare -A _TREE_MEM=()
 
 tree_mem_gb() {   # dataset B r s -> estimated GB (integer)
-    local key="$1|$2|$3|$4|${TREE_CUCKOO_LF:-0.4}"
+    local _h lf; read -r _h lf <<< "$(tree_cuckoo "$1")"
+    local key="$1|$2|$3|$4|$lf"
     if [[ -z "${_TREE_MEM[$key]:-}" ]]; then
-        _TREE_MEM[$key]=$(awk -v d="$1" -v B="$2" -v r="$3" -v s="$4" -v sizes="$DATASET_SIZES" -v cal="$TREE_MEM_CAL" -v lf="${TREE_CUCKOO_LF:-0.4}" '
+        _TREE_MEM[$key]=$(awk -v d="$1" -v B="$2" -v r="$3" -v s="$4" -v sizes="$DATASET_SIZES" -v cal="$TREE_MEM_CAL" -v lf="$lf" '
         function ppn(x,   i, lx) {   # (term,node) rows per node holding x docs, msmarco-like text
             lx = log(x)
             if (lx <= LX[1]) return exp(LY[1] + (lx - LX[1]) * (LY[2] - LY[1]) / (LX[2] - LX[1]))
@@ -182,9 +183,10 @@ tree_mem_gb() {   # dataset B r s -> estimated GB (integer)
 # x2 because it is unmeasured, at least 30 min.
 tree_model_minutes() { awk -v g="$1" 'BEGIN { m = 2 * 45 * g / 62; printf "%d\n", (m < 30 ? 30 : m) }'; }
 
-tree_config_key() {   # B r s L q c -> config name used in the usage log (cuckoo settings included)
-    local tag=""
-    [[ "${TREE_CUCKOO_HASHES:-2}" != 2 || "${TREE_CUCKOO_LF:-0.4}" != 0.4 ]] && tag="_h${TREE_CUCKOO_HASHES:-2}lf${TREE_CUCKOO_LF:-0.4}"
+tree_config_key() {   # B r s L q c [dataset] -> config name used in the usage log (cuckoo settings included)
+    local tag="" h lf
+    read -r h lf <<< "$(tree_cuckoo "${7:-}")"
+    [[ "$h" != 2 || "$lf" != 0.4 ]] && tag="_h${h}lf${lf}"
     echo "b$1_r$2_s$3_L$4_q$5_c$6${tag}"
 }
 
@@ -192,7 +194,9 @@ tree_config_key() {   # B r s L q c -> config name used in the usage log (cuckoo
 # STAGE2_IDMAP DOC_EMBED DOC_ID_MAP QUERY_EMBED BLOCK_PERMS CACHE_SUBDIR (relative to the repo root / DATASET_DIR).
 tree_paths() {   # dataset B r s
     local d=$1 shape="B$2_r$3_s$4" root="${ROOT_DIR:-$PWD}" art
-    case $d in
+    local layout="$d"
+    [[ $d == msmarco && "$(tree_msmarco_layout)" == generic ]] && layout=generic
+    case $layout in
     msmarco)
         DB_SIZE=8841823; art="$root/data/msmarco/pir/$shape"
         INDEX="$root/data/msmarco_reordered"; QUERIES="$root/data/queries.dev.small.tsv"; QRELS="$root/data/qrels.dev.small.tsv"
@@ -231,18 +235,22 @@ tree_missing() {   # dataset B r s -> the first missing input file, or nothing i
 # One line per config of the current arrays: "d B r s L q c max_q GB minutes source missing"
 # (missing = first missing input, "-" if ready). Only checked when CHECK_INPUTS=1 (default), cached per shape.
 tree_plan() {
-    load_usage
+    load_usage; load_queued
     local i; declare -A miss=()
     for i in "${!DATA_ARR[@]}"; do
         local d=${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]}
         # already finished (same folder name as run_tree_pir_old.slurm): counted by group_plan, not submitted
-        local tag=""; [[ "${TREE_CUCKOO_HASHES:-2}" != 2 || "${TREE_CUCKOO_LF:-0.4}" != 0.4 ]] && tag="h${TREE_CUCKOO_HASHES:-2}_lf${TREE_CUCKOO_LF:-0.4}/"
-        if [[ -z "${FORCE:-}" && -s "${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/${tag}tree_grid_${d}_b${B}_r${r}_s${s}_L${L_ARR[$i]}_q${QWORDS_ARR[$i]}_c${KCAND_ARR[$i]}_k10/metadata.json" ]]; then
+        local tag; tag=$(tree_cuckoo_tag "$d")
+        local od="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/${tag}tree_grid_${d}_b${B}_r${r}_s${s}_L${L_ARR[$i]}_q${QWORDS_ARR[$i]}_c${KCAND_ARR[$i]}_k10"
+        if [[ -z "${FORCE:-}" && -s "$od/metadata.json" ]]; then
             echo "$d $B $r $s ${L_ARR[$i]} ${QWORDS_ARR[$i]} ${KCAND_ARR[$i]} ${MAX_Q_ARR[$i]} 0 0 - done"; continue
+        fi
+        if is_queued tree "$d" "$od"; then
+            echo "$d $B $r $s ${L_ARR[$i]} ${QWORDS_ARR[$i]} ${KCAND_ARR[$i]} ${MAX_Q_ARR[$i]} 0 0 - queued"; continue
         fi
         local gb; gb=$(tree_mem_gb "$d" "$B" "$r" "$s")
         local fb_gb; fb_gb=$(awk -v g="$gb" 'BEGIN { printf "%.0f", g * 1.2 }')
-        local est; est=$(estimate_resources tree "$d" "$(tree_config_key "$B" "$r" "$s" "${L_ARR[$i]}" "${QWORDS_ARR[$i]}" "${KCAND_ARR[$i]}")" \
+        local est; est=$(estimate_resources tree "$d" "$(tree_config_key "$B" "$r" "$s" "${L_ARR[$i]}" "${QWORDS_ARR[$i]}" "${KCAND_ARR[$i]}" "$d")" \
                          "$fb_gb" "$(tree_model_minutes "$gb")")
         local m="-"
         if [[ "${CHECK_INPUTS:-1}" == 1 ]]; then
@@ -268,8 +276,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         --shapes) tree_grid_shapes ;;
         --plan)   tree_plan ;;
         --mem)    for sh in $(tree_grid_shapes | tr ' ' ','); do IFS=, read -r b r s <<< "$sh"; gb=$(tree_mem_gb "$DATASET" "$b" "$r" "$s"); echo "B=$b r=$r s=$s model ~${gb} GB"; done ;;
-        --summary) tree_plan | awk '{ ready = ($12 == "-") ? "ready" : ($12 == "done" ? "done" : "missing"); g = $9 + 0
-                     b = "over"; split(ENVIRON["MEM_BUCKETS"] ? ENVIRON["MEM_BUCKETS"] : "16 32 64 100 250 500 1000 1500", B, " ")
+        --summary) tree_plan | awk -v mb="$MEM_BUCKETS" '{ ready = ($12 == "-") ? "ready" : ($12 == "done" || $12 == "queued" ? $12 : "missing"); g = $9 + 0
+                     b = "over"; split(mb, B, " ")
                      for (i = 1; i in B; i++) if (g <= B[i]) { b = B[i] "G"; break }
                      n[ready " " b]++ } END { for (k in n) print k, n[k] }' | sort -k1,1 -k2,2n ;;
         *) echo "usage: $0 [--count|--list|--shapes|--plan|--mem|--summary]" >&2; exit 1 ;;
