@@ -101,28 +101,34 @@ record_failure() {
     echo "usage (failed run, next estimate is bumped): $line"
 }
 
-declare -A _USAGE_MEM=() _USAGE_SEC=() _USAGE_DS=()
+declare -A _USAGE_MEM=() _USAGE_SEC=() _USAGE_DS=() _USAGE_FAIL=()
 load_usage() {   # read $USAGE_FILE once; the latest line per (method, dataset, config) wins
     [[ -f "$USAGE_FILE" ]] || return 0
-    local m d c gb s _
-    while IFS=$'\t' read -r m d c gb s _; do
+    local m d c gb s _date st
+    while IFS=$'\t' read -r m d c gb s _date st; do
         [[ -n "$c" && "$gb" != max_rss_gb ]] || continue
         [[ -z "${_USAGE_MEM["$m|$d|$c"]:-}" ]] && _USAGE_DS["$m|$c"]+="$d "
         _USAGE_MEM["$m|$d|$c"]=$gb; _USAGE_SEC["$m|$d|$c"]=$s
+        if [[ "$st" == failed* ]]; then _USAGE_FAIL["$m|$d|$c"]=1; else unset '_USAGE_FAIL["$m|$d|$c"]'; fi
     done < "$USAGE_FILE"
 }
 
 # estimate_resources <method> <dataset> <config> <fallback GB> <fallback minutes> -> "GB minutes source"
 estimate_resources() {
     local m=$1 d=$2 c=$3 fb_gb=$4 fb_min=$5 key="$1|$2|$3"
+    # A failed run (OOM / time limit) only tells us a lower bound: its elapsed time is how far it got before it was
+    # killed, so it never lowers the estimate below the model (e.g. an OOM after 2 min must not ask for 13 min).
     if [[ -n "${_USAGE_MEM[$key]:-}" ]]; then
         awk -v g="${_USAGE_MEM[$key]}" -v s="${_USAGE_SEC[$key]}" -v hm="$MEM_HEADROOM" -v ht="$TIME_HEADROOM" \
-            'BEGIN { printf "%.1f %d measured\n", g * hm + 1, s * ht / 60 + 10 }'
+            -v f="${_USAGE_FAIL[$key]:-}" -v fg="$fb_gb" -v fm="$fb_min" '
+            BEGIN { g = g * hm + 1; t = s * ht / 60 + 10
+                    if (f) { if (fg > g) g = fg; if (fm > t) t = fm; printf "%.1f %d failed-bumped\n", g, t }
+                    else printf "%.1f %d measured\n", g, t }'
         return
     fi
     local cands="" od
     for od in ${_USAGE_DS["$m|$c"]:-}; do
-        cands+="$od:$(dataset_docs "$od"):${_USAGE_MEM["$m|$od|$c"]}:${_USAGE_SEC["$m|$od|$c"]} "
+        cands+="$od:$(dataset_docs "$od"):${_USAGE_MEM["$m|$od|$c"]}:${_USAGE_SEC["$m|$od|$c"]}:${_USAGE_FAIL["$m|$od|$c"]:-0} "
     done
     if [[ -n "$cands" && "$(dataset_docs "$d")" -gt 0 ]]; then
         # closest measured dataset by size, then scale by (docs ratio)^exp
@@ -133,14 +139,84 @@ estimate_resources() {
             for (i = 1; i <= k; i++) {
                 split(C[i], f, ":"); if (f[2] <= 0) continue
                 r = n / f[2]; d = (r < 1) ? 1 / r : r
-                if (!best || d < bd) { best = i; bd = d; bn = f[1]; br = r; bg = f[3]; bs = f[4] }
+                if (!best || d < bd) { best = i; bd = d; bn = f[1]; br = r; bg = f[3]; bs = f[4]; bf = f[5] }
             }
             if (!best) { printf "%s %s model\n", fg, fm; exit }
-            printf "%.1f %d scaled-from-%s\n", bg * br ^ em * h + 1, bs * br ^ et * h / 60 + 10, bn
+            g = bg * br ^ em * h + 1; t = bs * br ^ et * h / 60 + 10
+            if (bf + 0) { if (fg > g) g = fg; if (fm > t) t = fm }   # scaled from a failed run: a lower bound only
+            printf "%.1f %d scaled-from-%s\n", g, t, bn
         }'
         return
     fi
     echo "$fb_gb $fb_min model"
+}
+
+# ------------------------------------------------------------------------------------------ queued configs
+# Which result folders a job in the queue (pending or running) will write, so datasets/run_all.sh and run_me.sh
+# don't submit them a second time and check_runs.sh can tell "queued" apart from "crashed".
+#   queued_dirs > file        one "folder<TAB>jobid_task" line per queued bins/tree/pacmann task, plus
+#                             "?<TAB>method<TAB>dataset<TAB>jobid" for an array whose config list can't be found
+# A task of a run_all.sh array runs line ARRAY_OFFSET+task+1 of its CONFIG_LIST. Both come from logs/lists/submitted.tsv
+# (run_all.sh appends "jobid list offset" for every array it submits) or, for older arrays, from sacct's SubmitLine.
+# Pacmann arrays are one dataset's grid, task i = config i (k, steps, neighbours as in run_pacmann.slurm).
+SUBMITTED_FILE="${SUBMITTED_FILE:-logs/lists/submitted.tsv}"
+queued_dirs() {
+    command -v squeue >/dev/null 2>&1 || return 0
+    local res="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}" jid task name _st m d list off
+    declare -A jl=() jo=()
+    if [[ -f "$SUBMITTED_FILE" ]]; then
+        while IFS=$'\t' read -r jid list off; do jl[$jid]=$list; jo[$jid]=$off; done < "$SUBMITTED_FILE"
+    fi
+    squeue -u "${USER:-$(id -un)}" -h -r -o '%F|%K|%j|%T' 2>/dev/null | while IFS='|' read -r jid task name _st; do
+        m=${name%%_*}; d=${name#*_}; d=${d%%_*}
+        [[ $m == bins || $m == tree || $m == pacmann ]] || continue
+        [[ $task =~ ^[0-9]+$ ]] || task=0
+        if [[ $m == pacmann ]]; then
+            echo "P	$d	$task	${jid}_$task"; continue
+        fi
+        if [[ -z "${jl[$jid]+x}" ]]; then   # not submitted by this version of run_all.sh: ask sacct how it was submitted
+            local sl; sl=$(sacct -j "$jid" -X -n -P -o SubmitLine 2>/dev/null | head -1 || true)
+            jl[$jid]=$(sed -nE 's/.*CONFIG_LIST=([^, ]+).*/\1/p' <<< "$sl")
+            jo[$jid]=$(sed -nE 's/.*ARRAY_OFFSET=([0-9]+).*/\1/p' <<< "$sl")
+        fi
+        list=${jl[$jid]}; off=${jo[$jid]:-0}
+        if [[ -z "$list" || ! -f "$list" ]]; then echo "?	$m	$d	$jid"; continue; fi
+        echo "L	$m	$list	$(( off + task + 1 ))	${jid}_$task"
+    done | awk -F'\t' -v res="$res" -v tf="${TEXT_FORMAT:-bow}" -v to="${TEXT_ORDER:-3}" \
+                -v ch="${TREE_CUCKOO_HASHES:-2}" -v clf="${TREE_CUCKOO_LF:-0.4}" '
+    BEGIN { split("5 10 15 20 25 30", ST, " "); split("8 16 24 32 40 48", NB, " ")
+            ttag = (ch != 2 || clf != 0.4) ? "h" ch "_lf" clf "/" : "" }
+    $1 == "?" { print; next }
+    $1 == "P" { i = $3 + 0; k = (i < 36) ? 10 : 100; i %= 36
+                printf "%s/pacmann_%s_k%d_steps%d_neighb%d\t%s\n", res, $2, k, ST[int(i / 6) + 1], NB[i % 6 + 1], $4; next }
+    $1 == "L" {
+        if (!($3 in loaded)) { loaded[$3] = 1; n = 0; while ((getline l < $3) > 0) L[$3, ++n] = l; close($3) }
+        l = L[$3, $4 + 0]; if (l == "") next
+        split(l, f, " ")
+        if ($2 == "bins") {
+            t = (f[5] == "true") ? "_vec1" : (f[5] == "text") ? "_text" : "_vec0"
+            sfx = (f[5] == "text" && (tf != "bow" || to != 3)) ? "_" tf "o" to : ""
+            printf "%s/bins%s_%s_k%s_bs%s_dpb%s%s\t%s\n", res, t, f[1], f[2], f[3], f[4], sfx, $5
+        } else
+            printf "%s/%stree_grid_%s_b%s_r%s_s%s_L%s_q%s_c%s_k10\t%s\n", res, ttag, f[1], f[2], f[3], f[4], f[5], f[6], f[7], $5
+    }'
+}
+
+# load_queued: fill _QUEUED[folder]=jobid_task and _QBLOCK[method|dataset]=jobid (arrays we can't map: everything of
+# that method + dataset counts as queued, so nothing is submitted twice). Reads $QUEUED_FILE if set (written once by
+# run_me.sh / run_all.sh), else asks squeue. QUEUED_CHECK=0 turns it off.
+declare -A _QUEUED=() _QBLOCK=()
+_QUEUED_LOADED=""
+load_queued() {
+    [[ -n "$_QUEUED_LOADED" || "${QUEUED_CHECK:-1}" == 0 ]] && return 0
+    _QUEUED_LOADED=1
+    local a b c dd
+    while IFS=$'\t' read -r a b c dd; do
+        if [[ "$a" == "?" ]]; then _QBLOCK["$b|$c"]=$dd; else _QUEUED["$a"]=$b; fi
+    done < <(if [[ -n "${QUEUED_FILE:-}" && -f "$QUEUED_FILE" ]]; then cat "$QUEUED_FILE"; else queued_dirs; fi)
+}
+is_queued() {   # is_queued <method> <dataset> <folder>
+    [[ -n "${_QUEUED[$3]:-}" || -n "${_QBLOCK["$1|$2"]:-}" ]]
 }
 
 # ------------------------------------------------------------------------------------------ bins
@@ -227,16 +303,18 @@ bins_out_dir() {   # dataset k bs dpb vec
 }
 
 # Configs that already have a metadata.json come out as "... 0 0 - done" (group_plan counts them, nothing is
-# submitted for them); FORCE=1 plans them again.
+# submitted for them); FORCE=1 plans them again. Configs a queued job will run come out as "... 0 0 - queued".
 bins_plan() {
-    load_usage
+    load_usage; load_queued
     declare -A model=() miss=()
     local d k bs dpb vec
     while read -r d k bs dpb vec; do
         [[ -n "$d" ]] || continue
-        if [[ -z "${FORCE:-}" && -s "$(bins_out_dir "$d" "$k" "$bs" "$dpb" "$vec")/metadata.json" ]]; then
+        local od; od=$(bins_out_dir "$d" "$k" "$bs" "$dpb" "$vec")
+        if [[ -z "${FORCE:-}" && -s "$od/metadata.json" ]]; then
             echo "$d $k $bs $dpb $vec 0 0 - done"; continue
         fi
+        if is_queued bins "$d" "$od"; then echo "$d $k $bs $dpb $vec 0 0 - queued"; continue; fi
         local mk="$d.$vec.$dpb.$bs"   # the model depends on bs for every mode
         [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs")
         local fb=(${model[$mk]})
@@ -252,12 +330,14 @@ bins_plan() {
 }
 
 # group_plan <plan file> <out dir> <prefix>: split the ready configs into one list per (memory bucket, time bucket).
-# Prints "GB minutes count list_file" per group, then "missing <count> <first missing file>" and "over <count>".
+# Prints "GB minutes count list_file" per group, then "missing <count> <first missing file>", "over <count>",
+# "done <count>" and "queued <count>".
 group_plan() {
     awk -v out="$2" -v pre="$3" -v mb="$MEM_BUCKETS" -v tb="$TIME_BUCKETS" '
     BEGIN { nm = split(mb, M, " "); nt = split(tb, T, " ") }
     {
         if ($NF == "done") { done++; next }
+        if ($NF == "queued") { queued++; next }
         if ($NF != "-") { miss++; if (!first) first = $NF; next }
         g = $(NF-3) + 0; t = $(NF-2) + 0; b = ""
         for (i = 1; i <= nm; i++) if (g <= M[i]) { b = M[i]; break }
@@ -273,5 +353,6 @@ group_plan() {
         if (miss) print "missing", miss, first
         if (over) print "over", over, "-"
         if (done) print "done", done, "-"
+        if (queued) print "queued", queued, "-"
     }' "$1" | sort -k1,1n -k2,2n
 }

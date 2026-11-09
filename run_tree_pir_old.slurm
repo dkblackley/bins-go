@@ -111,7 +111,7 @@ LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q
 SECONDS=0
 echo "Running tree search..."
 # peak RSS + wall time go to time_v.txt and then the usage log (slurm_common.sh record_usage)
-"${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
+bash "${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
     -t tree \
     -name "$dataset" \
     -n "$DB_SIZE" \

@@ -94,13 +94,16 @@ on_exit() {
     if [[ "$finished" -ne 1 ]]; then
         echo "${SLURM_ARRAY_JOB_ID:-?}_${SLURM_ARRAY_TASK_ID:-?} rc=${rc} $(date '+%F %T')" >> "$FAIL_FILE"
     fi
-    cleanup
+    declare -F cleanup >/dev/null && cleanup || true
 }
 trap on_exit EXIT
 trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT
 
 OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 # OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
+if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
+    echo "Already done: ${OUT_DIR} (set FORCE=1 to rerun)"; finished=1; exit 0
+fi
 mkdir -p "$OUT_DIR"
 
 cat <<EOF > "${OUT_DIR}/slurm_name.txt"

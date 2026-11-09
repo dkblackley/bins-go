@@ -231,14 +231,18 @@ tree_missing() {   # dataset B r s -> the first missing input file, or nothing i
 # One line per config of the current arrays: "d B r s L q c max_q GB minutes source missing"
 # (missing = first missing input, "-" if ready). Only checked when CHECK_INPUTS=1 (default), cached per shape.
 tree_plan() {
-    load_usage
+    load_usage; load_queued
     local i; declare -A miss=()
     for i in "${!DATA_ARR[@]}"; do
         local d=${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]}
         # already finished (same folder name as run_tree_pir_old.slurm): counted by group_plan, not submitted
         local tag=""; [[ "${TREE_CUCKOO_HASHES:-2}" != 2 || "${TREE_CUCKOO_LF:-0.4}" != 0.4 ]] && tag="h${TREE_CUCKOO_HASHES:-2}_lf${TREE_CUCKOO_LF:-0.4}/"
-        if [[ -z "${FORCE:-}" && -s "${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/${tag}tree_grid_${d}_b${B}_r${r}_s${s}_L${L_ARR[$i]}_q${QWORDS_ARR[$i]}_c${KCAND_ARR[$i]}_k10/metadata.json" ]]; then
+        local od="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/${tag}tree_grid_${d}_b${B}_r${r}_s${s}_L${L_ARR[$i]}_q${QWORDS_ARR[$i]}_c${KCAND_ARR[$i]}_k10"
+        if [[ -z "${FORCE:-}" && -s "$od/metadata.json" ]]; then
             echo "$d $B $r $s ${L_ARR[$i]} ${QWORDS_ARR[$i]} ${KCAND_ARR[$i]} ${MAX_Q_ARR[$i]} 0 0 - done"; continue
+        fi
+        if is_queued tree "$d" "$od"; then
+            echo "$d $B $r $s ${L_ARR[$i]} ${QWORDS_ARR[$i]} ${KCAND_ARR[$i]} ${MAX_Q_ARR[$i]} 0 0 - queued"; continue
         fi
         local gb; gb=$(tree_mem_gb "$d" "$B" "$r" "$s")
         local fb_gb; fb_gb=$(awk -v g="$gb" 'BEGIN { printf "%.0f", g * 1.2 }')
@@ -268,7 +272,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         --shapes) tree_grid_shapes ;;
         --plan)   tree_plan ;;
         --mem)    for sh in $(tree_grid_shapes | tr ' ' ','); do IFS=, read -r b r s <<< "$sh"; gb=$(tree_mem_gb "$DATASET" "$b" "$r" "$s"); echo "B=$b r=$r s=$s model ~${gb} GB"; done ;;
-        --summary) tree_plan | awk '{ ready = ($12 == "-") ? "ready" : ($12 == "done" ? "done" : "missing"); g = $9 + 0
+        --summary) tree_plan | awk '{ ready = ($12 == "-") ? "ready" : ($12 == "done" || $12 == "queued" ? $12 : "missing"); g = $9 + 0
                      b = "over"; split(ENVIRON["MEM_BUCKETS"] ? ENVIRON["MEM_BUCKETS"] : "16 32 64 100 250 500 1000 1500", B, " ")
                      for (i = 1; i in B; i++) if (g <= B[i]) { b = B[i] "G"; break }
                      n[ready " " b]++ } END { for (k in n) print k, n[k] }' | sort -k1,1 -k2,2n ;;

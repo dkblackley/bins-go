@@ -322,6 +322,26 @@ processes), `NUM_SHARDS` (big embeddings), `MAX_ARRAY` (default 1000, chunk size
 
 `run_all.sh` does **not** queue Tiptoe or Coeus; submit those by hand (5.4).
 
+Re-running `run_all.sh` only submits what's left: configs with a `metadata.json` are skipped, and so are configs a
+pending or running job already covers (`queued_dirs` in `slurm_common.sh` maps each queued array task to its config
+through `logs/lists/submitted.tsv` or sacct's `SubmitLine`). Pacmann is submitted as an `--array` list of the
+unfinished configs only.
+
+### 5.1b Checking runs and re-running after a fix: `check_runs.sh`, `run_me.sh`
+
+```bash
+bash check_runs.sh            # queue, failed jobs, done / queued / crashed / not started per method + dataset, errors
+bash run_me.sh                # after every fix: pull, rebuild pir_app if needed, resubmit crashed + not started
+DRY_RUN=1 bash run_me.sh      # what it would submit
+```
+
+`run_me.sh` never deletes results (unlike `build.sh`). It pulls, restores the scripts' exec bits, rebuilds `pir_app`
+only when it's missing, older than the Go code or can't find `libngt`/`libhnsw` (built to `pir_app.new` and renamed,
+so running jobs are unaffected), calls `run_all.sh` with `STAGES="bins pacmann tree"` (fresh estimates; OOM /
+time-limit runs come back bigger), and writes the current time to `logs/check/since`. `check_runs.sh` only lists
+failures after that time, so ones from before the fix drop out (`SINCE=2026-10-01 bash check_runs.sh` to see older
+ones, `bash check_runs.sh --mark` to move it by hand). Its log goes to `logs/run_me/<timestamp>.log`.
+
 ### 5.2 How bins and tree jobs are sized (memory/time buckets)
 
 For `bins` and `tree`, `run_all.sh` doesn't submit one big array with a worst-case `--mem`. It:
@@ -547,7 +567,12 @@ Other sizes worth knowing:
 
 ## 9. Gotchas
 
-* `build.sh` deletes old bins/pacmann results and cached PACMANN graphs (2.2).
+* `build.sh` deletes old bins/pacmann results and cached PACMANN graphs (2.2). `run_me.sh` rebuilds without that.
+* Don't commit `pir_app`: a binary built on another machine has that machine's library paths baked in (its rpath),
+  so on the cluster it fails with `libngt.so.2: cannot open shared object file` (exit 127). It's in `.gitignore`.
+* If your checkout is on a filesystem without exec bits, run `git config core.fileMode false` there, or a commit
+  from it drops the scripts' `+x` and every tree run fails with exit 126 (the run scripts now call
+  `bash measure_run.sh`, and `run_me.sh` restores the bits, so this can't break runs again).
 * Three different default dataset roots: `../datasets` (run_all + dataset slurms), `../../datasets` (run slurms on
   their own), `../../../datasets` (local scripts). Set `DATASETS_ROOT` / `DATASET_DIR` if in doubt.
 * The sweep scripts default to `/scratch/dblackle/...`; tiptoe/coeus use `RESULTS_ROOT`, the rest `RESULTS_DIR`.

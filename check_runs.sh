@@ -4,12 +4,18 @@
 #   bash check_runs.sh                              # scifact msmarco nq fever dbpedia-entity, every method
 #   bash check_runs.sh nq fever                     # only these datasets
 #   METHODS="bins tree" SINCE=2026-11-01 bash check_runs.sh nq
+#   bash check_runs.sh --mark                       # from now on only show failures after this moment
+#
+# "Since": sections 2, 4, 5 and 6 only show failures after the time in logs/check/since. run_me.sh writes it every
+# time it deploys a fix and resubmits, so failures that are already fixed drop out. No file: the last 14 days.
+# SINCE=<date or date-time> overrides it for one run (SINCE=2026-10-01 to see everything again).
 #
 # Sections:
 #   1. queue        your jobs in squeue, per job name / state / pending reason
-#   2. failed jobs  sacct since $SINCE (default 14 days ago): FAILED, OUT_OF_MEMORY, TIMEOUT, CANCELLED, ...
+#   2. failed jobs  sacct, jobs that ended since $SINCE: FAILED, OUT_OF_MEMORY, TIMEOUT, CANCELLED, ...
 #   3. configs      every config each method's grid should produce, per dataset: done (metadata.json) /
-#                   crashed (folder but no metadata.json: failed, or still running) / not started.
+#                   queued (a pending or running job will write it) / crashed (folder but no metadata.json and
+#                   nothing queued for it) / not started. "crashed" + "not started" is what run_me.sh resubmits.
 #                   Tiptoe: how many results are SIMULATED (we want real ones). Coeus: how many have no server time.
 #   4. errors       the most common error lines in live logs (logs/*.err) and in the results' error.log files
 #   5. usage log    OOM / timeout entries in resource_usage.tsv (they make run_all.sh pick bigger buckets next time)
@@ -25,10 +31,19 @@ export DATASETS_ROOT="${DATASETS_ROOT:-../datasets}"
 export DATASET_DIR="${DATASET_DIR:-$DATASETS_ROOT}"
 RES="${RESULTS_DIR:-/scratch/$USER/results}"
 BRES="${RESULTS_ROOT:-/scratch/dblackle/results}"
-SINCE="${SINCE:-$(date -d '-14 days' +%F)}"
+SINCE_FILE="${SINCE_FILE:-logs/check/since}"
+if [[ "${1:-}" == "--mark" ]]; then
+    mkdir -p "$(dirname "$SINCE_FILE")"; date +%FT%T > "$SINCE_FILE"
+    echo "check_runs.sh will now only show failures after $(cat "$SINCE_FILE") ($SINCE_FILE)"; exit 0
+fi
+if [[ -z "${SINCE:-}" ]]; then
+    if [[ -s "$SINCE_FILE" ]]; then SINCE=$(<"$SINCE_FILE"); else SINCE=$(date -d '-14 days' +%F); fi
+fi
+SINCE_SP="${SINCE/T/ }"   # "2026-11-09 05:12:00" for find -newermt and the fail files
 METHODS="${METHODS:-bins pacmann tree tiptoe coeus}"
 DATASETS="${*:-scifact msmarco nq fever dbpedia-entity}"
 OUT="logs/check/$(date +%Y%m%d_%H%M%S)"; mkdir -p "$OUT"
+echo "Failures since $SINCE ($([[ -s "$SINCE_FILE" ]] && echo "set by run_me.sh / --mark in $SINCE_FILE" || echo "default: 14 days")). SINCE=... to change it."
 has() { [[ " $METHODS " == *" $1 "* ]]; }
 hr() { printf '\n==== %s\n' "$*"; }
 
@@ -41,12 +56,13 @@ squeue -u "$USER" -h -r -o "%j|%T|%r" 2>/dev/null \
 echo "  DependencyNeverSatisfied = something it waits on failed: fix it, scancel these, re-run run_all.sh"
 
 # ---------------------------------------------------------------------------------------------- 2. failed jobs
-hr "2. jobs that didn't complete since $SINCE (sacct; ALL_JOBS=1 also shows other projects' jobs)"
+hr "2. jobs that ended without completing since $SINCE (sacct; ALL_JOBS=1 also shows other projects' jobs)"
 JOBS_RE='^(bins|pacmann|tree|treedb|binsidx|prep|emb|pca|merge|import|Bins|Pacmann|Tree|Tiptoe|Coeus)'
 [[ -n "${ALL_JOBS:-}" ]] && JOBS_RE='.'
 sacct -u "$USER" -S "$SINCE" -X -n -P -o JobID,JobName,State,ExitCode,End 2>/dev/null \
-  | awk -F'|' -v re="$JOBS_RE" '$2 ~ re { st = $3; sub(/ .*/, "", st)
+  | awk -F'|' -v re="$JOBS_RE" -v since="$SINCE" '$2 ~ re { st = $3; sub(/ .*/, "", st)
         if (st ~ /^(COMPLETED|RUNNING|PENDING|REQUEUED|RESIZING)$/) next
+        if ($5 < since) next   # ended before the last fix (run_me.sh / --mark)
         k = $2 "|" st; n[k]++; if ($5 >= last[k]) { last[k] = $5; id[k] = $1 } }
       END { for (k in n) { split(k, a, "|"); printf "%s|%s|%d|%s|%s\n", a[1], a[2], n[k], id[k], last[k] } }' \
   | sort > "$OUT/failed_jobs.txt"
@@ -131,7 +147,11 @@ EOF
 done
 } > "$OUT/expected.txt"
 
-hr "3. configs per method and dataset (expected = the grid; crashed = folder without metadata.json, or still running)"
+# result folders a pending / running job will write (slurm_common.sh queued_dirs; run_me.sh passes QUEUED_FILE)
+if [[ -n "${QUEUED_FILE:-}" && -f "$QUEUED_FILE" ]]; then cp "$QUEUED_FILE" "$OUT/queued.tsv"
+else ( RESULTS_DIR="$RES"; source ./slurm_common.sh; queued_dirs ) > "$OUT/queued.tsv" 2>/dev/null; fi
+
+hr "3. configs per method and dataset (expected = the grid; queued = a pending/running job covers it; crashed = folder without metadata.json, nothing queued)"
 python3 -I - "$OUT" <<'EOF'
 import json, os, re, sys
 from collections import defaultdict
@@ -150,10 +170,17 @@ def last_error(folder):
         hits = [l for l in lines if ERR.search(l)]
         if hits or lines:
             return (hits or lines)[-1][:200]
-    return "(no log in the folder yet: its log is still in logs/, see section 2; or it is still running)"
+    return "(no log in the folder: it died before its cleanup, its log is still in logs/, see section 2)"
 
 stats = defaultdict(lambda: defaultdict(int))
 files = {}
+queued, blocked = set(), set()
+for l in open(f"{out}/queued.tsv"):
+    p = l.rstrip("\n").split("\t")
+    if p[0] == "?":
+        blocked.add((p[1], p[2]))
+    elif p[0]:
+        queued.add(p[0])
 for line in open(f"{out}/expected.txt"):
     method, ds, folder, *cfg = line.split()
     s = stats[(method, ds)]
@@ -173,6 +200,9 @@ for line in open(f"{out}/expected.txt"):
                 s["SIMULATED"] += 1; files[key].write(f"simulated\t{folder}\t{' '.join(cfg)}\n")
             if method == "coeus" and "TotalAnswerTime" not in m:
                 s["no server time"] += 1; files[key].write(f"no_server_time\t{folder}\t{' '.join(cfg)}\n")
+    elif folder in queued or (method, ds) in blocked:
+        s["queued"] += 1
+        files[key].write(f"queued\t{folder}\t{' '.join(cfg)}\n")
     elif os.path.isdir(folder):
         s["crashed"] += 1
         files[key].write(f"crashed\t{folder}\t{' '.join(cfg)}\t{last_error(folder)}\n")
@@ -180,14 +210,16 @@ for line in open(f"{out}/expected.txt"):
         s["not started"] += 1
         files[key].write(f"not_started\t{folder}\t{' '.join(cfg)}\n")
 
-print(f"  {'method':8} {'dataset':15} {'expected':>8} {'done':>6} {'crashed':>8} {'not started':>12}  notes")
+print(f"  {'method':8} {'dataset':15} {'expected':>8} {'done':>6} {'queued':>7} {'crashed':>8} {'not started':>12}  notes")
 for (method, ds), s in sorted(stats.items()):
     notes = ", ".join(f"{s[k]} {k}" for k in ("SIMULATED", "no server time", "bad json") if s[k])
     if method == "coeus" and s["not started"]:
         notes += (", " if notes else "") + "F past the vocabulary writes nothing (expected on small sets)"
     if method == "bins" and s["not started"]:
         notes += (", " if notes else "") + "configs estimated > 1500 GB are never submitted"
-    print(f"  {method:8} {ds:15} {s['expected']:>8} {s['done']:>6} {s['crashed']:>8} {s['not started']:>12}  {notes}")
+    if (method, ds) in blocked:
+        notes += (", " if notes else "") + "queued array with unknown configs: every unfinished one counted as queued"
+    print(f"  {method:8} {ds:15} {s['expected']:>8} {s['done']:>6} {s['queued']:>7} {s['crashed']:>8} {s['not started']:>12}  {notes}")
 for f in files.values():
     f.close()
 
@@ -206,8 +238,8 @@ EOF
 
 # ------------------------------------------------------------------------------------------------- 4. errors
 hr "4. most common error lines since $SINCE (live logs/*.err + results */error.log; numbers replaced by N)"
-{ find logs -maxdepth 1 -name '*.err' -newermt "$SINCE" -size +0 2>/dev/null
-  find "$RES" "$BRES" -mindepth 2 -maxdepth 3 -name error.log -newermt "$SINCE" -size +0 2>/dev/null; } | sort -u > "$OUT/error_files.txt"
+{ find logs -maxdepth 1 -name '*.err' -newermt "$SINCE_SP" -size +0 2>/dev/null
+  find "$RES" "$BRES" -mindepth 2 -maxdepth 3 -name error.log -newermt "$SINCE_SP" -size +0 2>/dev/null; } | sort -u > "$OUT/error_files.txt"
 echo "  $(wc -l < "$OUT/error_files.txt") non-empty error logs (list: $OUT/error_files.txt)"
 while IFS= read -r f; do tail -c 65536 "$f" 2>/dev/null; echo; done < "$OUT/error_files.txt" \
   | grep -aiE 'panic:|Traceback|^[A-Za-z]*Error|error:|Killed|oom|out of memory|DUE TO TIME LIMIT|CANCELLED|Segmentation|fatal' \
@@ -215,8 +247,8 @@ while IFS= read -r f; do tail -c 65536 "$f" 2>/dev/null; echo; done < "$OUT/erro
 echo "  which files: xargs -d '\\n' grep -l '<text>' < $OUT/error_files.txt | head"
 
 # ------------------------------------------------------------------------------------------------ 5. usage log
-hr "5. OOM / timeout entries in ${USAGE_FILE:-$RES/resource_usage.tsv}"
-awk -F'\t' -v d=" $DATASETS " '$7 ~ /^failed/ && index(d, " " $2 " ") { n[$1 " " $2 " " $7]++ }
+hr "5. OOM / timeout entries in ${USAGE_FILE:-$RES/resource_usage.tsv} since ${SINCE%%T*}"
+awk -F'\t' -v d=" $DATASETS " -v s="${SINCE%%T*}" '$7 ~ /^failed/ && $6 >= s && index(d, " " $2 " ") { n[$1 " " $2 " " $7]++ }
     END { for (k in n) printf "  %-50s %6d\n", k, n[k] }' "${USAGE_FILE:-$RES/resource_usage.tsv}" 2>/dev/null | sort
 echo "  (each one is re-estimated at 1.5x memory / 2x time the next time run_all.sh plans that config)"
 
@@ -224,10 +256,11 @@ echo "  (each one is re-estimated at 1.5x memory / 2x time the next time run_all
 hr "6. fail files in the repo root (tasks that exited without finishing): total, since $SINCE"
 for f in bins_low_fails bins_high_fails pacman_fails tree_fails tiptoe_fails tiptoe_v2_fails coeus_fails; do
     [[ -f $f ]] || continue
-    printf '  %-18s %6d  %6d since\n' "$f" "$(wc -l < "$f")" "$(awk -v s="$SINCE" '$(NF-1) >= s' "$f" | wc -l)"
+    printf '  %-18s %6d  %6d since\n' "$f" "$(wc -l < "$f")" "$(awk -v s="$SINCE_SP" '($(NF-1) " " $NF) >= s' "$f" | wc -l)"
 done
 
 hr "lists written to $OUT/"
-echo "  <method>_<dataset>_not_done.tsv : status  folder  config  [last error]   (status: crashed, not_started, simulated, no_server_time)"
+echo "  <method>_<dataset>_not_done.tsv : status  folder  config  [last error]   (status: crashed, queued, not_started, simulated, no_server_time)"
 echo "  e.g.  cut -f1 $OUT/bins_nq_not_done.tsv | sort | uniq -c"
 echo "        awk -F'\\t' '\$1==\"crashed\"' $OUT/bins_nq_not_done.tsv | cut -f4 | sort | uniq -c | sort -rn | head"
+echo "  After a fix: bash run_me.sh   (pulls, rebuilds pir_app if needed, resubmits crashed + not started, moves 'since')"

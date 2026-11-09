@@ -95,9 +95,36 @@ is_big() { [[ "$1" == msmarco-v2* || "$1" == miracl-en ]]; }
 source ./slurm_common.sh
 LIST_DIR="logs/lists/$(date +%Y%m%d_%H%M%S)"   # CONFIG_LIST files, kept so you can see what each array runs
 mkdir -p "$LIST_DIR"
+# Configs a job in the queue already covers are skipped (slurm_common.sh queued_dirs), so re-running this after a
+# fix only submits what's missing. Worked out once here; run_me.sh passes its own QUEUED_FILE.
+export QUEUED_FILE="${QUEUED_FILE:-$LIST_DIR/queued.tsv}"
+[[ -f "$QUEUED_FILE" ]] || queued_dirs > "$QUEUED_FILE"
+if grep -q '^?' "$QUEUED_FILE"; then
+    echo "NOTE: can't tell which configs these queued arrays run (no CONFIG_LIST in sacct's SubmitLine), so nothing is"
+    echo "      submitted for their method + dataset until they leave the queue:"
+    awk -F'\t' '$1 == "?" { print "        " $2 " " $3 " (job " $4 ")" }' "$QUEUED_FILE" | sort -u
+fi
 
 # true if any of these upstream jobs is being queued now (their outputs don't exist yet, so don't check inputs)
 inputs_pending() { [[ -n "$(echo $1)" ]]; }
+
+# pacmann_todo <dataset> <grid size> -> slurm --array list (e.g. "0-3,7,9-71") of the configs still to run; same
+# order as run_pacmann.slurm: k (10 100) x steps (5..30) x neighbours (8..48). FORCE=1 lists every config.
+pacmann_todo() {
+    local d=$1 n=$2 i k st nb od res="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}" idx=()
+    load_queued
+    for (( i = 0; i < n; i++ )); do
+        k=$(( i < 36 ? 10 : 100 )); st=$(( (i % 36 / 6 + 1) * 5 )); nb=$(( (i % 6 + 1) * 8 ))
+        od="$res/pacmann_${d}_k${k}_steps${st}_neighb${nb}"
+        [[ -z "${FORCE:-}" && -s "$od/metadata.json" ]] && continue
+        is_queued pacmann "$d" "$od" && continue
+        idx+=("$i")
+    done
+    printf '%s\n' "${idx[@]}" | awk 'NF { if ($1 == p + 1 && c) { p = $1; next }
+        if (c) out = out (s == p ? s : s "-" p) ","; s = p = $1; c = 1 }
+        END { if (c) out = out (s == p ? s : s "-" p); print out }'
+}
+pacmann_count() { awk -v a="$1" 'BEGIN { n = split(a, P, ","); for (i = 1; i <= n; i++) { split(P[i], r, "-"); t += (r[2] == "" ? 1 : r[2] - r[1] + 1) } print t }'; }
 
 # submit_groups <method> <dataset> <plan file> <dependencies> <script for normal> <script for bigmem>
 submit_groups() {
@@ -108,14 +135,18 @@ submit_groups() {
             missing) echo "  $method  SKIPPED $min of $total configs: inputs not there yet (first missing: $n)"; continue ;;
             over)    echo "  $method  SKIPPED $min configs: estimated above ${MEM_BUCKETS##* } GB"; continue ;;
             done)    echo "  $method  SKIPPED $min of $total configs: already finished (metadata.json; FORCE=1 reruns them)"; continue ;;
+            queued)  echo "  $method  SKIPPED $min of $total configs: a job in the queue already runs them"; continue ;;
         esac
         local part script
         part=$(partition_for "$gb"); [[ $part == normal ]] && script=$s_normal || script=$s_big
         for (( off = 0; off < n; off += chunk )); do
-            local m=$(( n - off < chunk ? n - off : chunk ))
-            echo "  $method  $(submit "$deps" --export=ALL,CONFIG_LIST="$f",ARRAY_OFFSET=$off --array=0-$((m - 1)) \
+            local m=$(( n - off < chunk ? n - off : chunk )) jid
+            jid=$(submit "$deps" --export=ALL,CONFIG_LIST="$f",ARRAY_OFFSET=$off --array=0-$((m - 1)) \
                  --partition="$part" --mem="${gb}G" --time="$(slurm_time "$min")" \
-                 --job-name="${method}_${d}_${gb}G$SFX" "$script") (${gb}G ${min}min $part: $m configs, $(basename "$f"))"
+                 --job-name="${method}_${d}_${gb}G$SFX" "$script")
+            # which list + offset this array runs, so queued_dirs (slurm_common.sh) can map its tasks to configs
+            [[ -n "${DRY_RUN:-}" ]] || printf '%s\t%s\t%s\n' "$jid" "$f" "$off" >> "$SUBMITTED_FILE"
+            echo "  $method  $jid (${gb}G ${min}min $part: $m configs, $(basename "$f"))"
         done
     done < <(group_plan "$plan" "$LIST_DIR" "${method}_${d}")
 }
@@ -180,11 +211,17 @@ submit_dataset() {
     fi
 
     if has pacmann; then
-        local n big=()
+        # only the configs without a metadata.json that no queued job covers (task i = config i of the grid)
+        local n big=() todo
         n=$(count_of PACMANN_DATASETS="$d" run_pacmann.slurm)
+        todo=$(pacmann_todo "$d" "$n")
         is_big "$d" && big=(--partition=bigmem --mem=1500G)
-        echo "  pacmann  $(submit "$embed" --export=ALL,PACMANN_DATASETS="$d" --array=0-$((n - 1)) "${big[@]}" \
-             --job-name="pacmann_$d$SFX" run_pacmann.slurm) ($n tasks)"
+        if [[ -z "$todo" ]]; then
+            echo "  pacmann  SKIPPED: all $n configs finished or already queued"
+        else
+            echo "  pacmann  $(submit "$embed" --export=ALL,PACMANN_DATASETS="$d" --array="$todo" "${big[@]}" \
+                 --job-name="pacmann_$d$SFX" run_pacmann.slurm) ($(pacmann_count "$todo") of $n tasks: $todo)"
+        fi
     fi
 
     if has tree; then
