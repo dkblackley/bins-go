@@ -11,7 +11,6 @@
 #SBATCH --array=0-47               # for the default scifact + msmarco; other datasets: see --count below
 #SBATCH --output=logs/Coeus_%A_%a.out
 #SBATCH --error=logs/Coeus_%A_%a.err
-#SBATCH --constraint=amd           # opt2 timing: same CPU type for every task
 
 # Coeus baseline (see baselines/README.md): exact TF-IDF quality on the real corpus + server time from
 # Coeus' own matmult/opt2 benchmark (calibrated once, cached next to the binary) + communication from
@@ -22,10 +21,10 @@
 #   2 datasets x 6 F x 2 tf x 2 k = 48 tasks. Configs with F past the vocabulary exit without writing anything
 #   (they'd duplicate a smaller F with extra upload), so scifact produces fewer results.
 #
-# Server time is always measured with Coeus' own opt2 kernel (baselines/setup_baselines.sh coeus); a run without it
-# is refused unless ALLOW_NO_TIME=1. Its cache (opt2_calibration.json next to the binary) is written atomically, so
-# tasks can run together; concurrent tasks may just time the same (R, C) twice. Postings are ~12 B per (doc, term):
-# ~5 GB on msmarco; for msmarco-v2 (~50 GB of postings) add --mem=120G --time=2-00:00:00.
+# Server time is OFF by default: quality + communication only, which needs no opt2 build and fits in 32G / 6 h for
+# everything up to msmarco (postings ~12 B per (doc, term): ~5 GB on msmarco). SERVER_TIME=1 adds Coeus' opt2 time;
+# then submit with --constraint=amd, run task 0 alone first (it calibrates opt2, the 2x2 run needs ~7 GB) so the
+# others reuse the cache, and for msmarco-v2 (~50 GB of postings) add --mem=120G --time=2-00:00:00.
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
@@ -61,12 +60,8 @@ features=${F_ARR[$task_id]}
 tf=${TF_ARR[$task_id]}
 k_val=${K_ARR[$task_id]}
 
-OPT2="${OPT2:-$HOME/opt/src/Coeus_artifact/matmult/bin/opt2}"
-TIME_ARGS=(--opt2-bin "$OPT2")
-if [[ ! -x "$OPT2" ]]; then
-    if [[ "${ALLOW_NO_TIME:-0}" == 1 ]]; then TIME_ARGS=()
-    else echo "no $OPT2: run baselines/setup_baselines.sh coeus first (Coeus results need server time)" >&2; exit 1; fi
-fi
+TIME_ARGS=()
+[[ "${SERVER_TIME:-0}" == 1 ]] && TIME_ARGS=(--opt2-bin "$HOME/opt/src/Coeus_artifact/matmult/bin/opt2")
 
 echo "Coeus: dataset=$dataset F=$features tf=$tf k=$k_val"
 python baselines/coeus/run_coeus.py \

@@ -32,12 +32,13 @@ bash run_scifact_local.sh
 > which are in **PR #8** (`claude/project-thread-ur6tb7`, still open). Sections that depend on it are marked
 > **[PR #8]**.
 
-> **Baselines: always the real (non-simulated) versions, with server time.** Tiptoe runs `./pir_app_tiptoe`
-> (`setup_baselines.sh tiptoe`), Coeus times the artifact's `opt2` kernel (`setup_baselines.sh coeus`). The scripts
-> enforce it: `run_tiptoe.slurm` is real-only and refuses `MODE=sim` (an old simulated result is kept as
-> `metadata.simulated.json` and rerun for real), `run_tiptoe_msmarco_v2.slurm` (simulation only) refuses to run,
-> `run_coeus.slurm` refuses to run without `opt2`, and the local scripts skip a baseline whose binary is missing.
-> `ALLOW_SIM=1` / `ALLOW_NO_TIME=1` exist only for cross-checks. Agents: never hand out a command that uses them.
+> **Baselines: always use the real (non-simulated) versions.** For Tiptoe that's `MODE=real` (`./pir_app_tiptoe`,
+> built by `setup_baselines.sh tiptoe`); for Coeus it's `SERVER_TIME=1` (the artifact's `opt2` kernel, built by
+> `setup_baselines.sh coeus`). The slurm scripts still **default to the simulated/quality-only paths**
+> (`run_tiptoe.slurm` defaults to `MODE=sim`, `run_tiptoe_msmarco_v2.slurm` is simulation-only, `run_coeus.slurm`
+> defaults to `SERVER_TIME=0`), so every command you write or are given must set `MODE=real` / `SERVER_TIME=1`
+> explicitly. Don't use the simulator, `simplepir_bench` or `run_tiptoe_msmarco_v2.slurm` for results unless you
+> have been explicitly asked to. Agents: never hand out or change a Tiptoe/Coeus command that would use them.
 
 ---
 
@@ -282,7 +283,7 @@ graph is built by `pir_app` on the first run of each `(neighb, steps, k)` and ca
 
 Two modes, same output folder and keys. **Use real** (see the note at the top); sim is only a cross-check:
 
-* **sim** (refused unless `ALLOW_SIM=1`, never for results): `baselines/tiptoe/simulate_tiptoe.py` + `./simplepir_bench`
+* **sim** (default in the slurms, don't use it for results): `baselines/tiptoe/simulate_tiptoe.py` + `./simplepir_bench`
   (`setup_baselines.sh sim`). Exact quality and DB shapes, payload-only bytes (a lower bound), measured server time.
 * **real**: `./pir_app_tiptoe -t tiptoe` runs the upstream code (`setup_baselines.sh tiptoe`). Compile-checked only,
   so run one small config (scifact, task 0) first and compare `MRRPreReRank` with the sim run.
@@ -387,9 +388,9 @@ script's own grid at the script's `#SBATCH` resources.
 | `run_bins_low.slurm` / `run_bins_high.slurm` | vec x k{10,100} x 11 binSize x 11 docsPerBin = 484 (v2/miracl: binSize ≥ 100k only, 220), split into low/high tiers. **[PR #8]** + text = 726 | `BINS_DATASETS` (`msmarco scifact`) | 120G / 1500G bigmem, 7.5 h |
 | `run_pacmann.slurm` | k{10,100} x steps{5..30} x neighb{8..48} = 72 | `PACMANN_DATASETS` (`msmarco scifact`) | 120G normal, 5 h |
 | `run_tree_pir_old.slurm` | `tree_sweep_grid.sh` (961 / 1,675 on scifact) | `DATASET` (one), `SWEEP` | 100G normal, 6 h |
-| `run_tiptoe.slurm` | DPC(7) x MA(2) x bundle(4) x hint(2) x k(2) = 224 | `TIPTOE_DATASETS` (`scifact nq fever msmarco`), real only | 64G, 12 h, `--constraint=amd` |
-| `run_tiptoe_msmarco_v2.slurm` | **simulation only, refuses to run** (see the note at the top): one task per preprocessed DB, runs its 4 (hint, k) sims | `TIPTOE_V2_DATASETS` (`msmarco-v2-50m msmarco-v2`) | 32G, 12 h (64 tasks by default) |
-| `run_coeus.slurm` | F(6) x tf{raw,log} x k(2) = 24 | `COEUS_DATASETS` (`scifact msmarco`), always opt2 server time | 32G, 6 h, `--constraint=amd` |
+| `run_tiptoe.slurm` | DPC(7) x MA(2) x bundle(4) x hint(2) x k(2) = 224 | `TIPTOE_DATASETS` (`scifact nq fever msmarco`), `MODE=sim|real` | 32G, 2.5 h (real on msmarco: `--mem=64G`) |
+| `run_tiptoe_msmarco_v2.slurm` | **simulation only, don't use** (see the note at the top): one task per preprocessed DB, runs its 4 (hint, k) sims | `TIPTOE_V2_DATASETS` (`msmarco-v2-50m msmarco-v2`) | 32G, 12 h (64 tasks by default) |
+| `run_coeus.slurm` | F(6) x tf{raw,log} x k(2) = 24 | `COEUS_DATASETS` (`scifact msmarco`) | 120G, 2 days |
 
 ```bash
 BINS_DATASETS="nq fever" bash run_bins_high.slurm --count
@@ -403,11 +404,11 @@ Tasks re-check their inputs at start (`SKIP ... missing <file>`, exit 0) and ski
 ### 5.4 Baselines on the cluster
 
 ```bash
-# real Tiptoe and Coeus with opt2 server time are the only modes (see the note at the top)
+# always real Tiptoe (MODE=real) and Coeus with server time (SERVER_TIME=1), see the note at the top
 TIPTOE_DATASETS="nq dbpedia-entity fever" bash run_tiptoe.slurm --count
-TIPTOE_DATASETS="nq dbpedia-entity fever" sbatch --array=0-<N-1>%64 run_tiptoe.slurm
-COEUS_DATASETS="scifact msmarco nq" bash run_coeus.slurm --count
-COEUS_DATASETS="scifact msmarco nq" sbatch --array=0-<N-1> run_coeus.slurm   # opt2 cache is shared safely
+MODE=real TIPTOE_DATASETS="nq dbpedia-entity fever" sbatch --array=0-<N-1>%64 --mem=64G run_tiptoe.slurm
+SERVER_TIME=1 COEUS_DATASETS="scifact msmarco nq" sbatch --array=0 --constraint=amd run_coeus.slurm       # calibrates opt2 first
+SERVER_TIME=1 COEUS_DATASETS="scifact msmarco nq" sbatch --array=1-<N-1> --constraint=amd run_coeus.slurm
 ```
 
 ### 5.5 Client-storage sweeps

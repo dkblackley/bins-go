@@ -116,21 +116,16 @@ for d in "$@"; do
       mkdir -p "$OTT"
       ./pir_app_tiptoe -n "$N" -t tiptoe -name "$d" -k "$K" -dim 192 -dataset "$ROOT" -tiptoe-dir "$TT" \
           -tiptoe-emb-hint-mb 500 -tiptoe-max-queries "${TT_MAX_QUERIES:-1000}" -outDir "$OTT" -outFile results -debug 0
-    elif [[ "${ALLOW_SIM:-0}" == 1 ]]; then
-      echo "-- tiptoe (simulated, ALLOW_SIM=1: not for results)"
+    else
+      echo "-- tiptoe (simulated: no ./pir_app_tiptoe)"
       go build -o simplepir_bench ./cmd/simplepir_bench
       python3 baselines/tiptoe/simulate_tiptoe.py --dataset "$ROOT" --name "$d" --tiptoe-dir "$TT" --k "$K" \
           --emb-hint-mb 500 --results-root "$OUT" --bench-bin ./simplepir_bench --parallelism "$(nproc)"
-    else
-      echo "-- tiptoe skipped: no ./pir_app_tiptoe (baselines/setup_baselines.sh tiptoe)"
     fi
+    echo "-- coeus"
     OPT2="$HOME/opt/src/Coeus_artifact/matmult/bin/opt2"
-    if [[ -x "$OPT2" ]]; then
-      echo "-- coeus"
-      python3 baselines/coeus/run_coeus.py --dataset "$ROOT" --name "$d" --k "$K" --features "${COEUS_F:-65536}" \
-          --tf raw --results-root "$OUT" --opt2-bin "$OPT2" --parallelism "$(nproc)"
-    else
-      echo "-- coeus skipped: no $OPT2 (baselines/setup_baselines.sh coeus; Coeus needs server time)"
-    fi
+    OPT2_ARG=(); [[ -x "$OPT2" ]] && OPT2_ARG=(--opt2-bin "$OPT2" --parallelism "$(nproc)")
+    python3 baselines/coeus/run_coeus.py --dataset "$ROOT" --name "$d" --k "$K" --features "${COEUS_F:-65536}" \
+        --tf raw --results-root "$OUT" ${OPT2_ARG[@]+"${OPT2_ARG[@]}"}
   fi
 done

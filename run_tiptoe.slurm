@@ -4,9 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
-#SBATCH --time=0-12:00:00
-#SBATCH --constraint=amd           # pir_app_tiptoe is built with -march=native on the (AMD) login node
+#SBATCH --mem=16G
+#SBATCH --time=0-02:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
 #SBATCH --array=0-895%64
@@ -14,11 +13,11 @@
 #SBATCH --error=logs/Tiptoe_%A_%a.err
 #SBATCH --signal=B:TERM@120
 
-# Tiptoe baseline (see baselines/README.md). Always the real protocol:
-#   ./pir_app_tiptoe -t tiptoe, the upstream code (needs `baselines/setup_baselines.sh tiptoe`), which measures the
-#   real server time. Slow: SimplePIR hint generation over the whole corpus, then a 32 MiB token per query.
-#   The simulator (MODE=sim) is refused unless ALLOW_SIM=1: its results are not used in the paper. An old simulated
-#   result in a folder is kept as metadata.simulated.json and the config is run for real.
+# Tiptoe baseline (see baselines/README.md).
+#   MODE=sim (default) baselines/tiptoe/simulate_tiptoe.py: exact quality + exact DB shapes + payload-only bytes,
+#             server time from ./simplepir_bench. No SEAL needed.
+#   MODE=real ./pir_app_tiptoe -t tiptoe, the real upstream protocol (needs `baselines/setup_baselines.sh tiptoe`).
+#             Slow: SimplePIR hint generation over the whole corpus, then a 32 MiB token per query.
 #
 # Full grid search, nothing trimmed (unlike run_all_simulated.sh, which trims ma/bundle on big datasets locally):
 #   DPC    docs per k-means cluster: fewer, bigger clusters = better recall, bigger download (Tiptoe used ~2500)
@@ -72,14 +71,7 @@ cd "$SLURM_SUBMIT_DIR"
 
 module --quiet purge
 module load hosts/hopper
-MODE="${MODE:-real}"
-if [[ "$MODE" == "sim" && "${ALLOW_SIM:-0}" != 1 ]]; then
-    echo "MODE=sim is off: Tiptoe results must come from the real protocol (set ALLOW_SIM=1 only for a cross-check)" >&2
-    exit 1
-fi
-if [[ "$MODE" == "real" && ! -x ./pir_app_tiptoe ]]; then
-    echo "no ./pir_app_tiptoe: run baselines/setup_baselines.sh tiptoe on the login node first" >&2; exit 1
-fi
+MODE="${MODE:-sim}"
 if [[ "$MODE" == "real" ]]; then
     module load gnu12 2>/dev/null || module load gnu9/9.3.0   # pir_app_tiptoe was built with a C++20 compiler
 else
@@ -136,10 +128,6 @@ mkdir -p "$(dirname "$TT_DIR")"
 # 1-cluster scifact config ma=2 lands in the m1 folder and is skipped here instead of racing the ma=1 task
 read -r C MA_USED < <(python -c "import json;m=json.load(open('${TT_DIR}/tiptoe_meta.json'));print(m['num_clusters'],m['multi_assign'])")
 OUT_DIR="${RESULTS_ROOT}/${method}_${dataset}_c${C}_m${MA_USED}_b${bundle}_h${hint}_k${k_val}"
-if [[ "$MODE" == "real" && -f "${OUT_DIR}/metadata.json" ]] && grep -q '"TiptoeSimulated": *"true"' "${OUT_DIR}/metadata.json"; then
-    echo "${OUT_DIR} only has a simulated result: keeping it as metadata.simulated.json, running the real protocol"
-    mv -f "${OUT_DIR}/metadata.json" "${OUT_DIR}/metadata.simulated.json"
-fi
 if [[ -f "${OUT_DIR}/metadata.json" ]]; then
     # several DPC values can give the same cluster count (1 on scifact, the 25196 cap on msmarco-v2); first one wins
     echo "${OUT_DIR} already has results, skipping"; finished=1; exit 0
@@ -163,8 +151,10 @@ Output Dir:        $OUT_DIR
 EOF
 
 # 2) Run
-# (sim cross-check only) the SimplePIR answer is timed with ./simplepir_bench (baselines/setup_baselines.sh sim)
-BENCH_ARGS=(--bench-bin ./simplepir_bench --bench-max-gb 8)
+# SERVER_TIME=1 also times the SimplePIR answer with ./simplepir_bench (baselines/setup_baselines.sh sim; peaks at
+# ~2x --bench-max-gb, so submit with --mem=32G). Off by default: quality + bytes only, well under 16G.
+BENCH_ARGS=()
+[[ "${SERVER_TIME:-0}" == 1 ]] && BENCH_ARGS=(--bench-bin ./simplepir_bench --bench-max-gb 8)
 if [[ "$MODE" == "sim" ]]; then
     srun python baselines/tiptoe/simulate_tiptoe.py \
         --dataset "$DATASET_DIR" --name "$dataset" --tiptoe-dir "$TT_DIR" --k "$k_val" \

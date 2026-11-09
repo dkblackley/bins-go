@@ -202,14 +202,6 @@ def run_opt2(binary, r, c):
     return int(m.group(1)) / 1e6
 
 
-def write_json_atomic(path, data):
-    """Several slurm tasks share the cache: write a temp file and rename, so nobody reads half a file."""
-    tmp = f"{path}.tmp{os.getpid()}"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, path)
-
-
 def opt2_direct(binary, cache, r, c):
     """Runs opt2 at the real (R, C) once and caches it (keyed by R,C) next to the calibration."""
     data = json.load(open(cache)) if cache and os.path.exists(cache) else {}
@@ -220,7 +212,8 @@ def opt2_direct(binary, cache, r, c):
         if cache:
             data = json.load(open(cache)) if os.path.exists(cache) else {}
             data.setdefault("direct", {})[key] = t
-            write_json_atomic(cache, data)
+            with open(cache, "w") as f:
+                json.dump(data, f, indent=2)
         return t
     return data["direct"][key]
 
@@ -242,7 +235,8 @@ def calibrate_opt2(binary, cache, grid=((1, 1), (1, 2), (2, 1), (2, 2)), reps=1)
     coef = np.linalg.lstsq(A, y, rcond=None)[0].tolist()
     cal = {**old, "binary": binary, "points": pts, "coef": coef, "model": "a*R*C + b*R + c*C + d"}
     if cache:
-        write_json_atomic(cache, {**(json.load(open(cache)) if os.path.exists(cache) else {}), **cal})
+        with open(cache, "w") as f:
+            json.dump(cal, f, indent=2)
     return cal
 
 

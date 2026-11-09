@@ -81,13 +81,10 @@ run_jobs() {
 # before anything runs, so two processes never write the same dir.
 if [ -x ./pir_app_tiptoe ]; then
   TT_MODE=real
-elif [ "${ALLOW_SIM:-0}" = 1 ]; then
-  TT_MODE=sim
-  echo "no ./pir_app_tiptoe, running the Tiptoe simulator (ALLOW_SIM=1; not for results)"
-  go build -o simplepir_bench ./cmd/simplepir_bench
 else
-  TT_MODE=skip
-  echo "no ./pir_app_tiptoe: skipping Tiptoe (baselines/setup_baselines.sh tiptoe; the simulator is not used for results)"
+  TT_MODE=sim
+  echo "no ./pir_app_tiptoe, running the Tiptoe simulator instead"
+  go build -o simplepir_bench ./cmd/simplepir_bench
 fi
 declare -A SEEN=()
 for dpc in 250 500 1000 2500 5000 10000 40000; do
@@ -105,7 +102,6 @@ for dpc in 250 500 1000 2500 5000 10000 40000; do
         for k in 10 100; do
           name=tiptoe_scifact_c${C}_m${MA_USED}_b${bundle}_h${hint}_k${k}
           TT_OUT=$OUT/tiptoe/$name
-          [ "$TT_MODE" = skip ] && continue
           [ -n "${SEEN[$name]:-}" ] && continue
           SEEN[$name]=1
           if [ "$FORCE" != 1 ] && [ -f "$TT_OUT/metadata.json" ]; then continue; fi
@@ -133,8 +129,7 @@ run_jobs tiptoe
 # --parallelism divides the single-machine opt2 time (Coeus shards across servers), it's not local threads.
 OPT2=$HOME/opt/src/Coeus_artifact/matmult/bin/opt2
 OPT2_ARG=""; [ -x "$OPT2" ] && OPT2_ARG="--opt2-bin $OPT2 --parallelism $NCPU"
-[ -n "$OPT2_ARG" ] || echo "no $OPT2: skipping Coeus (baselines/setup_baselines.sh coeus; Coeus needs server time)"
-[ -n "$OPT2_ARG" ] && for F in 8192 16384 32768 65536 131072 262144; do
+for F in 8192 16384 32768 65536 131072 262144; do
   warmed=0
   for tf in raw log; do
     for k in 10 100; do
