@@ -28,7 +28,7 @@ if [[ "${SIMULATE:-0}" == 1 ]]; then
     export RESULTS_DIR="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results_simulated}"
 fi
 sim_args() { [[ "${SIMULATE:-0}" == 1 ]] && echo "-simulate"; return 0; }   # extra pir_app flag, or nothing
-declare -A SIM_MEM_FACTOR=([bins]="${SIM_MEM_FACTOR_BINS:-0.6}" [tree]="${SIM_MEM_FACTOR_TREE:-0.9}")
+declare -A SIM_MEM_BY_METHOD=([bins]="${SIM_MEM_FACTOR_BINS:-0.6}" [tree]="${SIM_MEM_FACTOR_TREE:-0.9}")
 SIM_TIME_FACTOR="${SIM_TIME_FACTOR:-0.5}"
 
 USAGE_FILE="${USAGE_FILE:-${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/resource_usage.tsv}"
@@ -148,7 +148,7 @@ load_usage() {   # read $USAGE_FILE once; the latest line per (method, dataset, 
 # With SIMULATE=1 the fallback (the real-run model) is scaled down first; measured simulated runs are used as they are.
 estimate_resources() {
     if [[ "${SIMULATE:-0}" == 1 ]]; then
-        local f="${SIM_MEM_FACTOR[$1]:-1}" g m
+        local f="${SIM_MEM_BY_METHOD[$1]:-1}" g m
         g=$(awk -v x="$4" -v f="$f" 'BEGIN { printf "%.1f", x * f }')
         m=$(awk -v x="$5" -v f="$SIM_TIME_FACTOR" 'BEGIN { x *= f; printf "%d", (x < 30 ? 30 : x) }')
         _estimate_resources "$1" "$2" "$3" "$g" "$m"
