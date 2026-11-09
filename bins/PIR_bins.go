@@ -360,7 +360,7 @@ func vecBatchAndRounds(autoBatch, autoRounds, batch, rounds int) (int, int) {
 
 // two uint32 per uint64; ids stored as idx+1, 0 means empty
 func BuildIndexDB(DB [][]string, flipped map[string]int, maxRowSize int) ([][]uint64, uint64) {
-	rawDB := make([][]uint64, len(DB))
+	sink := newRowSink("bins_vec0_id_db", len(DB)) // heap, or a file with -noram
 	for i, bin := range DB {
 		if len(bin) == 0 {
 			continue // leave nil; EntryXor already skips n==0
@@ -379,21 +379,24 @@ func BuildIndexDB(DB [][]string, flipped map[string]int, maxRowSize int) ([][]ui
 				entry[j/2] |= v << 32
 			}
 		}
-		rawDB[i] = entry
+		sink.Put(i, entry)
 		DB[i] = nil // free the strings as you go
 	}
-	return rawDB, uint64((maxRowSize + 1) / 2)
+	return sink.Finish(), uint64((maxRowSize + 1) / 2)
 }
 
 func BuildVectorDB(vectors [][]float32, dim int) ([][]uint64, uint64) {
 	wordsPerVec := (dim + 1) / 2
-	rawDB := make([][]uint64, len(vectors))
+	sink := newRowSink("bins_vec0_vec_db", len(vectors)) // heap, or a file with -noram
+	e := make([]uint64, wordsPerVec)
 	for i, v := range vectors {
-		e := make([]uint64, wordsPerVec)
+		if !sink.onDisk() {
+			e = make([]uint64, wordsPerVec) // the heap sink keeps the row; the disk sink copies it
+		}
 		for k := 0; k+1 < dim; k += 2 {
 			e[k/2] = uint64(math.Float32bits(v[k])) | uint64(math.Float32bits(v[k+1]))<<32
 		}
-		rawDB[i] = e
+		sink.Put(i, e)
 	}
-	return rawDB, uint64(wordsPerVec)
+	return sink.Finish(), uint64(wordsPerVec)
 }

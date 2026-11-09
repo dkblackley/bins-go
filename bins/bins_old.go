@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/blugelabs/bluge/analysis"
+	"github.com/dkblackley/bins-go/diskstore"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
 	"github.com/schollz/progressbar/v3"
@@ -206,24 +207,25 @@ func MakeVecDbOld(config *globals.Args) VecBinsOld {
 		flipped[value] = key
 	}
 
+	// -noram: pack each bin straight into the on-disk DB and drop it, so the bins never all sit in RAM at once
+	// (newDb alone is 24 B per (bin, doc) slot, ~13 GB for 540M slots). Same entries as ProcessVecDBOld.
+	if diskstore.Enabled {
+		sink := newRowSink("bins_vec1_db", len(DB))
+		bar := progressbar.Default(int64(len(DB)), "Packing bins into PIR entries (noram)")
+		for i, entry := range DB {
+			sink.Put(i, packBinOld(config.Dimensions, binVectorsOld(entry, flipped, bm25Vectors, config.DBSize)))
+			DB[i] = nil
+			bar.Add(1)
+		}
+		bar.Finish()
+		DB = nil
+		binPir := newVecBinsOld(config, uint(maxRowSize), sink.Finish())
+		return finishVecDbOld(config, binPir)
+	}
+
 	newDb := make([][][]float32, 0, len(DB))
 	for _, entry := range DB {
-		row := make([][]float32, 0, len(entry))
-		// Add the vectors to the row
-		for j := 0; j < len(entry); j++ {
-			id, ok := flipped[entry[j]]
-			if !ok {
-				logrus.Warnf("doc %s not in corpus map", entry[j])
-				continue
-			}
-			id64 := uint(id)
-			if id64 >= config.DBSize {
-				logrus.Errorf("ERROR: ID is larger that the database size!!")
-				panic("ERROR: ID is larger that the database size!!")
-			}
-			row = append(row, bm25Vectors[id64]) // shares the row slice; no copy
-		}
-		newDb = append(newDb, row)
+		newDb = append(newDb, binVectorsOld(entry, flipped, bm25Vectors, config.DBSize))
 	}
 
 	if config.DebugLevel >= 1 {
@@ -239,7 +241,31 @@ func MakeVecDbOld(config *globals.Args) VecBinsOld {
 	}
 
 	binPir := ProcessVecDBOld(config, uint(maxRowSize), newDb)
+	return finishVecDbOld(config, binPir)
+}
 
+// binVectorsOld is the embeddings of the docs in one bin (shared rows, no copy).
+func binVectorsOld(entry []string, flipped map[string]int, bm25Vectors [][]float32, dbSize uint) [][]float32 {
+	row := make([][]float32, 0, len(entry))
+	// Add the vectors to the row
+	for j := 0; j < len(entry); j++ {
+		id, ok := flipped[entry[j]]
+		if !ok {
+			logrus.Warnf("doc %s not in corpus map", entry[j])
+			continue
+		}
+		id64 := uint(id)
+		if id64 >= dbSize {
+			logrus.Errorf("ERROR: ID is larger that the database size!!")
+			panic("ERROR: ID is larger that the database size!!")
+		}
+		row = append(row, bm25Vectors[id64]) // shares the row slice; no copy
+	}
+	return row
+}
+
+// finishVecDbOld attaches the queries.
+func finishVecDbOld(config *globals.Args, binPir VecBinsOld) VecBinsOld {
 	meta := config.DatasetMeta
 	queires, err := LoadQueries(meta.Queries)
 	Must(err)
@@ -260,53 +286,30 @@ func ProcessVecDBOld(config *globals.Args, maxRowSize uint, vectorsInBins [][][]
 
 	DBSize := len(vectorsInBins)
 
-	rawDB := make([][]uint64, DBSize)
+	sink := newRowSink("bins_vec1_db", DBSize)
 
 	bar := progressbar.Default(int64(len(vectorsInBins)), "Packing bins into PIR entries")
 
 	for i := 0; i < len(vectorsInBins); i++ {
 
-		vectorBytesArray := make([][]byte, 0, len(vectorsInBins[i]))
+		entry := packBinOld(config.Dimensions, vectorsInBins[i])
 
-		for j := 0; j < len(vectorsInBins[i]); j++ {
-			vector := vectorsInBins[i][j]
-			vectorBytes := make([]byte, config.Dimensions*4)
-			for k := 0; k < int(config.Dimensions) && k < len(vector); k++ {
-				binary.LittleEndian.PutUint32(vectorBytes[k*4:], math.Float32bits(vector[k]))
-			}
-			vectorBytesArray = append(vectorBytesArray, vectorBytes)
-		}
-
-		// Flatten the array of byte arrays into a single byte array
-		entryBytes := make([]byte, 0, len(vectorBytesArray)*int(config.Dimensions)*4)
-		for _, vb := range vectorBytesArray {
-			// A byte array that is exactly the size of 1 entry.
-			entryBytes = append(entryBytes, vb...)
-		}
-
-		wordsPerEntry := (len(entryBytes) + 7) / 8 // ceil(bytes/8)
-
-		entry := make([]uint64, wordsPerEntry)
-		for k := 0; k < wordsPerEntry; k++ {
-			off := k * 8
-			if off+8 <= len(entryBytes) {
-				entry[k] = binary.LittleEndian.Uint64(entryBytes[off : off+8])
-			} else {
-				// last partial word (only happens if total bytes not divisible by 8)
-				var tmp [8]byte
-				copy(tmp[:], entryBytes[off:])
-				entry[k] = binary.LittleEndian.Uint64(tmp[:])
-			}
-		}
-
-		// We just directly set the entry in rawdb:
-		rawDB[i] = entry
+		// We just directly set the entry in rawdb (or the -noram file):
+		sink.Put(i, entry)
 		vectorsInBins[i] = nil // free the bin as we go, ProcessVecDBOld owns the data now
 
 		bar.Add(1)
 	}
 
 	bar.Finish()
+	rawDB := sink.Finish()
+
+	return newVecBinsOld(config, maxRowSize, rawDB)
+}
+
+// newVecBinsOld builds the single batch PIR over the packed bins.
+func newVecBinsOld(config *globals.Args, maxRowSize uint, rawDB [][]uint64) VecBinsOld {
+	DBSize := len(rawDB)
 
 	// Worst-case entry: maxRowSize vectors of config.Dimensions float32s. Every response and every client hint
 	// is this size, so this single number drives both the comm cost and the hint storage.
@@ -372,3 +375,41 @@ func ProcessVecDBOld(config *globals.Args, maxRowSize uint, vectorsInBins [][][]
 //	}
 //
 // config.IDLookup is already built in main before the decode loop, so Decode works unchanged.
+
+// packBinOld flattens one bin's vectors into a PIR entry: the float32s end to end, little endian, in uint64 words.
+func packBinOld(dimensions uint, vectors [][]float32) []uint64 {
+	vectorBytesArray := make([][]byte, 0, len(vectors))
+
+	for j := 0; j < len(vectors); j++ {
+		vector := vectors[j]
+		vectorBytes := make([]byte, dimensions*4)
+		for k := 0; k < int(dimensions) && k < len(vector); k++ {
+			binary.LittleEndian.PutUint32(vectorBytes[k*4:], math.Float32bits(vector[k]))
+		}
+		vectorBytesArray = append(vectorBytesArray, vectorBytes)
+	}
+
+	// Flatten the array of byte arrays into a single byte array
+	entryBytes := make([]byte, 0, len(vectorBytesArray)*int(dimensions)*4)
+	for _, vb := range vectorBytesArray {
+		// A byte array that is exactly the size of 1 entry.
+		entryBytes = append(entryBytes, vb...)
+	}
+
+	wordsPerEntry := (len(entryBytes) + 7) / 8 // ceil(bytes/8)
+
+	entry := make([]uint64, wordsPerEntry)
+	for k := 0; k < wordsPerEntry; k++ {
+		off := k * 8
+		if off+8 <= len(entryBytes) {
+			entry[k] = binary.LittleEndian.Uint64(entryBytes[off : off+8])
+		} else {
+			// last partial word (only happens if total bytes not divisible by 8)
+			var tmp [8]byte
+			copy(tmp[:], entryBytes[off:])
+			entry[k] = binary.LittleEndian.Uint64(tmp[:])
+		}
+	}
+
+	return entry
+}

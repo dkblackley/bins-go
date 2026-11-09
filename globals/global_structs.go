@@ -3,6 +3,7 @@ package globals
 import (
 	"fmt"
 
+	"github.com/dkblackley/bins-go/diskstore"
 	"github.com/kshedden/gonpy"
 )
 
@@ -158,6 +159,9 @@ type Query struct {
 
 // Taken from graphann package. I think dim should be 192 and n should be 8841823 (ms marco size)
 func LoadFloat32MatrixFromNpy(filename string, n int, dim int) ([][]float32, error) {
+	if diskstore.Enabled { // -noram: map the file instead of reading it onto the heap
+		return diskstore.MmapNpyFloat32(filename, n, dim)
+	}
 	r, err := gonpy.NewFileReader(filename)
 	if err != nil {
 		fmt.Println(err)
