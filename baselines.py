@@ -47,21 +47,21 @@ log = logging.getLogger('baselines')
 # Mirrors GetDatasets() in main.go. {root} is --dataset-root.
 DATASETS = {
     'msmarco': dict(
-        index='{root}/index_marco',
+        index='data/msmarco_tree/index_msmarco',   # Lucene (datasets/prep_tree.sh), not the Bluge index_marco
         corpus='{root}/msmarco/corpus.jsonl',
         queries='{root}/msmarco/queries.dev.small.jsonl',
         qrels='{root}/msmarco/qrels/qrels.dev.tsv',
         corpus_vec='{root}/msmarco/msmarco_corpus_embed_f32.npy',
         query_vec='{root}/msmarco/msmarco_query_embed_f32.npy'),
     'scifact': dict(
-        index='{root}/index_scifact',
+        index='{root}/tree/scifact-all/indexes/scifact',   # Lucene, not the Bluge index_scifact
         corpus='{root}/scifact/corpus.jsonl',
         queries='{root}/scifact/queries.jsonl',
         qrels='{root}/scifact/qrels/test.tsv',
         corpus_vec='{root}/scifact/scifact_corpus_embed_f32.npy',
         query_vec='{root}/scifact/scifact_query_embed_f32.npy'),
     'trec-covid': dict(
-        index='{root}/index_trec_covid',
+        index='{root}/tree/trec-covid-all/indexes/trec-covid',   # Lucene, not the Bluge index_trec_covid
         corpus='{root}/trec-covid/corpus.jsonl',
         queries='{root}/trec-covid/queries.jsonl',
         qrels='{root}/trec-covid/qrels/test.tsv',
@@ -162,14 +162,23 @@ def bm25_pyserini(index_path, queries, depth, threads):
 TOKEN = re.compile(r'\w+')
 
 
-def bm25_rank_bm25(corpus_path, queries, depth):
-    """In-memory BM25, fine for SciFact-sized corpora, far too slow for MS MARCO."""
+RANK_BM25_MAX_DOCS = 1_000_000
+
+
+def bm25_rank_bm25(corpus_path, queries, depth, max_docs=RANK_BM25_MAX_DOCS):
+    """In-memory BM25, fine for SciFact-sized corpora, far too slow for MS MARCO.
+    Aborts as soon as the corpus passes max_docs (None = no limit), before it eats all the RAM."""
     from rank_bm25 import BM25Okapi
     ids, docs = [], []
     for docid, text in load_corpus_texts(corpus_path):
+        if max_docs is not None and len(ids) >= max_docs:
+            raise SystemExit(
+                f"{corpus_path} has more than {max_docs:,} docs: rank_bm25 would need tens of GB and days. "
+                "Build a Lucene index (DATASETS_ROOT=... bash datasets/prep_tree.sh <name>) and point DATASETS "
+                "at it, or pass --bm25 rank_bm25 to force it anyway.")
         ids.append(docid)
         docs.append(TOKEN.findall(text.lower()))
-    if len(ids) > 1_000_000:
+    if len(ids) > RANK_BM25_MAX_DOCS:
         log.warning("rank_bm25 on %d docs will be very slow, build a Lucene index instead", len(ids))
     bm25 = BM25Okapi(docs)
     out = {}
@@ -180,8 +189,18 @@ def bm25_rank_bm25(corpus_path, queries, depth):
     return out
 
 
+def is_lucene_index(path):
+    return os.path.isdir(path) and any(f.startswith('segments_') for f in os.listdir(path))
+
+
 def run_bm25(paths, queries, depth, backend, threads):
-    if backend in ('auto', 'pyserini') and os.path.isdir(paths['index']):
+    if backend in ('auto', 'pyserini') and os.path.isdir(paths['index']) and not is_lucene_index(paths['index']):
+        msg = (f"{paths['index']} is not a Lucene index (no segments_* file; the Bluge index_* dirs from main.go "
+               "are not readable by pyserini)")
+        if backend == 'pyserini':
+            raise SystemExit(msg)
+        log.warning("%s", msg)
+    if backend in ('auto', 'pyserini') and is_lucene_index(paths['index']):
         try:
             return bm25_pyserini(paths['index'], queries, depth, threads), 'pyserini'
         except Exception as err:   # no Java, no pyserini, ...
@@ -190,7 +209,8 @@ def run_bm25(paths, queries, depth, backend, threads):
             log.warning("pyserini failed (%s), falling back to rank_bm25", err)
     elif backend == 'pyserini':
         raise SystemExit(f"no Lucene index at {paths['index']}")
-    return bm25_rank_bm25(paths['corpus'], queries, depth), 'rank_bm25'
+    max_docs = None if backend == 'rank_bm25' else RANK_BM25_MAX_DOCS
+    return bm25_rank_bm25(paths['corpus'], queries, depth, max_docs), 'rank_bm25'
 
 
 def dense_search(doc_vecs, query_vecs, depth, doc_chunk=500_000, query_batch=1024):
