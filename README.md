@@ -467,7 +467,20 @@ Rough local needs: nq (2.7M docs) embeds in a few hours on a 16 GB GPU; the sing
 ~30 GB RAM by the model, tree ~20-60 GB depending on shape, so dbpedia/fever may be tight on a 32 GB machine.
 scifact is the safe choice.
 
-### 6.3 A single run by hand
+### 6.3 Every config, simulated PIR: `local_run_go_simulated.sh`
+
+```bash
+bash local_run_go_simulated.sh plan     # what fits in this machine's RAM, what is missing
+bash local_run_go_simulated.sh run      # run it (smallest first), then check against the real runs
+bash local_run_go_simulated.sh check    # compare with the real runs in $REAL_RESULTS
+```
+
+Runs the full bins (vec1, vec0, text), pacmann and tree grids with `pir_app -simulate`: no PIR hints, no XOR, so far
+less RAM. Answers, MRR/Recall, rounds, bytes, LAN/WAN and client storage are those of a real run, and every timing
+is -1 (`"Simulated": "true"` in metadata.json). Results go to `<DATASETS_ROOT>/results_simulated/` with the Hopper
+folder names. Knobs (`DATASETS`, `METHODS`, `MAX_GB`, `JOBS`, `ONLY`, `REAL_RESULTS`, ...) are at the top of the file.
+
+### 6.4 A single run by hand
 
 ```bash
 ./pir_app -n 5183 -t bins -name scifact -k 10 -binSize 1000 -docsPerBin 100 -vectors=true -dim 192 \
