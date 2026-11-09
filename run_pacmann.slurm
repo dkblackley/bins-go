@@ -101,6 +101,9 @@ on_exit() {
 trap on_exit EXIT
 trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT
 
+# SIMULATE=1: simulated PIR (pir_app -simulate), results in their own folder (as slurm_common.sh does for bins/tree)
+SIM_ARGS=()
+if [[ "${SIMULATE:-0}" == 1 ]]; then RESULTS_DIR="${RESULTS_DIR:-/scratch/$USER/results_simulated}"; SIM_ARGS=(-simulate); fi
 OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 # OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
@@ -147,6 +150,7 @@ srun ./pir_app \
     -outFile "results" \
     -dataset "$DATASET_DIR" \
     -debug 1 \
+    "${SIM_ARGS[@]}" \
     -dim 192 &
 
 srun_pid=$!

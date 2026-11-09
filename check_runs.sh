@@ -29,6 +29,7 @@ set -uo pipefail
 cd "$(dirname "$0")"
 export DATASETS_ROOT="${DATASETS_ROOT:-../datasets}"
 export DATASET_DIR="${DATASET_DIR:-$DATASETS_ROOT}"
+[[ "${SIMULATE:-0}" == 1 ]] && RESULTS_DIR="${RESULTS_DIR:-/scratch/$USER/results_simulated}"   # simulated runs
 RES="${RESULTS_DIR:-/scratch/$USER/results}"
 BRES="${RESULTS_ROOT:-/scratch/dblackle/results}"
 SINCE_FILE="${SINCE_FILE:-logs/check/since}"

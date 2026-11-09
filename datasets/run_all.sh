@@ -23,6 +23,11 @@
 #            already have their data, so for them use STAGES="tree-db tree". Tree runs are split by estimated RAM:
 #            <=100 GB on the normal partition, 250/500/1000/1500 GB on bigmem, one job array per bucket.
 #
+# SIMULATE=1 runs bins, pacmann and tree with pir_app -simulate (no hints, no XOR: same answers, MRR, bytes, LAN/WAN
+# and client storage; every timing -1) into $RESULTS_DIR, default /scratch/$USER/results_simulated, with their own
+# usage log and smaller first estimates (slurm_common.sh). The data stages and tiptoe/coeus are skipped then.
+#   SIMULATE=1 STAGES=tree bash datasets/run_all.sh nq dbpedia-entity fever msmarco
+#
 # GPU=<profile> sends the embed jobs to another GPU queue instead of embed.slurm's DGX A100.40gb (fp16, short time
 # limits, 32 GB RAM, so they backfill sooner; a job that hits its limit requeues itself and resumes). Run it next to a series that's already queued: whichever embed finishes
 # first wins, the other one exits 3 and its dependants stay pending (DependencyNeverSatisfied) for you to scancel.
@@ -97,6 +102,12 @@ EMB_ENV=""
 is_big() { [[ "$1" == msmarco-v2* || "$1" == miracl-en ]]; }
 
 source ./slurm_common.sh
+if [[ "${SIMULATE:-0}" == 1 ]]; then
+    echo "SIMULATE=1: simulated PIR (pir_app -simulate, every timing -1), results in $RESULTS_DIR"
+    for s in prep embed tree-db bins-index tiptoe coeus; do
+        has "$s" && { echo "  (stage $s is not simulated; it is skipped here, run it without SIMULATE)"; STAGES=" ${STAGES/$s/} "; }
+    done
+fi
 LIST_DIR="logs/lists/$(date +%Y%m%d_%H%M%S)"   # CONFIG_LIST files, kept so you can see what each array runs
 mkdir -p "$LIST_DIR"
 # Configs a job in the queue already covers are skipped (slurm_common.sh queued_dirs), so re-running this after a

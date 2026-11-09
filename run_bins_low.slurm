@@ -177,6 +177,7 @@ else
 fi
 # same results folder as an in-RAM run; metadata.json gets "noram": "true" (filter those out of compute-time plots)
 (( NORAM_RUN )) && LAYOUT_ARGS+=(-noram -noram-dir "${NORAM_DIR:-temp_storage}")
+LAYOUT_ARGS+=($(sim_args))   # SIMULATE=1 (slurm_common.sh): simulated PIR, results in $RESULTS_DIR (results_simulated)
 OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}${TAG_SUFFIX}"
 if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
     echo "Already done: ${OUT_DIR} (set FORCE=1 to rerun)"; finished=1; exit 0

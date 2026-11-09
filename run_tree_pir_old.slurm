@@ -150,6 +150,7 @@ bash "${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
     --embed-dim "$embed_val" \
     --block-permutation "$BLOCK_PERMS" \
     --pir-threads 16 \
+    $(sim_args) \
     $CACHE_ARGS > "$LOG_FILE" 2>&1 &
 run_pid=$!
 CFG_KEY=$(tree_config_key "$B_val" "$r_val" "$s_val" "$L_val" "$q_words_val" "$k_cand_val" "$dataset")

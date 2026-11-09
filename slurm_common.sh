@@ -19,6 +19,18 @@
 # Sourced at job start, so queued jobs get it too.
 if [[ -n "${SLURM_MEM_PER_NODE:-}" && -z "${GOMEMLIMIT:-}" ]]; then export GOMEMLIMIT="$(( SLURM_MEM_PER_NODE * 9 / 10 ))MiB"; fi
 
+# Simulated PIR (SIMULATE=1, pir_app -simulate): same answers, MRR, bytes, LAN/WAN and client storage as a real run,
+# no hints and no XOR, every timing -1 in metadata.json. These runs go to their own results folder (same folder
+# names) and their own usage log, so they never mix with or skip the real runs. Until a simulated config has been
+# measured, its estimate is the real-run model x SIM_MEM_FACTOR_<METHOD> / SIM_TIME_FACTOR (guesses: the bins hints are
+# about as big as the DB, the tree's are small next to its Cuckoo tables, so the tree mostly saves time).
+if [[ "${SIMULATE:-0}" == 1 ]]; then
+    export RESULTS_DIR="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results_simulated}"
+fi
+sim_args() { [[ "${SIMULATE:-0}" == 1 ]] && echo "-simulate"; return 0; }   # extra pir_app flag, or nothing
+declare -A SIM_MEM_FACTOR=([bins]="${SIM_MEM_FACTOR_BINS:-0.6}" [tree]="${SIM_MEM_FACTOR_TREE:-0.9}")
+SIM_TIME_FACTOR="${SIM_TIME_FACTOR:-0.5}"
+
 USAGE_FILE="${USAGE_FILE:-${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/resource_usage.tsv}"
 MEM_HEADROOM="${MEM_HEADROOM:-1.2}"      # measured on the same dataset
 TIME_HEADROOM="${TIME_HEADROOM:-1.5}"
@@ -133,7 +145,18 @@ load_usage() {   # read $USAGE_FILE once; the latest line per (method, dataset, 
 }
 
 # estimate_resources <method> <dataset> <config> <fallback GB> <fallback minutes> -> "GB minutes source"
+# With SIMULATE=1 the fallback (the real-run model) is scaled down first; measured simulated runs are used as they are.
 estimate_resources() {
+    if [[ "${SIMULATE:-0}" == 1 ]]; then
+        local f="${SIM_MEM_FACTOR[$1]:-1}" g m
+        g=$(awk -v x="$4" -v f="$f" 'BEGIN { printf "%.1f", x * f }')
+        m=$(awk -v x="$5" -v f="$SIM_TIME_FACTOR" 'BEGIN { x *= f; printf "%d", (x < 30 ? 30 : x) }')
+        _estimate_resources "$1" "$2" "$3" "$g" "$m"
+    else
+        _estimate_resources "$@"
+    fi
+}
+_estimate_resources() {
     local m=$1 d=$2 c=$3 fb_gb=$4 fb_min=$5 key="$1|$2|$3"
     # A failed run (OOM / time limit) only tells us a lower bound: its elapsed time is how far it got before it was
     # killed, so it never lowers the estimate below the model (e.g. an OOM after 2 min must not ask for 13 min).
