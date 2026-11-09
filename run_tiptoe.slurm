@@ -4,15 +4,14 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
-#SBATCH --time=0-02:30:00
+#SBATCH --mem=16G
+#SBATCH --time=0-02:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
 #SBATCH --array=0-895%64
 #SBATCH --output=logs/Tiptoe_%A_%a.out
 #SBATCH --error=logs/Tiptoe_%A_%a.err
 #SBATCH --signal=B:TERM@120
-#SBATCH --constraint=amd
 
 # Tiptoe baseline (see baselines/README.md).
 #   MODE=sim (default) baselines/tiptoe/simulate_tiptoe.py: exact quality + exact DB shapes + payload-only bytes,
@@ -83,8 +82,7 @@ export NGT_PREFIX="$HOME/opt/ngt-amd"
 export HNSW_PREFIX="$HOME/opt/hnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-conda activate main
+source datasets/env.sh     # conda env main (finds conda itself; CONDA_BASE/CONDA_ENV to override)
 
 task_id=$SLURM_ARRAY_TASK_ID
 dataset=${DATA_ARR[$task_id]}
@@ -153,10 +151,14 @@ Output Dir:        $OUT_DIR
 EOF
 
 # 2) Run
+# SERVER_TIME=1 also times the SimplePIR answer with ./simplepir_bench (baselines/setup_baselines.sh sim; peaks at
+# ~2x --bench-max-gb, so submit with --mem=32G). Off by default: quality + bytes only, well under 16G.
+BENCH_ARGS=()
+[[ "${SERVER_TIME:-0}" == 1 ]] && BENCH_ARGS=(--bench-bin ./simplepir_bench --bench-max-gb 8)
 if [[ "$MODE" == "sim" ]]; then
     srun python baselines/tiptoe/simulate_tiptoe.py \
         --dataset "$DATASET_DIR" --name "$dataset" --tiptoe-dir "$TT_DIR" --k "$k_val" \
-        --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" --bench-bin ./simplepir_bench --bench-max-gb 8 \
+        --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" "${BENCH_ARGS[@]}" \
         --parallelism "${SLURM_CPUS_PER_TASK:-1}" &
     srun_pid=$!
     wait "$srun_pid"

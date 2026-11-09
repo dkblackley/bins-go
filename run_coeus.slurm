@@ -4,14 +4,13 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=120G
-#SBATCH --time=2-00:00:00
+#SBATCH --mem=32G
+#SBATCH --time=0-06:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
 #SBATCH --array=0-47               # for the default scifact + msmarco; other datasets: see --count below
 #SBATCH --output=logs/Coeus_%A_%a.out
 #SBATCH --error=logs/Coeus_%A_%a.err
-#SBATCH --constraint=amd
 
 # Coeus baseline (see baselines/README.md): exact TF-IDF quality on the real corpus + server time from
 # Coeus' own matmult/opt2 benchmark (calibrated once, cached next to the binary) + communication from
@@ -22,8 +21,10 @@
 #   2 datasets x 6 F x 2 tf x 2 k = 48 tasks. Configs with F past the vocabulary exit without writing anything
 #   (they'd duplicate a smaller F with extra upload), so scifact produces fewer results.
 #
-# NOTE: the first task to run calibrates opt2 (4 short runs, the 2x2 one needs ~7 GB RAM). Run task 0 alone
-# first (sbatch --array=0 run_coeus.slurm) so the others reuse the cache instead of all calibrating at once.
+# Server time is OFF by default: quality + communication only, which needs no opt2 build and fits in 32G / 6 h for
+# everything up to msmarco (postings ~12 B per (doc, term): ~5 GB on msmarco). SERVER_TIME=1 adds Coeus' opt2 time;
+# then submit with --constraint=amd, run task 0 alone first (it calibrates opt2, the 2x2 run needs ~7 GB) so the
+# others reuse the cache, and for msmarco-v2 (~50 GB of postings) add --mem=120G --time=2-00:00:00.
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
@@ -51,8 +52,7 @@ if [[ "${1:-}" == "--count" ]]; then
     exit 0
 fi
 
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-conda activate main
+source datasets/env.sh     # conda env main (finds conda itself; CONDA_BASE/CONDA_ENV to override)
 
 task_id=$SLURM_ARRAY_TASK_ID
 dataset=${DATA_ARR[$task_id]}
@@ -60,7 +60,8 @@ features=${F_ARR[$task_id]}
 tf=${TF_ARR[$task_id]}
 k_val=${K_ARR[$task_id]}
 
-OPT2="$HOME/opt/src/Coeus_artifact/matmult/bin/opt2"
+TIME_ARGS=()
+[[ "${SERVER_TIME:-0}" == 1 ]] && TIME_ARGS=(--opt2-bin "$HOME/opt/src/Coeus_artifact/matmult/bin/opt2")
 
 echo "Coeus: dataset=$dataset F=$features tf=$tf k=$k_val"
 python baselines/coeus/run_coeus.py \
@@ -69,6 +70,6 @@ python baselines/coeus/run_coeus.py \
     --k "$k_val" \
     --features "$features" \
     --tf "$tf" \
-    --results-root /scratch/dblackle/results \
-    --opt2-bin "$OPT2" \
+    --results-root "${RESULTS_ROOT:-/scratch/dblackle/results}" \
+    "${TIME_ARGS[@]}" \
     --parallelism "${SLURM_CPUS_PER_TASK:-1}"
