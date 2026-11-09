@@ -235,6 +235,9 @@ queued_dirs() {
     squeue -u "${USER:-$(id -un)}" -h -r -o '%F|%K|%j|%T' 2>/dev/null | while IFS='|' read -r jid task name _st; do
         m=${name%%_*}; d=${name#*_}; d=${d%%_*}
         [[ $m == bins || $m == tree || $m == pacmann ]] || continue
+        # simulated jobs (name ends in _sim, see run_all.sh) write to results_simulated: only count the same kind
+        if [[ $name == *_sim* ]]; then [[ "${SIMULATE:-0}" == 1 ]] || continue
+        else [[ "${SIMULATE:-0}" != 1 ]] || continue; fi
         [[ $task =~ ^[0-9]+$ ]] || task=0
         if [[ $m == pacmann ]]; then
             echo "P	$d	$task	${jid}_$task"; continue

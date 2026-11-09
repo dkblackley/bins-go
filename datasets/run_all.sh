@@ -73,6 +73,7 @@ count_of() {   # count_of <env assignment> <script> -> number of array tasks
 
 # ---- GPU profile for the embed jobs (see header). Prints sbatch args for one embed MODE.
 SFX="${GPU:+_$GPU}"     # job name suffix, so two series are told apart in squeue
+[[ "${SIMULATE:-0}" == 1 ]] && SFX+="_sim"   # simulated jobs: queued_dirs keeps them apart from real ones
 gpu_args() {   # gpu_args <all|pca|shard|finish>
     [[ -z "${GPU:-}" ]] && return 0
     local part qos=gpu gres requeue="" cpus=16 t_all t_shard
