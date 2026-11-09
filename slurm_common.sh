@@ -76,6 +76,10 @@ partition_for() { (( $1 <= NORMAL_MAX_GB )) && echo normal || echo bigmem; }
 record_usage() {
     local method=$1 dataset=$2 config=$3 tfile=$4 secs=$5 kb=""
     [[ -f "$tfile" ]] && kb=$(awk -F': ' '/Maximum resident set size/ {print $2}' "$tfile")
+    # a -noram run's peak RSS counts resident mmap'd file pages (it just shows the memory limit); use the heap peak
+    # pir_app measured instead
+    local anon; anon=$(noram_peak_kb "$(dirname "$tfile")")
+    [[ -n "$anon" ]] && kb=$anon
     [[ -n "$kb" && "$kb" -gt 0 ]] || { echo "record_usage: no peak RSS in $tfile, not recorded" >&2; return 0; }
     mkdir -p "$(dirname "$USAGE_FILE")"
     local line
@@ -83,6 +87,12 @@ record_usage() {
         "$secs" "$(date +%F)")
     ( flock 9; echo "$line" >> "$USAGE_FILE" ) 9>>"${USAGE_FILE}.lock"
     echo "usage: $line"
+}
+
+noram_peak_kb() {   # results dir -> NoRAMPeakAnonMB from its metadata.json in KB, or nothing
+    local f="$1/metadata.json"
+    [[ -s "$f" ]] || return 0
+    grep -oE '"NoRAMPeakAnonMB": *"[0-9.]+' "$f" | grep -oE '[0-9.]+$' | awk '{printf "%d\n", $1 * 1024}'
 }
 
 # record_failure <method> <dataset> <config> <measure file> <exit code> <elapsed seconds> [timeout]
@@ -95,7 +105,9 @@ record_failure() {
     kb=${kb:-0}
     local oom=""
     [[ "$rc" == 137 || "$rc" == 9 ]] && oom=1
-    (( req_kb > 0 && kb * 10 >= req_kb * 9 )) && oom=1
+    # (not for -noram runs, whose peak RSS always reaches the limit: resident mmap'd file pages count, but the kernel
+    # drops them instead of killing the job)
+    [[ "$config" != *_noram ]] && (( req_kb > 0 && kb * 10 >= req_kb * 9 )) && oom=1
     [[ -n "$oom" || -n "$timeout" ]] || return 0
     local gb sec
     gb=$(awk -v k="$kb" -v r="$req_kb" -v o="$oom" 'BEGIN { m = (k > r ? k : r); if (o) m *= 1.5; printf "%.2f", m / 1048576 }')
@@ -256,12 +268,26 @@ is_queued() {   # is_queued <method> <dataset> <folder>
 # ------------------------------------------------------------------------------------------ bins
 
 # vec is true (1 DB of embeddings), false (ID DB + embedding DB) or text (1 DB of compressed text, -text)
-bins_config_key() {   # vec k bs dpb
+# A -noram run (see bins_noram) gets a "_noram" key, so its usage never mixes with the in-RAM runs' numbers.
+bins_config_key() {   # vec k bs dpb [noram: 1 = -noram run]
+    local sfx=""; [[ "${5:-0}" == 1 ]] && sfx="_noram"
     case $1 in
-        text) echo "text_k$2_bs$3_dpb$4" ;;
-        true) echo "vec1_k$2_bs$3_dpb$4" ;;
-        *)    echo "vec0_k$2_bs$3_dpb$4" ;;
+        text) echo "text_k$2_bs$3_dpb$4$sfx" ;;
+        true) echo "vec1_k$2_bs$3_dpb$4$sfx" ;;
+        *)    echo "vec0_k$2_bs$3_dpb$4$sfx" ;;
     esac
+}
+
+# Low-RAM mode (README "Low-RAM mode"): pir_app -noram keeps the PIR DB, client hints and embeddings on disk.
+#   NORAM=1                      every bins config runs with -noram
+#   NORAM=1 NORAM_ABOVE_GB=200   only the configs whose in-RAM model is above 200 GB; the rest run normally, so
+#                                their compute times stay comparable
+# Decided from bins_model only (no usage log), so datasets/run_all.sh and the job itself always agree.
+bins_noram() {   # dataset vec dpb bs -> exit 0 if this config runs with -noram
+    [[ "${NORAM:-0}" == 1 ]] || return 1
+    [[ -n "${NORAM_ABOVE_GB:-}" ]] || return 0
+    local gb; gb=$(bins_model "$1" "$2" "$3" "$4" 0 | awk '{print $1}')
+    (( gb > NORAM_ABOVE_GB ))
 }
 
 bins_missing() {   # dataset [vec] -> the first missing input of pir_app -t bins (paths as in main.go GetDatasets), or nothing
@@ -310,19 +336,30 @@ bins_vocab() {   # dataset -> vocabulary size
 #   text     ~30 B per (bin, doc) slot (padded slices)
 #   vec0     the ID DB is small; base + topdocs + bins covers it
 # Time: measured runs took <= 18 s/GB (vec) and <= 42 s/GB (text) per GB of the estimate; 1x that, >= 30 min.
-bins_model() {   # dataset vec dpb [bs] -> "GB minutes"
-    awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
+#
+# -noram (5th argument 1): the embeddings, the PIR DB and the client hints are on disk, so only the base, topdocs,
+# the bins and ~16 B per (bin, doc) slot of doc-ID strings stay; plus NORAM_CACHE_GB (default 8) of page cache for
+# the hint blocks being filled and the DB pages being read. Time: the in-RAM model x NORAM_TIME_FACTOR (default 10;
+# a local test was 8x slower to preprocess and 25x slower to answer). Both are guesses until the first runs are
+# logged under the _noram keys.
+bins_model() {   # dataset vec dpb [bs] [noram] -> "GB minutes"
+    awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" \
+        -v noram="${5:-0}" -v cache="${NORAM_CACHE_GB:-8}" -v tf="${NORAM_TIME_FACTOR:-10}" 'BEGIN {
         gb = 2.3 + n * 1.4e-6 + (vec != "text" ? n * 1.15e-6 : 0)
         gb += V * dpb * 27e-9 * (vec == "text" ? 2 : 1) + bs * 1e-6
         S = bs * dpb; dpw = (n / V) / 3.25; if (dpw < 1) dpw = 1
         T = 1.66 * V * sqrt(dpb) * sqrt(dpw)
         x = (S > 0) ? T / S : 0   # exp(-x) underflows past ~700 (gawk warns); E is S to double precision by then
         E = (S <= 0) ? 0 : (x > 700 ? S : S * (1 - exp(-x)))
-        if (vec == "true") gb += 3.3 * E * 768e-9
-        if (vec == "text") gb += S * 30e-9
-        gb *= 1.3
-        m = gb * (vec == "text" ? 0.7 : 0.3); if (m < 30) m = 30   # halved 2026-11-09: runs took 6-32% of the old estimate
-        printf "%.0f %d\n", gb, m }'
+        ram = gb
+        if (vec == "true") ram += 3.3 * E * 768e-9
+        if (vec == "text") ram += S * 30e-9
+        ram *= 1.3
+        m = ram * (vec == "text" ? 0.7 : 0.3); if (m < 30) m = 30   # halved 2026-11-09: runs took 6-32% of the old estimate
+        if (noram == 1) {
+            gb = (gb - (vec != "text" ? n * 1.15e-6 : 0) + (vec != "false" ? E * 16e-9 : 0)) * 1.3 + cache
+            printf "%.0f %d\n", gb, m * tf
+        } else printf "%.0f %d\n", ram, m }'
 }
 
 # stdin: "dataset k bs dpb vec" per config -> stdout: the same + "GB minutes source missing" (missing = "-" if ready)
@@ -349,10 +386,13 @@ bins_plan() {
             echo "$d $k $bs $dpb $vec 0 0 - done"; continue
         fi
         if is_queued bins "$d" "$od"; then echo "$d $k $bs $dpb $vec 0 0 - queued"; continue; fi
-        local mk="$d.$vec.$dpb.$bs"   # the model depends on bs for every mode
-        [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs")
+        local nr=0; bins_noram "$d" "$vec" "$dpb" "$bs" && nr=1
+        local mk="$d.$vec.$dpb.$bs.$nr"   # the model depends on bs for every mode
+        [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs" "$nr")
         local fb=(${model[$mk]})
-        local est; est=$(estimate_resources bins "$d" "$(bins_config_key "$vec" "$k" "$bs" "$dpb")" "${fb[0]}" "${fb[1]}")
+        local est; est=$(estimate_resources bins "$d" "$(bins_config_key "$vec" "$k" "$bs" "$dpb" "$nr")" "${fb[0]}" "${fb[1]}")
+        # a measured -noram run logs its heap peak only (record_usage): add back the page-cache room the model has
+        (( nr )) && est=$(awk -v c="${NORAM_CACHE_GB:-8}" '{ if ($3 != "model") $1 += c; print }' <<< "$est")
         local m="-"
         if [[ "${CHECK_INPUTS:-1}" == 1 ]]; then
             local mv="$d"; [[ $vec == text ]] && mv+=".text"

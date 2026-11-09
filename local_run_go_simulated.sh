@@ -22,6 +22,9 @@
 #   MAX_GB          skip configs estimated above this, default 90% of this machine's RAM
 #   SIM_MEM_FACTOR  simulated RAM = this x the real-run model in slurm_common.sh, default 0.6 (a guess until measured;
 #                   every run logs its peak RSS to $SIM_RESULTS/resource_usage.tsv)
+#   NORAM=1         also pass -noram: bins PIR DBs and every .npy embedding file are mmap'd from temp_storage/
+#                   (NORAM_DIR) instead of held in RAM. Same answers, slower. Estimates use NORAM_MEM_FACTOR
+#                   (default 0.3) instead of SIM_MEM_FACTOR. Needs disk space about the size of the DB
 #   JOBS            runs at once, default 1. Above 1, runs only start while their estimates fit in MAX_GB together
 #   SWEEP           tree grid, default all (tree_sweep_grid.sh)
 #   FORCE=1         rerun configs that already have a metadata.json; RETRY_FAILED=1 retries configs that failed before
@@ -49,6 +52,11 @@ DATASETS="${DATASETS:-scifact trec-covid nq dbpedia-entity fever msmarco msmarco
 METHODS="${METHODS:-bins-vec bins-text pacmann tree}"
 JOBS="${JOBS:-1}"
 SIM_MEM_FACTOR="${SIM_MEM_FACTOR:-0.6}"
+EXTRA_ARGS="-simulate"
+if [[ -n "${NORAM:-}" ]]; then
+    SIM_MEM_FACTOR="${NORAM_MEM_FACTOR:-0.3}"
+    EXTRA_ARGS="-simulate -noram -noram-dir ${NORAM_DIR:-$PWD/temp_storage}"
+fi
 MAX_GB="${MAX_GB:-$(awk '/^MemTotal:/ { printf "%d", $2 * 0.9 / 1048576 }' /proc/meminfo)}"
 mkdir -p "$SIM_RESULTS"
 case "$DATASETS_ROOT$SIM_RESULTS$PWD" in *" "*) echo "Paths with spaces are not supported" >&2; exit 1 ;; esac
@@ -235,7 +243,7 @@ done
 
 sort -n -k1,1 -o "$PLAN" "$PLAN"   # smallest first: the most results soonest
 echo
-echo "== to run (estimated simulated RAM, MAX_GB=$MAX_GB, SIM_MEM_FACTOR=$SIM_MEM_FACTOR)"
+echo "== to run (estimated RAM, MAX_GB=$MAX_GB, memory factor $SIM_MEM_FACTOR, flags: $EXTRA_ARGS)"
 awk -F'\t' '{ n[$2 " " $3]++; g[$2 " " $3] = $1 } END { for (k in n) printf "  %-12s %-16s %5d configs, largest ~%d GB\n", substr(k, 1, index(k, " ") - 1), substr(k, index(k, " ") + 1), n[k], g[k] }' "$PLAN" | sort
 echo "== skipped"
 awk -F'\t' '{ r = $3; if (r ~ /^missing/) r = "missing input"; n[$1 " " $2 " " r]++; if (!(($1 " " $2 " " r) in ex)) ex[$1 " " $2 " " r] = $3 }
@@ -256,7 +264,7 @@ run_one() {   # <est GB> <method> <dataset> <out dir> <command line>
     local -a argv; read -ra argv <<< "$cmd"
     mkdir -p "$od"
     echo "$(date '+%F %T') start $method $d ($gb GB est) -> $od"
-    bash ./measure_run.sh "$od/time_v.txt" "${argv[@]}" -simulate -outDir "$od" -outFile results \
+    bash ./measure_run.sh "$od/time_v.txt" "${argv[@]}" $EXTRA_ARGS -outDir "$od" -outFile results \
         > "$od/execution.log" 2>&1
     rc=$?
     local kb; kb=$(awk -F': ' '/Maximum resident set size/ { print $2 }' "$od/time_v.txt" 2>/dev/null)

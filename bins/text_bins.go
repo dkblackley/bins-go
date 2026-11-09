@@ -324,7 +324,7 @@ func MakeTextDb(config *globals.Args) *TextBins {
 	docMap = nil
 
 	bp := textcodec.NewBinParams(len(codes), int(config.DocsPerBin))
-	rawDB := make([][]uint64, len(DB))
+	sink := newRowSink("bins_text_db", len(DB)) // heap, or a file with -noram
 	var next sync.WaitGroup
 	nw := runtime.GOMAXPROCS(0)
 	chunk := (len(DB) + nw - 1) / nw
@@ -347,7 +347,7 @@ func MakeTextDb(config *globals.Args) *TextBins {
 					}
 					docs = append(docs, codes[idx])
 				}
-				rawDB[i] = textcodec.EncodeBin(bp, docs)
+				sink.Put(i, textcodec.EncodeBin(bp, docs))
 				DB[i] = nil
 				bar.Add(1)
 			}
@@ -356,6 +356,7 @@ func MakeTextDb(config *globals.Args) *TextBins {
 	next.Wait()
 	bar.Finish()
 	codes = nil
+	rawDB := sink.Finish()
 
 	maxWords, totalWords, empty := 0, 0, 0
 	for _, e := range rawDB {

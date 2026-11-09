@@ -211,11 +211,8 @@ func NewPianoPIRClient(config *PianoPIRConfig) *PianoPIRClient {
 		}
 	}
 
-	primaryParity := make([][]uint64, primaryHintNum)
-
-	for i := 0; i < int(primaryHintNum); i++ { // make zeros now and fill later at preproc
-		primaryParity[i] = make([]uint64, config.MaxDBEntrySize)
-	}
+	// make zeros now and fill later at preproc (on the heap, or in a file with -noram: see noram.go)
+	primaryParity := newParityTable(config, primaryHintNum, maxQueryPerChunk)
 
 	//fmt.Printf("maxQueryNum = %v\n", maxQueryNum)
 	//fmt.Printf("primaryHintNum = %v\n", primaryHintNum)
@@ -315,7 +312,7 @@ func (c *PianoPIRClient) Initialization() {
 
 	c.primaryShortTag = resetUint64s(c.primaryShortTag, c.primaryHintNum)
 	c.primaryProgramPoint = resetUint64s(c.primaryProgramPoint, c.primaryHintNum)
-	c.primaryParity = resetRows(c.primaryParity, c.primaryHintNum, c.config.MaxDBEntrySize)
+	c.primaryParity = c.resetPrimaryParity()
 
 	for i := uint64(0); i < c.primaryHintNum; i++ {
 		c.primaryShortTag[i] = shortTagCount
@@ -333,7 +330,7 @@ func (c *PianoPIRClient) Initialization() {
 	for i := uint64(0); i < c.config.SetSize; i++ { // for each chunk we have
 		c.replacementIdx[i] = resetUint64s(c.replacementIdx[i], c.maxQueryPerChunk)
 		c.backupShortTag[i] = resetUint64s(c.backupShortTag[i], c.maxQueryPerChunk)
-		c.backupParity[i] = resetRows(c.backupParity[i], c.maxQueryPerChunk, c.config.MaxDBEntrySize)
+		c.backupParity[i] = c.resetBackupParity(i)
 
 		// replacementVal rows point straight at DB rows (set in
 		// UpdatePreprocessing) and are only ever read, so they own no memory.
@@ -462,6 +459,10 @@ func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) [][]uint64 {
 
 	if c.skipPrep || c.sim != nil {
 		// only for debugging and benchmarking, or simulated (no hints to build)
+		return rawDB
+	}
+	if c.diskHints() { // -noram: hint tables on disk, fill them block by block (noram.go)
+		c.preprocessBlocked(rawDB)
 		return rawDB
 	}
 

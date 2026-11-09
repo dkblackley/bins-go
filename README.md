@@ -380,6 +380,47 @@ Tuning: `MEM_HEADROOM`, `TIME_HEADROOM`, `SCALED_HEADROOM`, `MEM_BUCKETS`, `TIME
 
 PACMANN is not bucketed: one array at the script's 120G (v2/miracl-en: bigmem 1500G).
 
+### 5.2b Low-RAM mode for the bins: `NORAM=1`
+
+Big bins configs ask for hundreds of GB, and the bigger the request, the longer it waits in the queue. With
+`pir_app -noram`, the three biggest arrays move off the heap into files under `temp_storage/<run id>/`, which are
+then mmap'd. Those arrays are the PIR database, the client hint tables and the corpus embeddings. The kernel pages
+them in as they are read and drops them under memory pressure. So a run needs RAM only for the rest: the doc-ID maps,
+the top-doc lists and the bins.
+
+* **Same results.** The PIR code gets the same rows in the same `[][]uint64` shape. The answers, MRR/recall, bytes
+  sent, WAN/LAN times and the padded client storage all come out the same. The trimmed `TotalByteSent` and
+  `ClientStorageMB` vary a little between any two runs, because the hints use a time-based seed, and that's true in RAM
+  too. Tested under a 1.5 GB cgroup limit: the in-RAM run was OOM-killed (it peaks at 6.6 GB) and the `-noram` run
+  finished with identical answer files.
+* **Slower, so the timings are tagged.** That same test was 8x slower to preprocess and 25x slower to answer.
+  `metadata.json` gets `"noram": "true"`, so filter these runs out of server-time plots. It also gets
+  `"NoRAMPeakAnonMB"`, the heap peak. The normal peak RSS counts resident file pages, so for these runs it just shows
+  the memory limit.
+* **Disk.** The files take about the PIR DB plus the client hints for each run (both are in the in-RAM estimate),
+  and up to twice the DB for a moment while it is written. Each run deletes its own folder at the end, and on
+  SIGTERM/scancel too. A run that gets killed hard leaves its folder behind, and the next `-noram` run deletes
+  folders older than 48 h. Run with `-noram-dir` (`NORAM_DIR=`) to use another disk.
+* **The hint tables are filled block by block.** Each partition fills `-noram-hint-block-mb` (default 512 MB) of
+  hint rows at a time, so the DB is streamed once per block. Raise it if the job has RAM to spare.
+* **Only the bins.** That covers vec1, vec0 and text. For `-t tree` and `-t pacmann`, `-noram` only mmaps the
+  `.npy` embeddings.
+
+On the cluster:
+
+```bash
+# only the configs whose in-RAM estimate is above 200 GB run in low-RAM mode; the rest keep comparable timings
+NORAM=1 NORAM_ABOVE_GB=200 STAGES=bins bash datasets/run_all.sh msmarco-v2-25m nq
+NORAM=1 STAGES=bins bash datasets/run_all.sh nq          # every bins config in low-RAM mode
+```
+
+These runs write to the same results folders and are logged under their own `..._noram` keys in
+`resource_usage.tsv`, so they never mix with the in-RAM numbers. Until a run has been measured, `bins_model` drops
+the DB, hint and embedding terms and adds `NORAM_CACHE_GB` (default 8) of page cache. It takes the time as 10x the
+in-RAM model (`NORAM_TIME_FACTOR`). Both numbers are guesses, so check the first runs with `check_estimates.sh`. A
+config that is already queued in RAM mode is skipped as queued: release its slot first (`hold_jobs.sh`, `scancel`),
+then re-run.
+
 ### 5.3 The run scripts on their own
 
 Each has `--count`, which prints the `--array` range to use. Without `CONFIG_LIST`, task *i* runs config *i* of the
@@ -610,7 +651,8 @@ main.go                     pir_app entry point, flags, GetDatasets
 bins/                       PILLAR-Bin (bins/textcodec, bins/cmd/textbench: [PR #8])
 tree/                       PILLAR-Tree (Go in tree/internal, artifact builder build_tree_artifacts.py, SWEEP.md)
 pir-old/                    the old PIR the tree runs on
-pianopir/                   Piano PIR used by bins
+pianopir/                   Piano PIR used by bins (noram.go: on-disk hint tables for -noram)
+diskstore/                  -noram: mmap'd files in temp_storage/<run id> for the PIR DBs, hints and .npy embeddings
 Pacmann/                    PACMANN (graphann = NGT graph build)
 tiptoe/, baselines/         Tiptoe wrapper (-tags tiptoe), Tiptoe/Coeus scripts, setup_baselines.sh
 pirhint/                    client-hint calculator + hintbench

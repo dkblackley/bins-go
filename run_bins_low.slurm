@@ -151,7 +151,9 @@ else
     docs_val=${DPB_ARR[$task_id]}
     vec_val=${VEC_ARR[$task_id]}
 fi
-CFG_KEY=$(bins_config_key "$vec_val" "$k_val" "$bin_size" "$docs_val")
+# low-RAM mode (NORAM=1 [NORAM_ABOVE_GB=n], slurm_common.sh bins_noram): PIR DB, hints and embeddings on disk
+NORAM_RUN=0; bins_noram "$dataset" "$vec_val" "$docs_val" "$bin_size" && NORAM_RUN=1
+CFG_KEY=$(bins_config_key "$vec_val" "$k_val" "$bin_size" "$docs_val" "$NORAM_RUN")
 
 missing=$(bins_missing "$dataset" "$vec_val")
 if [[ -n "$missing" ]]; then
@@ -173,6 +175,8 @@ elif [[ "$vec_val" == "true" ]]; then
 else
     VEC_TAG="_vec0"
 fi
+# same results folder as an in-RAM run; metadata.json gets "noram": "true" (filter those out of compute-time plots)
+(( NORAM_RUN )) && LAYOUT_ARGS+=(-noram -noram-dir "${NORAM_DIR:-temp_storage}")
 OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}${VEC_TAG}_${dataset}_k${k_val}_bs${bin_size}_dpb${docs_val}${TAG_SUFFIX}"
 if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
     echo "Already done: ${OUT_DIR} (set FORCE=1 to rerun)"; finished=1; exit 0
@@ -199,6 +203,7 @@ echo "Dataset:       $dataset"
 echo "K Value:       $k_val"
 echo "Bin Size:      $bin_size"
 echo "Docs/Bin:      $docs_val"
+echo "Low-RAM:       $( (( NORAM_RUN )) && echo "yes (-noram, files in ${NORAM_DIR:-temp_storage}/)" || echo no)"
 echo "Estimate:      ${est_gb} GB, ${est_min} min (requested: ${SLURM_MEM_PER_NODE:-?} MB)"
 echo "Output Dir:    $OUT_DIR"
 echo "========================================"
