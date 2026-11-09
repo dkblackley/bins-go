@@ -21,6 +21,8 @@ cd "$ROOT_DIR"
 #module --quiet purge
 #module load hosts/hopper
 #module load gnu9/9.3.0
+# pir_app finds libngt/libhnsw through its rpath; this also covers a pir_app built without go_env.sh
+export LD_LIBRARY_PATH="${NGT_PREFIX:-$HOME/opt/ngt-amd}/lib:${HNSW_PREFIX:-$HOME/opt/hnsw}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 
 # The grid lives in tree_sweep_grid.sh (shared with datasets/prep_tree.sh, which builds the artifacts).

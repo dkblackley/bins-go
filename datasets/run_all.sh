@@ -107,6 +107,7 @@ submit_groups() {
         case $gb in
             missing) echo "  $method  SKIPPED $min of $total configs: inputs not there yet (first missing: $n)"; continue ;;
             over)    echo "  $method  SKIPPED $min configs: estimated above ${MEM_BUCKETS##* } GB"; continue ;;
+            done)    echo "  $method  SKIPPED $min of $total configs: already finished (metadata.json; FORCE=1 reruns them)"; continue ;;
         esac
         local part script
         part=$(partition_for "$gb"); [[ $part == normal ]] && script=$s_normal || script=$s_big

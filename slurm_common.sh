@@ -92,7 +92,7 @@ record_failure() {
     [[ -n "$oom" || -n "$timeout" ]] || return 0
     local gb sec
     gb=$(awk -v k="$kb" -v r="$req_kb" -v o="$oom" 'BEGIN { m = (k > r ? k : r); if (o) m *= 1.5; printf "%.2f", m / 1048576 }')
-    sec=$(( timeout ? secs * 2 : secs ))
+    if [[ -n "$timeout" ]]; then sec=$(( secs * 2 )); else sec=$secs; fi   # not $(( timeout ? .. )): bash would expand the word "timeout" recursively
     local line
     line=$(printf '%s\t%s\t%s\t%s\t%d\t%s\t%s' "$method" "$dataset" "$config" "$gb" "$sec" "$(date +%F)" \
         "failed:${oom:+oom}${timeout:+timeout}")
@@ -216,12 +216,27 @@ bins_model() {   # dataset vec dpb [bs] -> "GB minutes"
 }
 
 # stdin: "dataset k bs dpb vec" per config -> stdout: the same + "GB minutes source missing" (missing = "-" if ready)
+# results folder of a bins config: the same name run_bins_low/high.slurm use (a metadata.json there = done)
+bins_out_dir() {   # dataset k bs dpb vec
+    local t=_vec0 sfx=""
+    case $5 in
+        true) t=_vec1 ;;
+        text) t=_text; [[ "${TEXT_FORMAT:-bow}" != bow || "${TEXT_ORDER:-3}" != 3 ]] && sfx="_${TEXT_FORMAT:-bow}o${TEXT_ORDER:-3}" ;;
+    esac
+    echo "${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/bins${t}_$1_k$2_bs$3_dpb$4${sfx}"
+}
+
+# Configs that already have a metadata.json come out as "... 0 0 - done" (group_plan counts them, nothing is
+# submitted for them); FORCE=1 plans them again.
 bins_plan() {
     load_usage
     declare -A model=() miss=()
     local d k bs dpb vec
     while read -r d k bs dpb vec; do
         [[ -n "$d" ]] || continue
+        if [[ -z "${FORCE:-}" && -s "$(bins_out_dir "$d" "$k" "$bs" "$dpb" "$vec")/metadata.json" ]]; then
+            echo "$d $k $bs $dpb $vec 0 0 - done"; continue
+        fi
         local mk="$d.$vec.$dpb.$bs"   # the model depends on bs for every mode
         [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs")
         local fb=(${model[$mk]})
@@ -242,6 +257,7 @@ group_plan() {
     awk -v out="$2" -v pre="$3" -v mb="$MEM_BUCKETS" -v tb="$TIME_BUCKETS" '
     BEGIN { nm = split(mb, M, " "); nt = split(tb, T, " ") }
     {
+        if ($NF == "done") { done++; next }
         if ($NF != "-") { miss++; if (!first) first = $NF; next }
         g = $(NF-3) + 0; t = $(NF-2) + 0; b = ""
         for (i = 1; i <= nm; i++) if (g <= M[i]) { b = M[i]; break }
@@ -256,5 +272,6 @@ group_plan() {
         for (f in n) print key[f], n[f], f
         if (miss) print "missing", miss, first
         if (over) print "over", over, "-"
+        if (done) print "done", done, "-"
     }' "$1" | sort -k1,1n -k2,2n
 }

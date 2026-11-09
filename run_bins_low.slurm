@@ -25,6 +25,8 @@ module load gnu9/9.3.0
 export NGT_PREFIX="$HOME/opt/ngt-amd"
 export HNSW_PREFIX="$HOME/opt/hnsw"
 export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
+# pir_app finds libngt/libhnsw through its rpath; this also covers a pir_app built without go_env.sh
+export LD_LIBRARY_PATH="${NGT_PREFIX:-$HOME/opt/ngt-amd}/lib:${HNSW_PREFIX:-$HOME/opt/hnsw}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
 DATASET_DIR="${DATASET_DIR:-../../datasets}"
