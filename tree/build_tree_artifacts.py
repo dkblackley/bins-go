@@ -305,8 +305,13 @@ def main():
     # ---------------- stage3 doc embeddings in index order (+ ids)
     emb = f"{D}/{name}_corpus_embed_f32.npy"
     if not os.path.exists(f"{T}/stage3_doc.npy.ids") or args.force:
-        with open(emb + ".ids") as fi:
-            ids = [l.rstrip("\n") for l in fi]
+        if os.path.exists(emb + ".ids"):
+            with open(emb + ".ids") as fi:
+                ids = [l.rstrip("\n") for l in fi]
+        else:   # older embeddings (msmarco) have no .ids: their rows follow corpus.jsonl, as bins assumes too
+            print(f"no {emb}.ids: taking the row order from {D}/corpus.jsonl")
+            with open(f"{D}/corpus.jsonl") as fi:
+                ids = [json.loads(l)["_id"] for l in fi]
         if ids == ext:
             # single-threaded index => already in corpus order, no need to copy ~100 GB
             symlink(emb, f"{T}/stage3_doc.npy")
@@ -328,10 +333,20 @@ def main():
 
     # ---------------- queries.tsv + analyzed json (opt3.py) + qrels.trec, only queries with qrels
     from pyserini.analysis import Analyzer, get_lucene_analyzer
-    qrels = [l.split("\t") for l in open(f"{D}/qrels/test.tsv").read().splitlines()[1:]]
+    # BEIR layout (qrels/test.tsv with a header, queries.jsonl), or msmarco's (qrels/qrels.dev.tsv in TREC form
+    # "qid 0 pid rel", queries.dev.small.jsonl)
+    qp = f"{D}/qrels/test.tsv" if os.path.exists(f"{D}/qrels/test.tsv") else f"{D}/qrels/qrels.dev.tsv"
+    qrels = []
+    for l in open(qp).read().splitlines():
+        f = l.split()
+        if len(f) >= 4:
+            f = [f[0], f[2], f[3]]
+        if len(f) == 3 and f[2].lstrip("-").isdigit():   # skips the BEIR header
+            qrels.append(f)
     want = {q[0] for q in qrels}
     an = Analyzer(get_lucene_analyzer())
-    qs = [json.loads(l) for l in open(f"{D}/queries.jsonl")]
+    qfile = f"{D}/queries.jsonl" if os.path.exists(f"{D}/queries.jsonl") else f"{D}/queries.dev.small.jsonl"
+    qs = [json.loads(l) for l in open(qfile)]
     qs = [q for q in qs if q["_id"] in want]
     with open(f"{T}/queries.qrels.tsv", "w") as f:
         for q in qs:

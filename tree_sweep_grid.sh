@@ -194,7 +194,9 @@ tree_config_key() {   # B r s L q c [dataset] -> config name used in the usage l
 # STAGE2_IDMAP DOC_EMBED DOC_ID_MAP QUERY_EMBED BLOCK_PERMS CACHE_SUBDIR (relative to the repo root / DATASET_DIR).
 tree_paths() {   # dataset B r s
     local d=$1 shape="B$2_r$3_s$4" root="${ROOT_DIR:-$PWD}" art
-    case $d in
+    local layout="$d"
+    [[ $d == msmarco && "$(tree_msmarco_layout)" == generic ]] && layout=generic
+    case $layout in
     msmarco)
         DB_SIZE=8841823; art="$root/data/msmarco/pir/$shape"
         INDEX="$root/data/msmarco_reordered"; QUERIES="$root/data/queries.dev.small.tsv"; QRELS="$root/data/qrels.dev.small.tsv"

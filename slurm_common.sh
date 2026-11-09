@@ -151,6 +151,16 @@ estimate_resources() {
     echo "$fb_gb $fb_min model"
 }
 
+# ------------------------------------------------------------------------------------------ tree msmarco layout
+# msmarco's tree normally uses the collaborator's original files (data/msmarco_reordered, data/stage3_*). On a machine
+# where they are incomplete (no data/stage3_query.npy), it is built like every new dataset instead, in data/msmarco_tree
+# (datasets/prep_tree.sh: own Lucene index, stage 3 from ../datasets/msmarco's embeddings). TREE_MSMARCO=original|
+# generic forces one. prep_tree.sh and tree_paths both use this, so they always agree.
+tree_msmarco_layout() {
+    case "${TREE_MSMARCO:-}" in original|generic) echo "$TREE_MSMARCO"; return ;; esac
+    if [[ -e "${ROOT_DIR:-$PWD}/data/stage3_query.npy" ]]; then echo original; else echo generic; fi
+}
+
 # ------------------------------------------------------------------------------------------ tree Cuckoo settings
 # msmarco-v2 (138M) needs the smaller Cuckoo tables (3 hashes, load factor 0.88, ~half of Stage 1/2), so that is its
 # default; every other dataset uses 2 / 0.4. TREE_CUCKOO_HASHES / TREE_CUCKOO_LF override it for every dataset.
