@@ -10,12 +10,14 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dkblackley/bins-go/Pacmann"
 	"github.com/dkblackley/bins-go/bins"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
+	pirold "github.com/dkblackley/bins-go/pir-old"
 	testpir "github.com/dkblackley/bins-go/testPIR"
 	"github.com/dkblackley/bins-go/tiptoe"
 	"github.com/dkblackley/bins-go/tree/cmd"
@@ -254,8 +256,23 @@ func main() {
 	tiptoeURLHint := flag.Int("tiptoe-url-hint-mb", 100, "Tiptoe URL-service hint size target in MB (upstream default 100)")
 	tiptoeMaxQueries := flag.Int("tiptoe-max-queries", 0, "Tiptoe: answer only the first N queries (0 = all)")
 
+	// Simulated PIR (bins, pacmann, tree): lookups return the row directly, no hints are built, no XOR is done.
+	// Answers, MRR/Recall, rounds, bytes, LAN/WAN and client storage stay as in a real run (see
+	// pianopir/simulate.go); every server timing is written as -1.
+	simulate := flag.Bool("simulate", false, "Simulate the PIR: same answers, bytes, LAN/WAN and client storage, no hints or XOR (timings are written as -1)")
+
 	flag.Parse()
 	pianopir.DownloadIfCheaper = *pirDownloadSmall // bins; the tree sets pir-old's copy from BinsConf
+	if *simulate {
+		switch *searchType {
+		case "bins", "pacmann", "tree":
+		default:
+			logrus.Fatalf("-simulate only applies to the Piano PIR methods (bins, pacmann, tree), not %q", *searchType)
+		}
+		pianopir.Simulate = true
+		pirold.Simulate = true
+		logrus.Warnf("SIMULATED PIR: no hints are built and no XOR is done; every timing in metadata.json is -1")
+	}
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
 
@@ -513,6 +530,7 @@ func main() {
 	end = time.Now()
 
 	config.Metadata["ReRankTime"] = end.Sub(start).String()
+	markSimulated(config.Metadata, *simulate)
 
 	oldOut := config.OutFile
 	config.OutFile = fmt.Sprintf("%s/%s.json", config.OutDir, config.OutFile)
@@ -526,6 +544,28 @@ func main() {
 
 	//}
 
+}
+
+// markSimulated records whether the PIR was simulated and, if it was, overwrites every server timing
+// (TotalAnswerTime, PreprocessingTime, MaintainenceTime, the tree's round*_seconds, their Vec/Pre copies, ...)
+// with -1, so a simulated run can never pass for a real computation-time point on a plot. The network times
+// (LAN/WAN) are computed from bytes and rounds, so they stay. ReRankTime is the client's local re-rank, which
+// is not simulated, and GraphGenerationTime is Pacmann's graph build, which is not PIR.
+func markSimulated(meta map[string]string, simulated bool) {
+	meta["Simulated"] = strconv.FormatBool(simulated)
+	if !simulated {
+		return
+	}
+	for k := range meta {
+		if !strings.Contains(k, "Time") && !strings.Contains(k, "_seconds") {
+			continue
+		}
+		if strings.Contains(k, "LAN") || strings.Contains(k, "WAN") ||
+			strings.Contains(k, "ReRank") || strings.Contains(k, "GraphGeneration") {
+			continue
+		}
+		meta[k] = "-1"
+	}
 }
 
 func writeAnswers(answers map[string][]string, config globals.Args) {
