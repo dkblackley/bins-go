@@ -14,6 +14,7 @@ import (
 
 	"github.com/dkblackley/bins-go/Pacmann"
 	"github.com/dkblackley/bins-go/bins"
+	"github.com/dkblackley/bins-go/diskstore"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
 	testpir "github.com/dkblackley/bins-go/testPIR"
@@ -254,7 +255,23 @@ func main() {
 	tiptoeURLHint := flag.Int("tiptoe-url-hint-mb", 100, "Tiptoe URL-service hint size target in MB (upstream default 100)")
 	tiptoeMaxQueries := flag.Int("tiptoe-max-queries", 0, "Tiptoe: answer only the first N queries (0 = all)")
 
+	// Low-RAM mode: big read-only arrays go to files under <noram-dir>/<unique run folder>/ and are mmap'd
+	noram := flag.Bool("noram", false, "Low-RAM mode: keep the PIR databases, client hint tables and corpus embeddings on disk (mmap) instead of in RAM. Same results, slower; metadata gets \"noram\": \"true\" so the timings can be filtered out")
+	noramDir := flag.String("noram-dir", "temp_storage", "Where -noram puts its files; each run gets its own random subfolder, deleted at the end")
+	noramBlockMB := flag.Uint64("noram-hint-block-mb", 512, "-noram: MB of a client hint table filled at once per partition (up to 30 partitions at a time); bigger = fewer passes over the DB, more RAM")
+
 	flag.Parse()
+	if *noram {
+		if _, err := diskstore.Init(*noramDir, *dbFileName+"_"+*searchType); err != nil {
+			logrus.Fatalf("%v", err)
+		}
+		defer diskstore.Cleanup()
+		pianopir.HintStore = diskstore.ZeroTable // client hint tables (as big as the DB for the bins) on disk too
+		pianopir.HintBlockBytes = *noramBlockMB << 20
+		if *searchType != "bins" {
+			logrus.Warnf("-noram: only the bins keep their PIR DB on disk; for -t %s just the .npy embeddings are mmap'd", *searchType)
+		}
+	}
 	pianopir.DownloadIfCheaper = *pirDownloadSmall // bins; the tree sets pir-old's copy from BinsConf
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
@@ -416,6 +433,7 @@ func main() {
 	if config.QueryNum <= 19 {
 		// exit non-zero: returning here wrote no metadata.json but looked like a success to the slurm scripts
 		logrus.Errorf("Only %d queries, skipping loaded from %s", config.QueryNum, config.DatasetMeta.Queries)
+		diskstore.Cleanup()
 		os.Exit(3)
 	}
 
@@ -479,6 +497,10 @@ func main() {
 
 	config.Metadata["PreprocessingTime"] = end_pre.Sub(start_pre).String()
 	config.Metadata["NumQueries"] = strconv.Itoa(len(qids))
+	if *noram {
+		// Same answers and byte counts, but the timings include disk reads: filter these out of compute-time plots
+		config.Metadata["noram"] = "true"
+	}
 
 	logrus.Infof("Answers finished in %s seconds", end.Sub(start))
 	config.Metadata["TotalAnswerTime"] = end.Sub(start).String()
@@ -514,6 +536,10 @@ func main() {
 
 	config.Metadata["ReRankTime"] = end.Sub(start).String()
 
+	if *noram {
+		// what the run really needed (heap etc.), without the mmap'd file pages that peak RSS counts (slurm_common.sh)
+		config.Metadata["NoRAMPeakAnonMB"] = fmt.Sprintf("%.0f", diskstore.PeakAnonMB())
+	}
 	oldOut := config.OutFile
 	config.OutFile = fmt.Sprintf("%s/%s.json", config.OutDir, config.OutFile)
 	writeAnswers(answers, config)

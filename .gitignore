@@ -57,3 +57,6 @@ simplepir_bench
 pir_app_tiptoe
 __pycache__/
 pir_app
+
+# -noram scratch files (pir_app -noram, one folder per run, deleted at the end)
+temp_storage/
