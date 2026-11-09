@@ -333,6 +333,7 @@ bash run_me.sh                # after every fix: pull, rebuild pir_app if needed
 DRY_RUN=1 bash run_me.sh      # what it would submit
 bash hold_jobs.sh --dry-run   # busy queue: hold pending jobs asking >= 500G (--mem 250G, --name, --except, --list)
 bash hold_jobs.sh --release   # let them go again
+bash shrink_time.sh --dry-run # lower --time of queued bins arrays (they used 6-32% of it)
 bash check_estimates.sh       # asked vs used memory/time per finished array, and the estimate source behind pending ones
 ```
 

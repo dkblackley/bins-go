@@ -16,6 +16,8 @@
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
+# soft Go heap limit at 90% of the allocation (see slurm_common.sh)
+if [[ -n "${SLURM_MEM_PER_NODE:-}" && -z "${GOMEMLIMIT:-}" ]]; then export GOMEMLIMIT="$(( SLURM_MEM_PER_NODE * 9 / 10 ))MiB"; fi
 
 module --quiet purge
 module load hosts/hopper

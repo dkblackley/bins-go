@@ -14,6 +14,11 @@
 #                                              (the closest measured dataset by size wins)
 #   3. neither                              -> the method's model / fallback, passed in by the caller
 
+# Go (pir_app) keeps garbage around until the heap doubles (GOGC=100), so a run whose live data fits can still be
+# OOM-killed. A soft limit at 90% of the Slurm allocation makes the GC work harder near it instead (results unchanged).
+# Sourced at job start, so queued jobs get it too.
+if [[ -n "${SLURM_MEM_PER_NODE:-}" && -z "${GOMEMLIMIT:-}" ]]; then export GOMEMLIMIT="$(( SLURM_MEM_PER_NODE * 9 / 10 ))MiB"; fi
+
 USAGE_FILE="${USAGE_FILE:-${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/resource_usage.tsv}"
 MEM_HEADROOM="${MEM_HEADROOM:-1.2}"      # measured on the same dataset
 TIME_HEADROOM="${TIME_HEADROOM:-1.5}"
@@ -304,7 +309,7 @@ bins_vocab() {   # dataset -> vocabulary size
 #            This is what the old model missed: it ignored bs, so vec1 at bs >= 500k OOMed, while big dpb was ~6x over.
 #   text     ~30 B per (bin, doc) slot (padded slices)
 #   vec0     the ID DB is small; base + topdocs + bins covers it
-# Time: measured runs took <= 18 s/GB (vec) and <= 42 s/GB (text), so 2x that per GB of the estimate, >= 30 min.
+# Time: measured runs took <= 18 s/GB (vec) and <= 42 s/GB (text) per GB of the estimate; 1x that, >= 30 min.
 bins_model() {   # dataset vec dpb [bs] -> "GB minutes"
     awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
         gb = 2.3 + n * 1.4e-6 + (vec != "text" ? n * 1.15e-6 : 0)
@@ -316,7 +321,7 @@ bins_model() {   # dataset vec dpb [bs] -> "GB minutes"
         if (vec == "true") gb += 3.3 * E * 768e-9
         if (vec == "text") gb += S * 30e-9
         gb *= 1.3
-        m = gb * (vec == "text" ? 1.4 : 0.6); if (m < 30) m = 30
+        m = gb * (vec == "text" ? 0.7 : 0.3); if (m < 30) m = 30   # halved 2026-11-09: runs took 6-32% of the old estimate
         printf "%.0f %d\n", gb, m }'
 }
 
