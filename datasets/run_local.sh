@@ -118,14 +118,11 @@ for d in "$@"; do
           -tiptoe-emb-hint-mb 500 -tiptoe-max-queries "${TT_MAX_QUERIES:-1000}" -outDir "$OTT" -outFile results -debug 0
     else
       echo "-- tiptoe (simulated: no ./pir_app_tiptoe)"
-      go build -o simplepir_bench ./cmd/simplepir_bench
       python3 baselines/tiptoe/simulate_tiptoe.py --dataset "$ROOT" --name "$d" --tiptoe-dir "$TT" --k "$K" \
-          --emb-hint-mb 500 --results-root "$OUT" --bench-bin ./simplepir_bench --parallelism "$(nproc)"
+          --emb-hint-mb 500 --results-root "$OUT" --parallelism "$(nproc)"
     fi
     echo "-- coeus"
-    OPT2="$HOME/opt/src/Coeus_artifact/matmult/bin/opt2"
-    OPT2_ARG=(); [[ -x "$OPT2" ]] && OPT2_ARG=(--opt2-bin "$OPT2" --parallelism "$(nproc)")
     python3 baselines/coeus/run_coeus.py --dataset "$ROOT" --name "$d" --k "$K" --features "${COEUS_F:-65536}" \
-        --tf raw --results-root "$OUT" ${OPT2_ARG[@]+"${OPT2_ARG[@]}"}
+        --tf raw --results-root "$OUT"
   fi
 done

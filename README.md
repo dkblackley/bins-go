@@ -32,13 +32,10 @@ bash run_scifact_local.sh
 > which are in **PR #8** (`claude/project-thread-ur6tb7`, still open). Sections that depend on it are marked
 > **[PR #8]**.
 
-> **Baselines: always use the real (non-simulated) versions.** For Tiptoe that's `MODE=real` (`./pir_app_tiptoe`,
-> built by `setup_baselines.sh tiptoe`); for Coeus it's `SERVER_TIME=1` (the artifact's `opt2` kernel, built by
-> `setup_baselines.sh coeus`). The slurm scripts still **default to the simulated/quality-only paths**
-> (`run_tiptoe.slurm` defaults to `MODE=sim`, `run_tiptoe_msmarco_v2.slurm` is simulation-only, `run_coeus.slurm`
-> defaults to `SERVER_TIME=0`), so every command you write or are given must set `MODE=real` / `SERVER_TIME=1`
-> explicitly. Don't use the simulator, `simplepir_bench` or `run_tiptoe_msmarco_v2.slurm` for results unless you
-> have been explicitly asked to. Agents: never hand out or change a Tiptoe/Coeus command that would use them.
+> **Baselines: quality + communication only, never server time.** Tiptoe runs the simulator (`MODE=sim`, the
+> default: exact quality, DB shapes and bytes, which give the LAN/WAN times) and Coeus runs `run_coeus.py` without
+> `opt2`. The server-time benchmarks (`simplepir_bench`, Coeus' `opt2`) took far too long and are no longer wired
+> into any script; don't add `--bench-bin` / `--opt2-bin` back. Agents: never hand out a command that uses them.
 
 ---
 
@@ -281,10 +278,10 @@ graph is built by `pir_app` on the first run of each `(neighb, steps, k)` and ca
 
 ### 4.4 Tiptoe
 
-Two modes, same output folder and keys. **Use real** (see the note at the top); sim is only a cross-check:
+Two modes, same output folder and keys. **Use sim** (see the note at the top):
 
-* **sim** (default in the slurms, don't use it for results): `baselines/tiptoe/simulate_tiptoe.py` + `./simplepir_bench`
-  (`setup_baselines.sh sim`). Exact quality and DB shapes, payload-only bytes (a lower bound), measured server time.
+* **sim** (the default): `baselines/tiptoe/simulate_tiptoe.py`. Exact quality and DB shapes, payload-only bytes (a
+  lower bound) and the LAN/WAN times from them. No server time (the `simplepir_bench` option is not used).
 * **real**: `./pir_app_tiptoe -t tiptoe` runs the upstream code (`setup_baselines.sh tiptoe`). Compile-checked only,
   so run one small config (scifact, task 0) first and compare `MRRPreReRank` with the sim run.
 
@@ -295,8 +292,7 @@ slurm scripts and `run_local.sh` run it for you; it goes to `<DATASETS_ROOT>/tip
 ### 4.5 Coeus
 
 `baselines/coeus/run_coeus.py`: exact TF-IDF quality, exact communication from the artifact's SEAL parameters, and
-server time from the artifact's own `opt2` kernel (`setup_baselines.sh coeus`; without it `TotalAnswerTime` is
-left out). **Always run it with `SERVER_TIME=1`** (the note at the top). The first run calibrates `opt2` and caches the fit next to the binary, so run one task alone first.
+the LAN/WAN times from it. No server time: the `opt2` option is not used by any script (the note at the top).
 
 ---
 
@@ -404,11 +400,11 @@ Tasks re-check their inputs at start (`SKIP ... missing <file>`, exit 0) and ski
 ### 5.4 Baselines on the cluster
 
 ```bash
-# always real Tiptoe (MODE=real) and Coeus with server time (SERVER_TIME=1), see the note at the top
+# quality + communication only (no server time), see the note at the top
 TIPTOE_DATASETS="nq dbpedia-entity fever" bash run_tiptoe.slurm --count
-MODE=real TIPTOE_DATASETS="nq dbpedia-entity fever" sbatch --array=0-<N-1>%64 --mem=64G run_tiptoe.slurm
-SERVER_TIME=1 COEUS_DATASETS="scifact msmarco nq" sbatch --array=0 --constraint=amd run_coeus.slurm       # calibrates opt2 first
-SERVER_TIME=1 COEUS_DATASETS="scifact msmarco nq" sbatch --array=1-<N-1> --constraint=amd run_coeus.slurm
+TIPTOE_DATASETS="nq dbpedia-entity fever" sbatch --array=0-<N-1>%64 run_tiptoe.slurm
+COEUS_DATASETS="scifact msmarco nq" bash run_coeus.slurm --count
+COEUS_DATASETS="scifact msmarco nq" sbatch --array=0-<N-1> run_coeus.slurm
 ```
 
 ### 5.5 Client-storage sweeps

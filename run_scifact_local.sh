@@ -84,7 +84,6 @@ if [ -x ./pir_app_tiptoe ]; then
 else
   TT_MODE=sim
   echo "no ./pir_app_tiptoe, running the Tiptoe simulator instead"
-  go build -o simplepir_bench ./cmd/simplepir_bench
 fi
 declare -A SEEN=()
 for dpc in 250 500 1000 2500 5000 10000 40000; do
@@ -111,7 +110,7 @@ for dpc in 250 500 1000 2500 5000 10000 40000; do
 -tiptoe-emb-hint-mb $hint -outDir $TT_OUT -outFile results -debug 0"
           else
             cmd="python3 baselines/tiptoe/simulate_tiptoe.py --dataset $DATASETS --name scifact --tiptoe-dir $TT --k $k \
---emb-hint-mb $hint --results-root $OUT/tiptoe --bench-bin ./simplepir_bench --parallelism $NCPU"
+--emb-hint-mb $hint --results-root $OUT/tiptoe --parallelism $NCPU"
           fi
           echo "echo '=== $name (dpc=$dpc)'; GOMAXPROCS=$THREADS OMP_NUM_THREADS=$THREADS $cmd > $LOGS/$name.log 2>&1 || echo 'FAILED $name'" >> "$JOBFILE"
         done
@@ -123,12 +122,8 @@ run_jobs tiptoe
 
 # ---------- coeus ----------
 # F x tf x k. F values past scifact's vocabulary (~28.9k terms, so F>32768) are skipped by run_coeus.py.
-# Server time comes from running opt2 once per (R, C) and caching it in opt2_calibration.json next to the binary.
-# That cache is a plain read-modify-write JSON file, so one config per F runs serially first (uncontended timing,
-# fills the cache); the parallel runs after it only read the cache.
-# --parallelism divides the single-machine opt2 time (Coeus shards across servers), it's not local threads.
-OPT2=$HOME/opt/src/Coeus_artifact/matmult/bin/opt2
-OPT2_ARG=""; [ -x "$OPT2" ] && OPT2_ARG="--opt2-bin $OPT2 --parallelism $NCPU"
+# Quality + communication only; the opt2 server-time benchmark is never run.
+OPT2_ARG=""
 for F in 8192 16384 32768 65536 131072 262144; do
   warmed=0
   for tf in raw log; do
@@ -139,7 +134,7 @@ for F in 8192 16384 32768 65536 131072 262144; do
 --results-root $OUT/coeus $OPT2_ARG"
       if [ $warmed = 0 ]; then
         warmed=1
-        echo "=== $name (serial, warms the opt2 cache)"
+        echo "=== $name (serial)"
         $cmd > $LOGS/$name.log 2>&1 || echo "FAILED $name"
       else
         echo "echo '=== $name'; OMP_NUM_THREADS=$THREADS $cmd > $LOGS/$name.log 2>&1 || echo 'FAILED $name'" >> "$JOBFILE"

@@ -16,7 +16,7 @@
 #   3. configs      every config each method's grid should produce, per dataset: done (metadata.json) /
 #                   queued (a pending or running job will write it) / crashed (folder but no metadata.json and
 #                   nothing queued for it) / not started. "crashed" + "not started" is what run_me.sh resubmits.
-#                   Tiptoe: how many results are SIMULATED (we want real ones). Coeus: how many have no server time.
+#                   Tiptoe and Coeus: quality + communication only (no server-time benchmark), so no extra flags.
 #   4. errors       the most common error lines in live logs (logs/*.err) and in the results' error.log files
 #   5. usage log    OOM / timeout entries in resource_usage.tsv (they make run_all.sh pick bigger buckets next time)
 #   6. fail files   bins_low_fails, pacman_fails, ... (tasks that exited without finishing)
@@ -196,10 +196,7 @@ for line in open(f"{out}/expected.txt"):
                 m = json.load(open(meta))
             except Exception:
                 s["bad json"] += 1; files[key].write(f"bad_json\t{folder}\t{' '.join(cfg)}\n"); continue
-            if method == "tiptoe" and str(m.get("TiptoeSimulated", "")).lower() == "true":
-                s["SIMULATED"] += 1; files[key].write(f"simulated\t{folder}\t{' '.join(cfg)}\n")
-            if method == "coeus" and "TotalAnswerTime" not in m:
-                s["no server time"] += 1; files[key].write(f"no_server_time\t{folder}\t{' '.join(cfg)}\n")
+            # simulated Tiptoe and Coeus without server time are what we want (quality + bytes / WAN only)
     elif folder in queued or (method, ds) in blocked:
         s["queued"] += 1
         files[key].write(f"queued\t{folder}\t{' '.join(cfg)}\n")
@@ -212,7 +209,7 @@ for line in open(f"{out}/expected.txt"):
 
 print(f"  {'method':8} {'dataset':15} {'expected':>8} {'done':>6} {'queued':>7} {'crashed':>8} {'not started':>12}  notes")
 for (method, ds), s in sorted(stats.items()):
-    notes = ", ".join(f"{s[k]} {k}" for k in ("SIMULATED", "no server time", "bad json") if s[k])
+    notes = f"{s['bad json']} bad json" if s["bad json"] else ""
     if method == "coeus" and s["not started"]:
         notes += (", " if notes else "") + "F past the vocabulary writes nothing (expected on small sets)"
     if method == "bins" and s["not started"]:
@@ -260,7 +257,7 @@ for f in bins_low_fails bins_high_fails pacman_fails tree_fails tiptoe_fails tip
 done
 
 hr "lists written to $OUT/"
-echo "  <method>_<dataset>_not_done.tsv : status  folder  config  [last error]   (status: crashed, queued, not_started, simulated, no_server_time)"
+echo "  <method>_<dataset>_not_done.tsv : status  folder  config  [last error]   (status: crashed, queued, not_started, bad_json)"
 echo "  e.g.  cut -f1 $OUT/bins_nq_not_done.tsv | sort | uniq -c"
 echo "        awk -F'\\t' '\$1==\"crashed\"' $OUT/bins_nq_not_done.tsv | cut -f4 | sort | uniq -c | sort -rn | head"
 echo "  After a fix: bash run_me.sh   (pulls, rebuilds pir_app if needed, resubmits crashed + not started, moves 'since')"

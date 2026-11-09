@@ -15,7 +15,7 @@
 
 # Tiptoe baseline (see baselines/README.md).
 #   MODE=sim (default) baselines/tiptoe/simulate_tiptoe.py: exact quality + exact DB shapes + payload-only bytes,
-#             server time from ./simplepir_bench. No SEAL needed.
+#             no server-time benchmark (quality + bytes + LAN/WAN only). No SEAL needed.
 #   MODE=real ./pir_app_tiptoe -t tiptoe, the real upstream protocol (needs `baselines/setup_baselines.sh tiptoe`).
 #             Slow: SimplePIR hint generation over the whole corpus, then a 32 MiB token per query.
 #
@@ -151,14 +151,11 @@ Output Dir:        $OUT_DIR
 EOF
 
 # 2) Run
-# SERVER_TIME=1 also times the SimplePIR answer with ./simplepir_bench (baselines/setup_baselines.sh sim; peaks at
-# ~2x --bench-max-gb, so submit with --mem=32G). Off by default: quality + bytes only, well under 16G.
-BENCH_ARGS=()
-[[ "${SERVER_TIME:-0}" == 1 ]] && BENCH_ARGS=(--bench-bin ./simplepir_bench --bench-max-gb 8)
+# Quality + communication (bytes -> LAN/WAN time) only. The server-time benchmark (simplepir_bench) is never run.
 if [[ "$MODE" == "sim" ]]; then
     srun python baselines/tiptoe/simulate_tiptoe.py \
         --dataset "$DATASET_DIR" --name "$dataset" --tiptoe-dir "$TT_DIR" --k "$k_val" \
-        --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" "${BENCH_ARGS[@]}" \
+        --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" \
         --parallelism "${SLURM_CPUS_PER_TASK:-1}" &
     srun_pid=$!
     wait "$srun_pid"

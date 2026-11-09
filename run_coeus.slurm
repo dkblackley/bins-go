@@ -21,10 +21,9 @@
 #   2 datasets x 6 F x 2 tf x 2 k = 48 tasks. Configs with F past the vocabulary exit without writing anything
 #   (they'd duplicate a smaller F with extra upload), so scifact produces fewer results.
 #
-# Server time is OFF by default: quality + communication only, which needs no opt2 build and fits in 32G / 6 h for
-# everything up to msmarco (postings ~12 B per (doc, term): ~5 GB on msmarco). SERVER_TIME=1 adds Coeus' opt2 time;
-# then submit with --constraint=amd, run task 0 alone first (it calibrates opt2, the 2x2 run needs ~7 GB) so the
-# others reuse the cache, and for msmarco-v2 (~50 GB of postings) add --mem=120G --time=2-00:00:00.
+# Quality + communication (bytes -> LAN/WAN time) only: the opt2 server-time benchmark is never run. Fits in 32G / 6 h
+# up to msmarco (postings ~12 B per (doc, term): ~5 GB on msmarco); msmarco-v2 (~50 GB) needs --mem=120G
+# --time=2-00:00:00.
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
@@ -60,9 +59,6 @@ features=${F_ARR[$task_id]}
 tf=${TF_ARR[$task_id]}
 k_val=${K_ARR[$task_id]}
 
-TIME_ARGS=()
-[[ "${SERVER_TIME:-0}" == 1 ]] && TIME_ARGS=(--opt2-bin "$HOME/opt/src/Coeus_artifact/matmult/bin/opt2")
-
 echo "Coeus: dataset=$dataset F=$features tf=$tf k=$k_val"
 python baselines/coeus/run_coeus.py \
     --dataset "$DATASET_DIR" \
@@ -71,5 +67,4 @@ python baselines/coeus/run_coeus.py \
     --features "$features" \
     --tf "$tf" \
     --results-root "${RESULTS_ROOT:-/scratch/dblackle/results}" \
-    "${TIME_ARGS[@]}" \
     --parallelism "${SLURM_CPUS_PER_TASK:-1}"

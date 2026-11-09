@@ -126,7 +126,7 @@ for hint in 125 500; do
         echo "=== hint=$hint k=$k -> $OUT_DIR"
         python baselines/tiptoe/simulate_tiptoe.py \
             --dataset "$DATASET_DIR" --name "$dataset" --tiptoe-dir "$TT_DIR" --k "$k" \
-            --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" --bench-bin ./simplepir_bench --bench-max-gb 8 \
+            --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" \
             --parallelism "${SLURM_CPUS_PER_TASK:-1}" &
         child=$!
         wait "$child"
