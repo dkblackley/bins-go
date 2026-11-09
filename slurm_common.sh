@@ -175,19 +175,42 @@ bins_missing() {   # dataset [vec] -> the first missing input of pir_app -t bins
     done
 }
 
-# Model until measured: bins keeps every vocab word's top-dpb doc IDs in RAM while building the bins
-# (~30 B per ID; ~4x that with -vectors=true, matching where the old high tier started: dpb>=1000 vs >=250),
-# plus the corpus vectors twice (fp32 load + PIR copy). Vocab ~2.9M words for msmarco, growing as docs^0.6.
-# Calibrated so the worst old low-tier msmarco config (dpb 750) comes out just under 100 GB with headroom (it ran in 120 GB).
-# Time: msmarco runs took minutes to 2 h, so 2 h scaled by the RAM estimate, x2 since unmeasured, >= 20 min.
-# -text: no vectors; instead ~110 B per doc of compressed text + slice header, and the bin entries themselves,
-# ~75 B per (bin, doc) slot (MS MARCO-like passages; longer docs, e.g. scifact, cost more). Measured runs replace it.
+# Vocabulary size: VocabSize from any finished bins run of this dataset (every run writes it to metadata.json),
+# else extrapolated from nq (824,171 words at 2.68M docs; msmarco has 1.16M at 8.8M, i.e. ~docs^0.3).
+declare -A _VOCAB=()
+bins_vocab() {   # dataset -> vocabulary size
+    if [[ -z "${_VOCAB[$1]:-}" ]]; then
+        local f v=""
+        f=$(ls -d "${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}"/bins_*_"$1"_k*/metadata.json 2>/dev/null | head -1)
+        [[ -n "$f" ]] && v=$(grep -oE '"VocabSize": *"?[0-9]+' "$f" | grep -oE '[0-9]+$' | head -1)
+        [[ -n "$v" ]] || v=$(awk -v n="$(dataset_docs "$1")" 'BEGIN { printf "%d", 824171 * (n / 2681468) ^ 0.3 }')
+        _VOCAB[$1]=$v
+    fi
+    echo "${_VOCAB[$1]}"
+}
+
+# Model until measured, fitted to 427 nq + msmarco runs (2026-11-08; model/peak 0.8-2.1, median 1.2; with the 1.3x
+# below it covers every successful run and 22 of the 23 OOMs of the old model). Peak RSS in GB:
+#   base     2.3 + 1.4 KB/doc (corpus, index reader), + 1.15 KB/doc more with embeddings (vec0/vec1)
+#   topdocs  every word's top-dpb doc IDs, ~27 B each: V x dpb x 27 B (x2 for text)
+#   bins     ~1 KB per bin (bs)
+#   vec1 DB  3.3x the PIR DB of 768 B entries. Entries = bs x dpb until the bins run out of distinct (word, doc) pairs,
+#            T = 1.66 V sqrt(dpb) (x sqrt of docs-per-word relative to nq): E = S (1 - exp(-T/S)), S = bs x dpb.
+#            This is what the old model missed: it ignored bs, so vec1 at bs >= 500k OOMed, while big dpb was ~6x over.
+#   text     ~30 B per (bin, doc) slot (padded slices)
+#   vec0     the ID DB is small; base + topdocs + bins covers it
+# Time: measured runs took <= 18 s/GB (vec) and <= 42 s/GB (text), so 2x that per GB of the estimate, >= 30 min.
 bins_model() {   # dataset vec dpb [bs] -> "GB minutes"
-    awk -v n="$(dataset_docs "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
-        V = 2.9e6 * (n / 8841823) ^ 0.6; per = (vec == "true") ? 120 : 30
-        if (vec == "text") gb = (V * dpb * per + n * 110 + bs * dpb * 75) / 1e9 * 1.2 + 2
-        else               gb = (V * dpb * per + n * 192 * 4 * 2) / 1e9 * 1.2 + 2
-        m = 2 * 120 * gb / 100; if (m < 20) m = 20
+    awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
+        gb = 2.3 + n * 1.4e-6 + (vec != "text" ? n * 1.15e-6 : 0)
+        gb += V * dpb * 27e-9 * (vec == "text" ? 2 : 1) + bs * 1e-6
+        S = bs * dpb; dpw = (n / V) / 3.25; if (dpw < 1) dpw = 1
+        T = 1.66 * V * sqrt(dpb) * sqrt(dpw)
+        E = (S > 0) ? S * (1 - exp(-T / S)) : 0
+        if (vec == "true") gb += 3.3 * E * 768e-9
+        if (vec == "text") gb += S * 30e-9
+        gb *= 1.3
+        m = gb * (vec == "text" ? 1.4 : 0.6); if (m < 30) m = 30
         printf "%.0f %d\n", gb, m }'
 }
 
@@ -198,7 +221,7 @@ bins_plan() {
     local d k bs dpb vec
     while read -r d k bs dpb vec; do
         [[ -n "$d" ]] || continue
-        local mk="$d.$vec.$dpb"; [[ $vec == text ]] && mk+=".$bs"   # the text model depends on bs too
+        local mk="$d.$vec.$dpb.$bs"   # the model depends on bs for every mode
         [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs")
         local fb=(${model[$mk]})
         local est; est=$(estimate_resources bins "$d" "$(bins_config_key "$vec" "$k" "$bs" "$dpb")" "${fb[0]}" "${fb[1]}")

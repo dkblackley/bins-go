@@ -325,7 +325,8 @@ For `bins` and `tree`, `run_all.sh` doesn't submit one big array with a worst-ca
 3. **Estimates** memory and time per config (`slurm_common.sh`):
    * measured before on this dataset: peak RSS x1.2 (+1 GB), wall time x1.5 (+10 min)
    * measured on another dataset: scaled by the docs ratio (memory^1.0 tree, ^0.8 bins; time^1.0), x1.5
-   * never measured: a model (`tree_mem_gb` from the DB size, `bins_model` from vocab x docs-per-bin)
+   * never measured: a model (`tree_mem_gb` from the DB size; `bins_model` fitted to 427 nq/msmarco runs: vocab x
+     docs-per-bin for the top-doc lists, plus the PIR DB, which grows with binSize x docsPerBin until it saturates)
 4. **Groups** configs into memory buckets (16/32/64/100/250/500/1000/1500 GB) x time buckets (1/2/4/6/12/24/48 h),
    and submits one array per group with exactly that `--mem`/`--time`. ≤100 GB goes to `normal`, above to `bigmem`
    (bins: `run_bins_low.slurm` / `run_bins_high.slurm`; tree: `run_tree_pir_old.slurm` for both). Configs
