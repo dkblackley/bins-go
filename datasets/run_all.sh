@@ -27,6 +27,7 @@
 # and client storage; every timing -1) into $RESULTS_DIR, default /scratch/$USER/results_simulated, with their own
 # usage log and smaller first estimates (slurm_common.sh). The data stages and tiptoe/coeus are skipped then.
 #   SIMULATE=1 STAGES=tree bash datasets/run_all.sh nq dbpedia-entity fever msmarco
+# MAX_GB=n skips every bins/tree group estimated above n GB (e.g. MAX_GB=100: only the normal partition).
 #
 # GPU=<profile> sends the embed jobs to another GPU queue instead of embed.slurm's DGX A100.40gb (fp16, short time
 # limits, 32 GB RAM, so they backfill sooner; a job that hits its limit requeues itself and resumes). Run it next to a series that's already queued: whichever embed finishes
@@ -153,6 +154,9 @@ submit_groups() {
             done)    echo "  $method  SKIPPED $min of $total configs: already finished (metadata.json; FORCE=1 reruns them)"; continue ;;
             queued)  echo "  $method  SKIPPED $min of $total configs: a job in the queue already runs them"; continue ;;
         esac
+        if [[ -n "${MAX_GB:-}" ]] && (( ${gb%.*} > MAX_GB )); then   # MAX_GB=n: leave the biggest configs for later
+            echo "  $method  SKIPPED $n configs: estimated ${gb}G, above MAX_GB=$MAX_GB"; continue
+        fi
         local part script
         part=$(partition_for "$gb"); [[ $part == normal ]] && script=$s_normal || script=$s_big
         for (( off = 0; off < n; off += chunk )); do
