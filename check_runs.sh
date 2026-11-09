@@ -41,15 +41,42 @@ squeue -u "$USER" -h -r -o "%j|%T|%r" 2>/dev/null \
 echo "  DependencyNeverSatisfied = something it waits on failed: fix it, scancel these, re-run run_all.sh"
 
 # ---------------------------------------------------------------------------------------------- 2. failed jobs
-hr "2. jobs that didn't complete since $SINCE (sacct; up to 4 example ids each)"
-sacct -u "$USER" -S "$SINCE" -X -n -P -o JobID,JobName,State,ExitCode 2>/dev/null \
-  | awk -F'|' '{ st = $3; sub(/ .*/, "", st) }
-      st !~ /^(COMPLETED|RUNNING|PENDING|REQUEUED|RESIZING)$/ {
-        k = $2 "|" st; n[k]++; if (n[k] <= 4) ex[k] = ex[k] " " $1 }
-      END { for (k in n) { split(k, a, "|"); printf "  %-36s %-14s %6d  e.g.%s\n", a[1], a[2], n[k], ex[k] } }' | sort \
-  || echo "  (sacct not available)"
-echo "  look at one: sacct -j <id> -o JobID,State,ExitCode,MaxRSS,ReqMem,Elapsed,Timelimit ; seff <id>"
-echo "  its log: logs/<Bins|Pacmann|Tree|Tiptoe|Coeus>_<arrayjob>_<task>.err (moved into the results folder when it finishes)"
+hr "2. jobs that didn't complete since $SINCE (sacct; ALL_JOBS=1 also shows other projects' jobs)"
+JOBS_RE='^(bins|pacmann|tree|treedb|binsidx|prep|emb|pca|merge|import|Bins|Pacmann|Tree|Tiptoe|Coeus)'
+[[ -n "${ALL_JOBS:-}" ]] && JOBS_RE='.'
+sacct -u "$USER" -S "$SINCE" -X -n -P -o JobID,JobName,State,ExitCode,End 2>/dev/null \
+  | awk -F'|' -v re="$JOBS_RE" '$2 ~ re { st = $3; sub(/ .*/, "", st)
+        if (st ~ /^(COMPLETED|RUNNING|PENDING|REQUEUED|RESIZING)$/) next
+        k = $2 "|" st; n[k]++; if ($5 >= last[k]) { last[k] = $5; id[k] = $1 } }
+      END { for (k in n) { split(k, a, "|"); printf "%s|%s|%d|%s|%s\n", a[1], a[2], n[k], id[k], last[k] } }' \
+  | sort > "$OUT/failed_jobs.txt"
+if [[ ! -s "$OUT/failed_jobs.txt" ]]; then
+    echo "  none (or sacct not available)"
+else
+    printf '  %-34s %-14s %6s  %-16s %s\n' "job name" "state" "count" "newest" "ended"
+    while IFS='|' read -r name st n id end; do
+        printf '  %-34s %-14s %6d  %-16s %s\n' "$name" "$st" "$n" "$id" "$end"
+    done < "$OUT/failed_jobs.txt"
+    echo "  CANCELLED is normally you (scancel) or a dependency that failed; FAILED / OUT_OF_MEMORY / TIMEOUT are real."
+    echo
+    echo "  last lines of the newest FAILED / OUT_OF_MEMORY / TIMEOUT task of each group (its log in logs/):"
+    while IFS='|' read -r name st n id end; do
+        [[ $st == FAILED || $st == OUT_OF_MEMORY || $st == TIMEOUT ]] || continue
+        case $name in bins_*) pre=Bins;; pacmann_*) pre=Pacmann;; tree_*) pre=Tree;; Tiptoe*) pre=Tiptoe;;
+                      Coeus*) pre=Coeus;; *) continue;; esac
+        [[ $id == *_* && $id != *\[* ]] || continue
+        echo "  -- $name $st  (newest: $id, ended $end)"
+        found=""
+        for f in "logs/${pre}_${id}.err" "logs/${pre}_${id}.out"; do
+            [[ -s $f ]] || continue; found=1
+            tail -c 65536 "$f" | grep -vE '^\s*$|record_usage' | tail -n 6 | cut -c1-220 | sed "s|^|     ${f##*/}: |"
+        done
+        [[ -n $found ]] || echo "     (no logs/${pre}_${id}.{out,err}: it finished its cleanup, look in its results folder's error.log)"
+    done < "$OUT/failed_jobs.txt"
+fi
+echo "  more on one task: sacct -j <id> -o JobID,State,ExitCode,MaxRSS,ReqMem,Elapsed,Timelimit ; seff <id> ;"
+echo "                    less logs/<Bins|Pacmann|Tree|Tiptoe|Coeus>_<id>.err"
+echo "  Was it fixed since? Compare 'ended' with the last code change: git log -3 --format='%h %ci %s'"
 
 # ------------------------------------------------------------------------------------- 3. expected vs finished
 # one line per expected config: method dataset results_folder config...
@@ -116,12 +143,14 @@ def last_error(folder):
         p = os.path.join(folder, name)
         if not os.path.exists(p):
             continue
-        with open(p, errors="replace") as f:
-            lines = [l.strip() for l in f.readlines()[-300:] if l.strip()]
+        with open(p, "rb") as f:
+            f.seek(max(0, os.path.getsize(p) - 65536))
+            lines = [l.strip() for l in f.read().decode("utf-8", "replace").splitlines()
+                     if l.strip() and not l.startswith("record_usage")]
         hits = [l for l in lines if ERR.search(l)]
         if hits or lines:
             return (hits or lines)[-1][:200]
-    return "(no log in the folder: task died before writing one, or is still running)"
+    return "(no log in the folder yet: its log is still in logs/, see section 2; or it is still running)"
 
 stats = defaultdict(lambda: defaultdict(int))
 files = {}
@@ -180,10 +209,10 @@ hr "4. most common error lines since $SINCE (live logs/*.err + results */error.l
 { find logs -maxdepth 1 -name '*.err' -newermt "$SINCE" -size +0 2>/dev/null
   find "$RES" "$BRES" -mindepth 2 -maxdepth 3 -name error.log -newermt "$SINCE" -size +0 2>/dev/null; } | sort -u > "$OUT/error_files.txt"
 echo "  $(wc -l < "$OUT/error_files.txt") non-empty error logs (list: $OUT/error_files.txt)"
-xargs -r -d '\n' grep -hiE 'panic:|Traceback|^[A-Za-z]*Error|error:|Killed|oom|out of memory|DUE TO TIME LIMIT|CANCELLED|Segmentation|fatal' \
-    < "$OUT/error_files.txt" 2>/dev/null \
+while IFS= read -r f; do tail -c 65536 "$f" 2>/dev/null; echo; done < "$OUT/error_files.txt" \
+  | grep -aiE 'panic:|Traceback|^[A-Za-z]*Error|error:|Killed|oom|out of memory|DUE TO TIME LIMIT|CANCELLED|Segmentation|fatal' \
   | sed -E 's/[0-9]+/N/g' | cut -c1-150 | sort | uniq -c | sort -rn | head -20
-echo "  which files: xargs -d '\\n' grep -l '<text>' < $OUT/error_files.txt"
+echo "  which files: xargs -d '\\n' grep -l '<text>' < $OUT/error_files.txt | head"
 
 # ------------------------------------------------------------------------------------------------ 5. usage log
 hr "5. OOM / timeout entries in ${USAGE_FILE:-$RES/resource_usage.tsv}"
