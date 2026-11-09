@@ -57,7 +57,7 @@ echo "  DependencyNeverSatisfied = something it waits on failed: fix it, scancel
 
 # ---------------------------------------------------------------------------------------------- 2. failed jobs
 hr "2. jobs that ended without completing since $SINCE (sacct; ALL_JOBS=1 also shows other projects' jobs)"
-JOBS_RE='^(bins|pacmann|tree|treedb|binsidx|prep|emb|pca|merge|import|Bins|Pacmann|Tree|Tiptoe|Coeus)'
+JOBS_RE='^(bins|pacmann|tree|treedb|binsidx|prep|emb|pca|merge|import|tiptoe|coeus|Bins|Pacmann|Tree|Tiptoe|Coeus)'
 [[ -n "${ALL_JOBS:-}" ]] && JOBS_RE='.'
 sacct -u "$USER" -S "$SINCE" -X -n -P -o JobID,JobName,State,ExitCode,End 2>/dev/null \
   | awk -F'|' -v re="$JOBS_RE" -v since="$SINCE" '$2 ~ re { st = $3; sub(/ .*/, "", st)
@@ -78,8 +78,8 @@ else
     echo "  last lines of the newest FAILED / OUT_OF_MEMORY / TIMEOUT task of each group (its log in logs/):"
     while IFS='|' read -r name st n id end; do
         [[ $st == FAILED || $st == OUT_OF_MEMORY || $st == TIMEOUT ]] || continue
-        case $name in bins_*) pre=Bins;; pacmann_*) pre=Pacmann;; tree_*) pre=Tree;; Tiptoe*) pre=Tiptoe;;
-                      Coeus*) pre=Coeus;; *) continue;; esac
+        case $name in bins_*) pre=Bins;; pacmann_*) pre=Pacmann;; tree_*) pre=Tree;; tiptoe_msmarco-v2*|Tiptoe_MSv2) pre=TiptoeV2;;
+                      tiptoe_*|Tiptoe*) pre=Tiptoe;; coeus_*|Coeus*) pre=Coeus;; *) continue;; esac
         [[ $id == *_* && $id != *\[* ]] || continue
         echo "  -- $name $st  (newest: $id, ended $end)"
         found=""
@@ -113,7 +113,7 @@ for d in $DATASETS; do
         done; done; done
     fi
     if has tree; then
-        tag=""; [[ "${TREE_CUCKOO_HASHES:-2}" != 2 || "${TREE_CUCKOO_LF:-0.4}" != 0.4 ]] && tag="h${TREE_CUCKOO_HASHES:-2}_lf${TREE_CUCKOO_LF:-0.4}/"
+        tag=$( source ./slurm_common.sh >/dev/null 2>&1; tree_cuckoo_tag "$d" )
         DATASET="$d" SWEEP="${SWEEP:-all}" bash tree_sweep_grid.sh --list 2>/dev/null |
         while read -r _ ds B r s L q c; do
             B=${B#B=}; r=${r#r=}; s=${s#s=}; L=${L#L=}; q=${q#q=}; c=${c#c=}

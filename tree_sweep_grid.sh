@@ -146,9 +146,10 @@ TREE_MEM_CAL="${TREE_MEM_CAL:-0.75}"
 declare -A _TREE_MEM=()
 
 tree_mem_gb() {   # dataset B r s -> estimated GB (integer)
-    local key="$1|$2|$3|$4|${TREE_CUCKOO_LF:-0.4}"
+    local _h lf; read -r _h lf <<< "$(tree_cuckoo "$1")"
+    local key="$1|$2|$3|$4|$lf"
     if [[ -z "${_TREE_MEM[$key]:-}" ]]; then
-        _TREE_MEM[$key]=$(awk -v d="$1" -v B="$2" -v r="$3" -v s="$4" -v sizes="$DATASET_SIZES" -v cal="$TREE_MEM_CAL" -v lf="${TREE_CUCKOO_LF:-0.4}" '
+        _TREE_MEM[$key]=$(awk -v d="$1" -v B="$2" -v r="$3" -v s="$4" -v sizes="$DATASET_SIZES" -v cal="$TREE_MEM_CAL" -v lf="$lf" '
         function ppn(x,   i, lx) {   # (term,node) rows per node holding x docs, msmarco-like text
             lx = log(x)
             if (lx <= LX[1]) return exp(LY[1] + (lx - LX[1]) * (LY[2] - LY[1]) / (LX[2] - LX[1]))
@@ -182,9 +183,10 @@ tree_mem_gb() {   # dataset B r s -> estimated GB (integer)
 # x2 because it is unmeasured, at least 30 min.
 tree_model_minutes() { awk -v g="$1" 'BEGIN { m = 2 * 45 * g / 62; printf "%d\n", (m < 30 ? 30 : m) }'; }
 
-tree_config_key() {   # B r s L q c -> config name used in the usage log (cuckoo settings included)
-    local tag=""
-    [[ "${TREE_CUCKOO_HASHES:-2}" != 2 || "${TREE_CUCKOO_LF:-0.4}" != 0.4 ]] && tag="_h${TREE_CUCKOO_HASHES:-2}lf${TREE_CUCKOO_LF:-0.4}"
+tree_config_key() {   # B r s L q c [dataset] -> config name used in the usage log (cuckoo settings included)
+    local tag="" h lf
+    read -r h lf <<< "$(tree_cuckoo "${7:-}")"
+    [[ "$h" != 2 || "$lf" != 0.4 ]] && tag="_h${h}lf${lf}"
     echo "b$1_r$2_s$3_L$4_q$5_c$6${tag}"
 }
 
@@ -236,7 +238,7 @@ tree_plan() {
     for i in "${!DATA_ARR[@]}"; do
         local d=${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]}
         # already finished (same folder name as run_tree_pir_old.slurm): counted by group_plan, not submitted
-        local tag=""; [[ "${TREE_CUCKOO_HASHES:-2}" != 2 || "${TREE_CUCKOO_LF:-0.4}" != 0.4 ]] && tag="h${TREE_CUCKOO_HASHES:-2}_lf${TREE_CUCKOO_LF:-0.4}/"
+        local tag; tag=$(tree_cuckoo_tag "$d")
         local od="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/${tag}tree_grid_${d}_b${B}_r${r}_s${s}_L${L_ARR[$i]}_q${QWORDS_ARR[$i]}_c${KCAND_ARR[$i]}_k10"
         if [[ -z "${FORCE:-}" && -s "$od/metadata.json" ]]; then
             echo "$d $B $r $s ${L_ARR[$i]} ${QWORDS_ARR[$i]} ${KCAND_ARR[$i]} ${MAX_Q_ARR[$i]} 0 0 - done"; continue
@@ -246,7 +248,7 @@ tree_plan() {
         fi
         local gb; gb=$(tree_mem_gb "$d" "$B" "$r" "$s")
         local fb_gb; fb_gb=$(awk -v g="$gb" 'BEGIN { printf "%.0f", g * 1.2 }')
-        local est; est=$(estimate_resources tree "$d" "$(tree_config_key "$B" "$r" "$s" "${L_ARR[$i]}" "${QWORDS_ARR[$i]}" "${KCAND_ARR[$i]}")" \
+        local est; est=$(estimate_resources tree "$d" "$(tree_config_key "$B" "$r" "$s" "${L_ARR[$i]}" "${QWORDS_ARR[$i]}" "${KCAND_ARR[$i]}" "$d")" \
                          "$fb_gb" "$(tree_model_minutes "$gb")")
         local m="-"
         if [[ "${CHECK_INPUTS:-1}" == 1 ]]; then

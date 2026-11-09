@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-08:00:00             # 2 h timed out in k-means + bundling on nq (tasks also wait on the shared lock)
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
 #SBATCH --array=0-895%64

@@ -40,17 +40,23 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
 DATASET_DIR="${DATASET_DIR:-../../datasets}"
 RESULTS_ROOT="${RESULTS_ROOT:-/scratch/dblackle/results}"
-TIPTOE_V2_DATASETS="${TIPTOE_V2_DATASETS:-msmarco-v2-50m msmarco-v2}"
+TIPTOE_V2_DATASETS="${TIPTOE_V2_DATASETS:-msmarco-v2-25m msmarco-v2-50m msmarco-v2}"
 
 # One line per task: dataset N clusters dpc ma bundle (clusters = preprocess_tiptoe.py's own rule, deduplicated)
 mapfile -t TASKS < <(python3 - "$DATASET_DIR" $TIPTOE_V2_DATASETS <<'EOF'
-import os, sys
+import os, re, sys
 root, names = sys.argv[1], sys.argv[2:]
 for d in names:
     f = os.path.join(root, d, "num_docs.txt")
-    if not os.path.exists(f):
+    sub = re.fullmatch(r"msmarco-v2-(\d+)m", d)
+    if os.path.exists(f):
+        n = int(open(f).read().split()[0])
+    elif sub:   # a subsample that isn't prepared yet (run_all.sh submits this behind its prep job): exactly N million
+        n = int(sub.group(1)) * 1_000_000
+    elif d == "msmarco-v2":
+        n = 138_364_198
+    else:
         sys.exit(f"No {f}, run datasets/prep_datasets.slurm for {d} first")
-    n = int(open(f).read().split()[0])
     seen = set()
     for dpc in (250, 500, 1000, 2500, 5000, 10000, 40000):
         c = min(max(1, round(n / dpc)), 25196)        # TIPTOE_MAX_CLUSTERS
@@ -74,8 +80,7 @@ module --quiet purge
 module load hosts/hopper
 module load gnu9/9.3.0
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
-source /home/dblackle/miniconda3/etc/profile.d/conda.sh
-conda activate main
+source datasets/env.sh     # conda env main (same as run_tiptoe.slurm; the old hard-coded miniconda3 path doesn't exist)
 
 FAIL_FILE="${SLURM_SUBMIT_DIR:-$PWD}/tiptoe_v2_fails"
 finished=0

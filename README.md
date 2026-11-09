@@ -316,7 +316,9 @@ Environment knobs: `DATASETS_ROOT` (default `../datasets`), `SWEEP` (tree grid),
 processes), `NUM_SHARDS` (big embeddings), `MAX_ARRAY` (default 1000, chunk size for arrays),
 `RESULTS_DIR` (default `/scratch/$USER/results`). **[PR #8]** `BINS_VECS` (default `true false text`).
 
-`run_all.sh` does **not** queue Tiptoe or Coeus; submit those by hand (5.4).
+`run_all.sh` queues Tiptoe and Coeus only when asked: `STAGES="... tiptoe coeus"` (simulated Tiptoe, no server time;
+msmarco-v2* use `run_tiptoe_msmarco_v2.slurm`; both wait for the dataset's prep/embed jobs). The msmarco-v2 tree
+defaults to the smaller Cuckoo tables (3 hashes, LF 0.88, `tree_cuckoo` in `slurm_common.sh`).
 
 Re-running `run_all.sh` only submits what's left: configs with a `metadata.json` are skipped, and so are configs a
 pending or running job already covers (`queued_dirs` in `slurm_common.sh` maps each queued array task to its config

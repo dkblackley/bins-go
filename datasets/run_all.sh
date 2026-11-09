@@ -15,6 +15,10 @@
 #   bins     bins grid, high + low tiers         run_bins_high.slurm, run_bins_low.slurm (after embed + bins-index)
 #   pacmann  pacmann grid                        run_pacmann.slurm                       (after embed)
 #   tree     tree grid                           run_tree_pir_old.slurm                  (after tree-db)
+#   tiptoe   Tiptoe baseline (simulated: quality + bytes, no server time)                     (after embed)
+#            run_tiptoe.slurm, or run_tiptoe_msmarco_v2.slurm for msmarco-v2*. Not in the default STAGES.
+#   coeus    Coeus baseline (quality + bytes, no server time) run_coeus.slurm               (after prep)
+#            Not in the default STAGES. Both skip configs that already have a metadata.json.
 #            SWEEP=legacy|oat|grid|all picks the tree grid (tree_sweep_grid.sh, default all). msmarco/scifact
 #            already have their data, so for them use STAGES="tree-db tree". Tree runs are split by estimated RAM:
 #            <=100 GB on the normal partition, 250/500/1000/1500 GB on bigmem, one job array per bucket.
@@ -230,6 +234,31 @@ submit_dataset() {
         ( DATASET="$d" SWEEP="${SWEEP:-all}" CHECK_INPUTS=$(inputs_pending "$prep $embed $treedb" && echo 0 || echo 1) \
             bash tree_sweep_grid.sh --plan ) > "$plan"
         submit_groups tree "$d" "$plan" "$treedb $embed" run_tree_pir_old.slurm run_tree_pir_old.slurm
+    fi
+
+    if has tiptoe; then
+        local n
+        if [[ "$d" == msmarco-v2* ]]; then
+            n=$(env TIPTOE_V2_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_tiptoe_msmarco_v2.slurm --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0)
+            echo "  tiptoe   $(submit "$embed" --export=ALL,TIPTOE_V2_DATASETS="$d" --array=0-$((n - 1))%8 \
+                 --job-name="tiptoe_$d$SFX" run_tiptoe_msmarco_v2.slurm) ($n preprocessed DBs x 4 configs)"
+        else
+            n=$(count_of TIPTOE_DATASETS="$d" run_tiptoe.slurm)
+            echo "  tiptoe   $(submit "$embed" --export=ALL,TIPTOE_DATASETS="$d" --array=0-$((n - 1))%64 \
+                 --job-name="tiptoe_$d$SFX" run_tiptoe.slurm) ($n tasks)"
+        fi
+    fi
+
+    if has coeus; then
+        # postings ~12 B per (doc, term): ~5 GB on msmarco, ~50 GB on msmarco-v2; tokenising 138M docs takes hours
+        local n res=()
+        n=$(count_of COEUS_DATASETS="$d" run_coeus.slurm)
+        case $d in
+            msmarco-v2)     res=(--mem=120G --time=2-00:00:00) ;;
+            msmarco-v2-*)   res=(--mem=64G --time=1-00:00:00) ;;
+        esac
+        echo "  coeus    $(submit "$embed" --export=ALL,COEUS_DATASETS="$d" --array=0-$((n - 1)) "${res[@]}" \
+             --job-name="coeus_$d$SFX" run_coeus.slurm) ($n tasks)"
     fi
 }
 

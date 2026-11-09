@@ -59,6 +59,8 @@ features=${F_ARR[$task_id]}
 tf=${TF_ARR[$task_id]}
 k_val=${K_ARR[$task_id]}
 
+OUT="${RESULTS_ROOT:-/scratch/dblackle/results}/coeus_${dataset}_k${k_val}_f${features}_tf${tf}"
+if [[ -s "$OUT/metadata.json" && -z "${FORCE:-}" ]]; then echo "Already done: $OUT (FORCE=1 reruns)"; exit 0; fi
 echo "Coeus: dataset=$dataset F=$features tf=$tf k=$k_val"
 python baselines/coeus/run_coeus.py \
     --dataset "$DATASET_DIR" \

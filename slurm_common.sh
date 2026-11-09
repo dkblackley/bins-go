@@ -151,6 +151,19 @@ estimate_resources() {
     echo "$fb_gb $fb_min model"
 }
 
+# ------------------------------------------------------------------------------------------ tree Cuckoo settings
+# msmarco-v2 (138M) needs the smaller Cuckoo tables (3 hashes, load factor 0.88, ~half of Stage 1/2), so that is its
+# default; every other dataset uses 2 / 0.4. TREE_CUCKOO_HASHES / TREE_CUCKOO_LF override it for every dataset.
+tree_cuckoo() {   # dataset -> "hashes load_factor"
+    local h="${TREE_CUCKOO_HASHES:-}" lf="${TREE_CUCKOO_LF:-}"
+    if [[ -z "$h" && -z "$lf" && "$1" == msmarco-v2 ]]; then h=3; lf=0.88; fi
+    echo "${h:-2} ${lf:-0.4}"
+}
+tree_cuckoo_tag() {   # dataset -> "h3_lf0.88/" (results sub-folder) or nothing for the default 2 / 0.4
+    local h lf; read -r h lf <<< "$(tree_cuckoo "$1")"
+    if [[ "$h" != 2 || "$lf" != 0.4 ]]; then echo "h${h}_lf${lf}/"; fi
+}
+
 # ------------------------------------------------------------------------------------------ queued configs
 # Which result folders a job in the queue (pending or running) will write, so datasets/run_all.sh and run_me.sh
 # don't submit them a second time and check_runs.sh can tell "queued" apart from "crashed".
@@ -183,9 +196,13 @@ queued_dirs() {
         if [[ -z "$list" || ! -f "$list" ]]; then echo "?	$m	$d	$jid"; continue; fi
         echo "L	$m	$list	$(( off + task + 1 ))	${jid}_$task"
     done | awk -F'\t' -v res="$res" -v tf="${TEXT_FORMAT:-bow}" -v to="${TEXT_ORDER:-3}" \
-                -v ch="${TREE_CUCKOO_HASHES:-2}" -v clf="${TREE_CUCKOO_LF:-0.4}" '
-    BEGIN { split("5 10 15 20 25 30", ST, " "); split("8 16 24 32 40 48", NB, " ")
-            ttag = (ch != 2 || clf != 0.4) ? "h" ch "_lf" clf "/" : "" }
+                -v ch="${TREE_CUCKOO_HASHES:-}" -v clf="${TREE_CUCKOO_LF:-}" '
+    function ttag(d,   h, l) {   # same rule as tree_cuckoo_tag
+        h = ch; l = clf
+        if (h == "" && l == "" && d == "msmarco-v2") { h = 3; l = 0.88 }
+        if (h == "") h = 2; if (l == "") l = 0.4
+        return (h != 2 || l != 0.4) ? "h" h "_lf" l "/" : "" }
+    BEGIN { split("5 10 15 20 25 30", ST, " "); split("8 16 24 32 40 48", NB, " ") }
     $1 == "?" { print; next }
     $1 == "P" { i = $3 + 0; k = (i < 36) ? 10 : 100; i %= 36
                 printf "%s/pacmann_%s_k%d_steps%d_neighb%d\t%s\n", res, $2, k, ST[int(i / 6) + 1], NB[i % 6 + 1], $4; next }
@@ -198,7 +215,7 @@ queued_dirs() {
             sfx = (f[5] == "text" && (tf != "bow" || to != 3)) ? "_" tf "o" to : ""
             printf "%s/bins%s_%s_k%s_bs%s_dpb%s%s\t%s\n", res, t, f[1], f[2], f[3], f[4], sfx, $5
         } else
-            printf "%s/%stree_grid_%s_b%s_r%s_s%s_L%s_q%s_c%s_k10\t%s\n", res, ttag, f[1], f[2], f[3], f[4], f[5], f[6], f[7], $5
+            printf "%s/%stree_grid_%s_b%s_r%s_s%s_L%s_q%s_c%s_k10\t%s\n", res, ttag(f[1]), f[1], f[2], f[3], f[4], f[5], f[6], f[7], $5
     }'
 }
 
