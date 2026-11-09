@@ -18,6 +18,7 @@ set -uo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 ROOT="${DATASETS_ROOT:-../datasets}"
 [[ $# -gt 0 ]] || { sed -n 10,17p "$0"; exit 1; }
+source datasets/env.sh   # conda env + HF_HOME, so query_preproc.py finds e5-base-v2 in the cache on a compute node
 python=python3; command -v python3 >/dev/null || python=python
 for d in "$@"; do
     echo "== $d"

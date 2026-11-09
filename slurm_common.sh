@@ -206,7 +206,8 @@ bins_model() {   # dataset vec dpb [bs] -> "GB minutes"
         gb += V * dpb * 27e-9 * (vec == "text" ? 2 : 1) + bs * 1e-6
         S = bs * dpb; dpw = (n / V) / 3.25; if (dpw < 1) dpw = 1
         T = 1.66 * V * sqrt(dpb) * sqrt(dpw)
-        E = (S > 0) ? S * (1 - exp(-T / S)) : 0
+        x = (S > 0) ? T / S : 0   # exp(-x) underflows past ~700 (gawk warns); E is S to double precision by then
+        E = (S <= 0) ? 0 : (x > 700 ? S : S * (1 - exp(-x)))
         if (vec == "true") gb += 3.3 * E * 768e-9
         if (vec == "text") gb += S * 30e-9
         gb *= 1.3

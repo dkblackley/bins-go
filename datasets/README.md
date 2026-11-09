@@ -187,6 +187,9 @@ session dies, and it can be split across 2-3 sessions (`SESSION` / `NUM_SESSIONS
 Drive, put them and the PCA in the server's `datasets/msmarco-v2/local_import/` and run
 `bash datasets/import_local_embeds.sh msmarco-v2`. It merges the shards into float32, installs the PCA and
 embeds the queries. `collection_preproc.py --documents <raw msmarco dir>` works the same way anywhere.
+To get the shards onto the server without rclone, run the notebook's last cell: it puts `download_msmarco_v2.sh`
+(one `wget` per file, by Drive id) in the folder and prints a single `wget ... && bash download_msmarco_v2.sh` line
+to paste in `local_import/`.
 
 Estimated cost for all 138M passages. Times are scaled from the measured local rate (~1,500 passages/s on an
 RTX 5060 Ti in fp16). Compute units are community-measured rates from March 2026, at $0.10 per unit; Colab's

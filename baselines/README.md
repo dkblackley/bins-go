@@ -71,7 +71,7 @@ COEUS_DATASETS="nq dbpedia-entity fever" bash run_coeus.slurm --count
 bash datasets/run_local.sh nq                                               # one Tiptoe + one Coeus config locally
 ```
 
-* **Tiptoe**, scifact / nq / fever / msmarco: `run_tiptoe.slurm` (simulated by default, full grid, 32G).
+* **Tiptoe**, scifact / nq / fever / msmarco: `run_tiptoe.slurm` (simulated by default, full grid, 32G). **Submit with `MODE=real`**: results must come from the real protocol (top-level README note).
   **msmarco-v2 and its subsamples**: `run_tiptoe_msmarco_v2.slurm`. It runs one task per preprocessed DB, merges
   DPC values that hit the same cluster count (Tiptoe's cap is 25196), writes the DB as compact arrays
   (`--format npy`) and deletes them after the 4 simulations. That's 64 tasks for msmarco-v2-50m + msmarco-v2.
