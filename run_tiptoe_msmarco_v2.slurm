@@ -36,6 +36,11 @@
 #   TIPTOE_V2_DATASETS="msmarco-v2-25m msmarco-v2-100m" bash run_tiptoe_msmarco_v2.slurm --count
 
 set -euo pipefail
+if [[ "${ALLOW_SIM:-0}" != 1 && "${1:-}" != "--count" ]]; then
+    echo "run_tiptoe_msmarco_v2.slurm only simulates Tiptoe, and simulated results are not used. For real Tiptoe on" >&2
+    echo "msmarco-v2 use run_tiptoe.slurm (README 5.4). ALLOW_SIM=1 only for a cross-check." >&2
+    exit 1
+fi
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
 DATASET_DIR="${DATASET_DIR:-../../datasets}"
