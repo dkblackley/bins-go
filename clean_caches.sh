@@ -15,7 +15,8 @@
 #    _graph.npy}: pir_app never reads them back (it rebuilds the graph every run, Pacmann/private-search.go), so they
 #    are deleted unless a pending/running job covers that config. While any pacmann job of the dataset is running,
 #    files written in the last 24 h are kept as well.
-# Pending and running jobs of both kinds (simulated and real) count as "in use".
+# Only simulated jobs (names ending in _sim) count as "in use" (2026-11-10: no more real runs); REAL=1 counts the
+# real ones instead.
 set -uo pipefail
 cd "$(dirname "$0")"
 if [[ "${REAL:-0}" == 1 ]]; then export SIMULATE=0; else export SIMULATE=1; fi
@@ -25,13 +26,14 @@ DO="${DO_IT:-}"
 PAC_DIR="${PACMANN_CACHE_DIR:-/scratch/$USER/pac}"
 command -v squeue >/dev/null || { echo "   no squeue here, caches not checked"; exit 0; }
 
-# folders queued jobs will write (both modes; compared by folder name) and method|dataset pairs we can't map
+# folders queued jobs of this mode will write (compared by folder name) and method|dataset pairs we can't map
 declare -A QNAME=() QBLOCK=() PACRUN=()
 while IFS=$'\t' read -r a b c _; do
     if [[ "$a" == "?" ]]; then QBLOCK["$b|$c"]=1; elif [[ -n "$a" ]]; then QNAME["$(basename "$a")"]=1; fi
-done < <( (SIMULATE=1 RESULTS_DIR=/x queued_dirs; SIMULATE=0 RESULTS_DIR=/x queued_dirs) 2>/dev/null )
+done < <(RESULTS_DIR=/x queued_dirs 2>/dev/null)
 while read -r name; do d=${name#pacmann_}; PACRUN["${d%%_*}"]=1; done \
-    < <(squeue -u "$USER" -h -t RUNNING -o %j 2>/dev/null | grep '^pacmann_' | sort -u)
+    < <(squeue -u "$USER" -h -t RUNNING -o %j 2>/dev/null | grep '^pacmann_' | \
+        if [[ "$SIMULATE" == 1 ]]; then grep '_sim'; else grep -v '_sim'; fi | sort -u)
 
 kb_total=0
 del() {   # del <path>: count it and delete it (DO_IT=1)
