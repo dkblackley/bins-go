@@ -16,6 +16,7 @@
 #   3. rebuilds ./pir_app when it is missing, older than the Go code, or can't find its libraries (libngt.so.2 ...),
 #      or REBUILD=1. It builds to pir_app.new and renames it, so running jobs keep their binary. Unlike build.sh it
 #      deletes nothing (build.sh wipes ../results/bins_* and ../results/pacmann_*).
+#   3b. deletes dead low-RAM run folders in temp_storage/ (their job is no longer running; noram_cleanup.sh)
 #   4. resubmits every config that has no metadata.json and that no pending/running job covers ("crashed" and
 #      "not started" in check_runs.sh), through datasets/run_all.sh, with fresh memory/time estimates: runs that
 #      OOMed or hit the time limit are re-estimated bigger (resource_usage.tsv). Queued jobs are left alone.
@@ -108,6 +109,12 @@ main() {
             echo "   build FAILED, nothing submitted"; exit 1
         fi
     fi
+
+    # ---- 3b. dead -noram storage: run folders in temp_storage whose job is gone (killed runs can't delete their own;
+    #      14 TB of them on 2026-11-10). The quota is per user, so this runs before anything new is queued.
+    echo "== temp_storage (low-RAM run folders)"
+    source ./noram_cleanup.sh
+    noram_sweep_dead ${DRY_RUN:+dry}
 
     # ---- 4. resubmit
     # queued configs, worked out once and shared with run_all.sh and check_runs.sh

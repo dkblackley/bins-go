@@ -16,6 +16,7 @@
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
+source ./noram_cleanup.sh
 # soft Go heap limit at 90% of the allocation (see slurm_common.sh)
 if [[ -n "${SLURM_MEM_PER_NODE:-}" && -z "${GOMEMLIMIT:-}" ]]; then export GOMEMLIMIT="$(( SLURM_MEM_PER_NODE * 9 / 10 ))MiB"; fi
 
@@ -97,6 +98,7 @@ on_exit() {
         echo "${SLURM_ARRAY_JOB_ID:-?}_${SLURM_ARRAY_TASK_ID:-?} rc=${rc} $(date '+%F %T')" >> "$FAIL_FILE"
     fi
     declare -F cleanup >/dev/null && cleanup || true
+    noram_cleanup_job   # -noram folders a killed run left in temp_storage (noram_cleanup.sh)
 }
 trap on_exit EXIT
 trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT

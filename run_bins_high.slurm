@@ -30,6 +30,7 @@ export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 DATASET_DIR="${DATASET_DIR:-../../datasets}"
 # dataset sizes, input checks, RAM/time model and the usage log (shared with the tree runs and datasets/run_all.sh)
 source "${SLURM_SUBMIT_DIR:-$PWD}/slurm_common.sh"
+source "${SLURM_SUBMIT_DIR:-$PWD}/noram_cleanup.sh"
 # -n for each dataset: hardcoded for the originals, read from num_docs.txt (written by datasets/prepare_dataset.py)
 # for everything else (nq, hotpotqa, fever, msmarco-v2, msmarco-v2-100m, ...)
 db_size_of() {
@@ -132,6 +133,7 @@ on_exit() {
     if [[ "$finished" -ne 1 ]]; then
         echo "${SLURM_ARRAY_JOB_ID:-?}_${SLURM_ARRAY_TASK_ID:-?} rc=${rc} $(date '+%F %T')" >> "$FAIL_FILE"
     fi
+    noram_cleanup_job   # -noram folders a killed run left in temp_storage (noram_cleanup.sh)
 }
 trap on_exit EXIT
 # time limit (SIGTERM 120 s before, --signal): log it so the next estimate for this config gets more time
