@@ -20,6 +20,8 @@
 #   4. resubmits every config that has no metadata.json and that no pending/running job covers ("crashed" and
 #      "not started" in check_runs.sh), through datasets/run_all.sh, with fresh memory/time estimates: runs that
 #      OOMed or hit the time limit are re-estimated bigger (resource_usage.tsv). Queued jobs are left alone.
+#   4b. deletes caches nothing will use again (clean_caches.sh): a tree shape's Cuckoo tables once all its configs
+#      have results, PACMANN graph files of configs not queued
 #   5. moves check_runs.sh's "since" to now, so failures from before this fix stop being listed
 #   6. prints a short check_runs.sh summary (section 3)
 # Everything it prints is also saved in logs/run_me/<timestamp>.log.
@@ -123,6 +125,11 @@ main() {
     queued_dirs > "$QUEUED_FILE"
     echo "== resubmitting (jobs in the queue now cover $(grep -vc '^?' "$QUEUED_FILE") configs; those are skipped)"
     STAGES="$stages" bash datasets/run_all.sh $datasets 2>&1 | grep -vE '^Queued\. Watch'
+
+    # ---- 4b. caches nothing will use again: tree Cuckoo shapes whose every config has results, PACMANN graph files
+    #      of configs not queued (pir_app never reads them back). After the resubmit, so the new jobs count as users.
+    echo "== caches (clean_caches.sh)"
+    if [[ -n "${DRY_RUN:-}" ]]; then bash clean_caches.sh; else DO_IT=1 bash clean_caches.sh; fi
 
     # ---- 5. since
     if [[ -z "${DRY_RUN:-}" ]]; then

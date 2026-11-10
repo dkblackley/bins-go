@@ -138,7 +138,8 @@ echo "Output Dir:    $OUT_DIR"
 echo "========================================"
 
 cleanup() {
-    local prefix="${DATASET_DIR}/${dataset}/${dataset}_corpus_embed_f32_${DB_SIZE}_192_${neighb_val}_neigh${neighb_val}_step${steps_val}_k${k_val}"
+    # pir_app writes the graph to /scratch/$USER/pac (Pacmann/private-search.go) and never reads it back
+    local prefix="${PACMANN_CACHE_DIR:-/scratch/$USER/pac}/${dataset}_corpus_embed_f32_${DB_SIZE}_192_${neighb_val}_neigh${neighb_val}_step${steps_val}_k${k_val}"
     rm -rf -- "${prefix}.ngt" "${prefix}_graph.npy"
 }
 
