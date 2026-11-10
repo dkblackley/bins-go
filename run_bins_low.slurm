@@ -214,7 +214,8 @@ echo "========================================"
 
 SECONDS=0
 # peak RSS + wall time -> time_v.txt -> usage log (slurm_common.sh), which later estimates use
-srun bash ./measure_run.sh "${OUT_DIR}/time_v.txt" ./pir_app \
+rm -f "${OUT_DIR}/peak_anon.txt"   # pir_app keeps its heap peak there while it runs (record_failure reads it)
+PIR_PEAK_FILE="${OUT_DIR}/peak_anon.txt" srun bash ./measure_run.sh "${OUT_DIR}/time_v.txt" ./pir_app \
     -n "$DB_SIZE" \
     -t "$method" \
     -name "$dataset" \

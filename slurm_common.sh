@@ -53,7 +53,11 @@ sim_floor() {   # "GB minutes source" -> the same, raised to SIM_MIN_GB / SIM_MI
 USAGE_FILE="${USAGE_FILE:-${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/resource_usage.tsv}"
 MEM_HEADROOM="${MEM_HEADROOM:-1.2}"      # measured on the same dataset
 TIME_HEADROOM="${TIME_HEADROOM:-1.5}"
-SCALED_HEADROOM="${SCALED_HEADROOM:-1.5}" # scaled from another dataset (mem and time)
+# scaled from another dataset. Checked 2026-11-10 on the 235 bins configs measured on both msmarco and msmarco-v2-25m
+# (2.8x the docs): memory ~ docs^0.8 came out at 1.04x actual/scaled (median), 1.15x (p90), 1.38x (max); time ~ docs
+# at 0.94x / 1.28x / 1.87x. So 1.25x memory (an OOM is retried at 1.5x) and 1.5x time.
+SCALED_HEADROOM="${SCALED_HEADROOM:-1.5}"                 # time (and memory, unless SCALED_MEM_HEADROOM is set)
+SCALED_MEM_HEADROOM="${SCALED_MEM_HEADROOM:-1.25}"
 # how memory / time grow with corpus size, per method (1 = linear)
 declare -A MEM_SCALE_EXP=([tree]=1.0 [bins]=0.8)
 declare -A TIME_SCALE_EXP=([tree]=1.0 [bins]=1.0)
@@ -163,10 +167,10 @@ record_failure() {
     [[ -n "$oom" || -n "$timeout" ]] || return 0
     local gb sec
     gb=$(awk -v k="$kb" -v r="$req_kb" -v o="$oom" 'BEGIN { m = (k > r ? k : r); if (o) m *= 1.5; printf "%.2f", m / 1048576 }')
-    # a tree run that timed out left its heap peak in peak_anon.txt (pir_app, PIR_PEAK_FILE): log that, not the
-    # request, so a time-limit retry doesn't also ask for 1.2x more memory every time
+    # a tree or -noram bins run that timed out left its heap peak in peak_anon.txt (pir_app, PIR_PEAK_FILE): log that,
+    # not the request (its RSS counts mmap'd pages), so a time-limit retry doesn't also ask for 1.2x more memory
     local pf; pf="$(dirname "$tfile")/peak_anon.txt"
-    if [[ -z "$oom" && $method == tree && -s "$pf" ]]; then
+    if [[ -z "$oom" && ( $method == tree || $config == *_noram ) && -s "$pf" ]]; then
         gb=$(awk '{ printf "%.2f", $1 / 1024 }' "$pf")
         echo "heap peak before the time limit: ${gb} GB (after $(awk '{print $2}' "$pf") s of pir_app)"
     elif [[ -n "$oom" && -s "$pf" ]]; then
@@ -263,7 +267,7 @@ _estimate_resources() {
     if [[ -n "$cands" && "$(dataset_docs "$d")" -gt 0 ]]; then
         # closest measured dataset by size, then scale by (docs ratio)^exp
         awk -v cands="$cands" -v n="$(dataset_docs "$d")" -v em="${MEM_SCALE_EXP[$m]:-1}" \
-            -v et="${TIME_SCALE_EXP[$m]:-1}" -v h="$SCALED_HEADROOM" -v fg="$fb_gb" -v fm="$fb_min" '
+            -v et="${TIME_SCALE_EXP[$m]:-1}" -v h="$SCALED_HEADROOM" -v hm="$SCALED_MEM_HEADROOM" -v fg="$fb_gb" -v fm="$fb_min" '
         BEGIN {
             k = split(cands, C, " "); best = 0
             for (i = 1; i <= k; i++) {
@@ -272,7 +276,7 @@ _estimate_resources() {
                 if (!best || d < bd) { best = i; bd = d; bn = f[1]; br = r; bg = f[3]; bs = f[4]; bf = f[5] }
             }
             if (!best) { printf "%s %s model\n", fg, fm; exit }
-            g = bg * br ^ em * h + 1; t = bs * br ^ et * h / 60 + 10
+            g = bg * br ^ em * hm + 1; t = bs * br ^ et * h / 60 + 10
             if (bf + 0) { if (fg > g) g = fg; if (fm > t) t = fm }   # scaled from a failed run: a lower bound only
             printf "%.1f %d scaled-from-%s\n", g, t, bn
         }'
