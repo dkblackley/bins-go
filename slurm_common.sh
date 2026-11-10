@@ -504,6 +504,22 @@ bins_sim_noram_model() {   # dataset vec dpb bs -> "GB minutes"
         printf "%.0f %d\n", gb + 0.5, m + 0.5 }'
 }
 
+# Tree artifacts (datasets/tree_artifacts.slurm -> prep_tree.sh -> tree/build_tree_artifacts.py), until measured
+# (method "treedb" in the usage log: the job's summed heap peak, see tree_artifacts.slurm). Heap, not RSS: Lucene
+# mmaps the index, so RSS just fills the allocation (nq/fever/dbpedia all "peaked" at their 120 GB).
+#   postings pass  per worker ~1.5 GB (JVM + Python) + ~20 B per doc: the arrays and BM25 temporaries of the longest
+#                  postings lists, now streamed into numpy (2026-11-10; pyserini's Python objects took ~10 GB per
+#                  worker on msmarco-v2, hence the old flat 1000 GB)
+#   docmap/stage3  ~250 B per doc of id lists in the main process, after the workers are done
+#   time           ~12 min per million docs (nq 23 min, fever 65, dbpedia 60, with the single-threaded index)
+# x1.25 memory, x1.5 time (max 2 days); a build that runs out is logged and asks for 1.5x / 2x next time.
+treedb_model() {   # dataset workers -> "GB minutes"
+    awk -v n="$(dataset_docs "$1")" -v w="$2" 'BEGIN {
+        wk = w * (1.5 + 20e-9 * n) + 2; mn = 4 + 250e-9 * n; g = (wk > mn ? wk : mn); if (g < 10) g = 10
+        m = 12e-6 * n * 1.5; if (m < 60) m = 60; if (m > 2880) m = 2880
+        printf "%.0f %d\n", g * 1.25, m }'
+}
+
 # Simulated pacmann (run_all.sh, SIMULATE=1): the real runs peaked at 33 GB / 26 min on nq and 62 GB / 46 min on
 # fever (sacct); without hints a simulated run needs less, so ~9 KB/doc + 4 GB and ~8 min per million docs + 15.
 pacmann_sim_model() {   # dataset -> "GB minutes"

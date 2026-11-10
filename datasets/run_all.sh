@@ -247,11 +247,17 @@ submit_dataset() {
 
     if has tree-db && { ! only_if_missing tree-db || [[ -n "$tdb_miss" ]]; }; then
         [[ -n "$tdb_miss" ]] && echo "  tree-db  queued because $tdb_miss is missing"
-        local big=()
-        is_big "$d" && big=(--partition=bigmem --mem=1000G)
-        treedb=$(submit "$embed" --export=ALL,DATASET="$d",SWEEP="${SWEEP:-all}",WORKERS="${WORKERS:-$(is_big "$d" && echo 12 || echo 16)}" \
-                 "${big[@]}" --job-name="treedb_$d$SFX" datasets/tree_artifacts.slurm)
-        echo "  tree-db  $treedb"
+        # sized by treedb_model / the measured builds (slurm_common.sh), not the old flat 120 GB or 1000 GB
+        local tw="${WORKERS:-$(is_big "$d" && echo 12 || echo 16)}" te tg tm tsrc
+        load_usage
+        te=$(_estimate_resources treedb "$d" "W$tw" $(treedb_model "$d" "$tw"))
+        read -r tg tm tsrc <<< "$te"
+        tg=$(mem_bucket "$tg"); [[ $tg == over ]] && tg=${MEM_BUCKETS##* }
+        tm=$(time_bucket "$tm")
+        treedb=$(submit "$embed" --export=ALL,DATASET="$d",SWEEP="${SWEEP:-all}",WORKERS="$tw" \
+                 --partition="$(partition_for "$tg")" --mem="${tg}G" --time="$(slurm_time "$tm")" \
+                 --job-name="treedb_$d$SFX" datasets/tree_artifacts.slurm)
+        echo "  tree-db  $treedb (${tg}G ${tm}min, $tsrc)"
     fi
 
     if has bins-index && { ! only_if_missing bins-index || [[ -n "$bidx_miss" ]]; }; then
