@@ -106,12 +106,22 @@ EMB_ENV=""
 is_big() { [[ "$1" == msmarco-v2* || "$1" == miracl-en ]]; }
 
 source ./slurm_common.sh
+ONLY_IF_MISSING=""   # stages queued only when their outputs are missing (set for SIMULATE=1 below)
 if [[ "${SIMULATE:-0}" == 1 ]]; then
     echo "SIMULATE=1: simulated PIR (pir_app -simulate, every timing -1), results in $RESULTS_DIR"
-    for s in prep embed tree-db bins-index tiptoe coeus; do
+    for s in prep embed tiptoe coeus; do
         has "$s" && { echo "  (stage $s is not simulated; it is skipped here, run it without SIMULATE)"; STAGES=" ${STAGES/$s/} "; }
     done
+    # The tree needs its artifacts (tree-db) and the bins their Bluge index (bins-index). Both are the same for real
+    # and simulated runs, so they are queued here too, but only for a dataset where something is missing; the
+    # simulated runs then wait for them (afterok). prep_tree.sh skips the B/r/s shapes that already exist.
+    has tree && ! has tree-db && STAGES+=" tree-db"
+    has bins && ! has bins-index && STAGES+=" bins-index"
+    ONLY_IF_MISSING=" tree-db bins-index "
 fi
+only_if_missing() { [[ "$ONLY_IF_MISSING" == *" $1 "* ]]; }
+# upstream_missing <file>: true if the file comes from prep/embed (which SIMULATE=1 never queues), not tree-db/bins-index
+upstream_missing() { [[ "$1" == *_embed_f32.npy || "$1" == */num_docs.txt || "$1" == */corpus.jsonl || "$1" == */queries*.jsonl || "$1" == */qrels/* ]]; }
 LIST_DIR="logs/lists/$(date +%Y%m%d_%H%M%S)"   # CONFIG_LIST files, kept so you can see what each array runs
 mkdir -p "$LIST_DIR"
 # Configs a job in the queue already covers are skipped (slurm_common.sh queued_dirs), so re-running this after a
@@ -206,7 +216,28 @@ submit_dataset() {
     fi
     EMBED_JOB="$embed"
 
-    if has tree-db; then
+    local tdb_miss="" bidx_miss=""
+    if has tree-db && only_if_missing tree-db; then
+        tdb_miss=$(DATASET="$d" SWEEP="${SWEEP:-all}" bash tree_sweep_grid.sh --missing 2>/dev/null || true)
+        if [[ -z "$tdb_miss" ]]; then
+            echo "  tree-db  artifacts all there, not queued"
+        elif upstream_missing "$tdb_miss"; then
+            echo "  tree-db  NOT queued: $tdb_miss is missing, which comes from prep/embed (run those without SIMULATE)"
+            tdb_miss=""
+        fi
+    fi
+    if has bins-index && only_if_missing bins-index; then
+        bidx_miss=$(bins_missing "$d")
+        if [[ -z "$bidx_miss" ]]; then
+            echo "  bins-index already built, not queued"
+        elif upstream_missing "$bidx_miss"; then
+            echo "  bins-index NOT queued: $bidx_miss is missing, which comes from prep/embed (run those without SIMULATE)"
+            bidx_miss=""
+        fi
+    fi
+
+    if has tree-db && { ! only_if_missing tree-db || [[ -n "$tdb_miss" ]]; }; then
+        [[ -n "$tdb_miss" ]] && echo "  tree-db  queued because $tdb_miss is missing"
         local big=()
         is_big "$d" && big=(--partition=bigmem --mem=1000G)
         treedb=$(submit "$embed" --export=ALL,DATASET="$d",SWEEP="${SWEEP:-all}",WORKERS="${WORKERS:-$(is_big "$d" && echo 12 || echo 16)}" \
@@ -214,7 +245,8 @@ submit_dataset() {
         echo "  tree-db  $treedb"
     fi
 
-    if has bins-index; then
+    if has bins-index && { ! only_if_missing bins-index || [[ -n "$bidx_miss" ]]; }; then
+        [[ -n "$bidx_miss" ]] && echo "  bins-index queued because $bidx_miss is missing"
         local big=()
         is_big "$d" && big=(--partition=bigmem --mem=500G)
         binsidx=$(submit "$prep $extra" --export=ALL,DATASET="$d" "${big[@]}" --job-name="binsidx_$d$SFX" \

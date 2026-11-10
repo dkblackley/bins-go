@@ -154,6 +154,22 @@ record_failure() {
     echo "usage (failed run, next estimate is bumped): $line"
 }
 
+# The real runs' usage log, read by estimate_resources when SIMULATE=1 (the simulated runs have their own USAGE_FILE)
+REAL_USAGE_FILE="${REAL_USAGE_FILE:-/scratch/${USER:-$(id -un)}/results/resource_usage.tsv}"
+declare -A _REAL_MEM=() _REAL_SEC=() _REAL_FAIL=()
+_REAL_LOADED=""
+load_real_usage() {   # once; the latest line per (method, dataset, config) wins, like load_usage
+    [[ -n "$_REAL_LOADED" ]] && return 0
+    _REAL_LOADED=1
+    [[ -f "$REAL_USAGE_FILE" && "$REAL_USAGE_FILE" != "$USAGE_FILE" ]] || return 0
+    local m d c gb s _date st
+    while IFS=$'\t' read -r m d c gb s _date st; do
+        [[ -n "$c" && "$gb" != max_rss_gb ]] || continue
+        _REAL_MEM["$m|$d|$c"]=$gb; _REAL_SEC["$m|$d|$c"]=$s
+        if [[ "$st" == failed* ]]; then _REAL_FAIL["$m|$d|$c"]=1; else unset '_REAL_FAIL["$m|$d|$c"]'; fi
+    done < "$REAL_USAGE_FILE"
+}
+
 declare -A _USAGE_MEM=() _USAGE_SEC=() _USAGE_DS=() _USAGE_FAIL=()
 load_usage() {   # read $USAGE_FILE once; the latest line per (method, dataset, config) wins
     [[ -f "$USAGE_FILE" ]] || return 0
@@ -173,6 +189,21 @@ estimate_resources() {
         local f="${SIM_MEM_BY_METHOD[$1]:-1}" g m
         g=$(awk -v x="$4" -v f="$f" 'BEGIN { printf "%.1f", x * f }')
         m=$(awk -v x="$5" -v f="$SIM_TIME_FACTOR" 'BEGIN { x *= f; printf "%d", (x < 30 ? 30 : x) }')
+        # tree: a simulated run only skips the (small) hints, so a real run of the same config is a safe upper bound
+        # and a much better guess than the model, whose time ignores L/q/c (real nq runs: 9 min .. >115 min at the
+        # same model estimate of 42 min). Used until the config has a simulated measurement of its own.
+        if [[ $1 == tree && -z "${_USAGE_MEM["$1|$2|$3"]:-}" ]]; then
+            load_real_usage
+            local rk="$1|$2|$3"
+            if [[ -n "${_REAL_MEM[$rk]:-}" ]]; then
+                awk -v g="${_REAL_MEM[$rk]}" -v s="${_REAL_SEC[$rk]}" -v hm="$MEM_HEADROOM" -v ht="$TIME_HEADROOM" \
+                    -v f="${_REAL_FAIL[$rk]:-}" -v fg="$g" -v fm="$m" '
+                    BEGIN { g = g * hm + 1; t = s * ht / 60 + 10
+                            if (f) { if (fg > g) g = fg; if (fm > t) t = fm }   # a failed real run: lower bound only
+                            printf "%.1f %d real-measured\n", g, t }'
+                return
+            fi
+        fi
         _estimate_resources "$1" "$2" "$3" "$g" "$m"
     else
         _estimate_resources "$@"

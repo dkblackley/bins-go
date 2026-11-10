@@ -5,6 +5,12 @@
 #   bash run_sim_noram.sh scifact trec-covid nq dbpedia-entity fever msmarco msmarco-v2-25m
 #   DRY_RUN=1 bash run_sim_noram.sh nq         # print the sbatch lines (memory/time per group), submit nothing
 #   STAGES=bins bash run_sim_noram.sh nq       # only bins (default "bins pacmann")
+#   STAGES=tree bash run_sim_noram.sh nq fever # simulated tree runs (STAGES="bins pacmann tree" for all three)
+#
+# The tree artifacts (tree-db) and the bins' Bluge index (bins-index) are queued too, but only for a dataset where
+# they are missing; the runs wait for them. prep/embed are never queued here (run those without SIMULATE).
+# Simulated tree configs are sized from the real run of the same config when there is one
+# (/scratch/$USER/results/resource_usage.tsv), else from the tree model (x0.9 memory, x0.5 time).
 #
 # It is datasets/run_all.sh with SIMULATE=1 NORAM=1, which switches slurm_common.sh to:
 #   * bins_sim_noram_model: memory/time measured from simulated -noram runs (see its comment), not the real model

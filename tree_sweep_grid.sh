@@ -239,6 +239,7 @@ tree_missing() {   # dataset B r s -> the first missing input file, or nothing i
 # (missing = first missing input, "-" if ready). Only checked when CHECK_INPUTS=1 (default), cached per shape.
 tree_plan() {
     load_usage; load_queued
+    [[ "${SIMULATE:-0}" == 1 ]] && load_real_usage   # once here: estimate_resources runs in a subshell per config
     local i; declare -A miss=()
     for i in "${!DATA_ARR[@]}"; do
         local d=${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]}
@@ -277,6 +278,10 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         --count)  echo "${#DATA_ARR[@]} configs, $(tree_grid_shapes | wc -l) B/r/s artifact dirs for ${DATASET} SWEEP=${SWEEP:-all} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))" ;;
         --list)   for i in "${!DATA_ARR[@]}"; do echo "$i ${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]} L=${L_ARR[$i]} q=${QWORDS_ARR[$i]} c=${KCAND_ARR[$i]}"; done ;;
         --shapes) tree_grid_shapes ;;
+        --missing) # first missing input over every B/r/s shape of the grid, nothing if all are there (run_all.sh)
+                  while read -r b r s; do
+                      m=$(tree_missing "$DATASET" "$b" "$r" "$s"); [[ -z "$m" ]] || { echo "$m"; break; }
+                  done < <(tree_grid_shapes) ;;
         --plan)   tree_plan ;;
         --mem)    for sh in $(tree_grid_shapes | tr ' ' ','); do IFS=, read -r b r s <<< "$sh"; gb=$(tree_mem_gb "$DATASET" "$b" "$r" "$s"); echo "B=$b r=$r s=$s model ~${gb} GB"; done ;;
         --summary) tree_plan | awk -v mb="$MEM_BUCKETS" '{ ready = ($12 == "-") ? "ready" : ($12 == "done" || $12 == "queued" ? $12 : "missing"); g = $9 + 0
