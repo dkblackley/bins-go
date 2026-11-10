@@ -20,6 +20,15 @@
 #   6. prints a short check_runs.sh summary (section 3)
 # Everything it prints is also saved in logs/run_me/<timestamp>.log.
 
+# switch_pir_app <binary>: point ./pir_app at it without deleting the binary running jobs use. A plain-file pir_app
+# (from before this, or from build.sh) is renamed into bin/ first: a rename keeps the file, a delete would not.
+switch_pir_app() {
+    mkdir -p bin
+    if [[ -e pir_app && ! -L pir_app ]]; then mv pir_app "bin/pir_app.old_$(date +%Y%m%d_%H%M%S)" || return 1; fi
+    rm -f pir_app.link_tmp
+    ln -s "$1" pir_app.link_tmp && mv -T pir_app.link_tmp pir_app
+}
+
 main() {
     set -uo pipefail
     local self; self=$(readlink -f "$0")
@@ -70,15 +79,20 @@ main() {
         echo "   would rebuild ($why)"
     else
         echo "   rebuilding ($why)"
-        # go_env.sh exits when it finds no Go, so build in a subshell
-        if ( source ./go_env.sh && go build -o pir_app.new ./main.go ) && mv -f pir_app.new pir_app; then
+        # go_env.sh exits when it finds no Go, so build in a subshell.
+        # /scratch is NFS: replacing pir_app (mv over it) deletes the old file on the server, and running jobs on other
+        # nodes then die with SIGBUS (exit 135) when they page in more of it. So every build gets its own file in
+        # bin/ and pir_app is a symlink switched atomically (rename); old binaries stay until you delete them.
+        local newbin="bin/pir_app.$(date +%Y%m%d_%H%M%S)"
+        mkdir -p bin
+        if ( source ./go_env.sh && go build -o "$newbin" ./main.go ) && switch_pir_app "$newbin"; then
             if ldd ./pir_app | grep 'not found'; then
                 echo "   pir_app still can't find the libraries above: run setup_pacmann.sh (builds them into ~/opt), then run_me.sh again"
                 exit 1
             fi
             echo "   built: $(ls -l --time-style=+%F_%T pir_app | awk '{print $6}')"
         else
-            rm -f pir_app.new
+            rm -f "$newbin"
             echo "   build FAILED, nothing submitted"; exit 1
         fi
     fi
