@@ -4,6 +4,7 @@
 #   bash check_runs.sh                              # scifact msmarco nq fever dbpedia-entity msmarco-v2-25m
 #                                                   # msmarco-v2-50m msmarco-v2, every method
 #   bash check_runs.sh nq fever                     # only these datasets
+#   REAL=1 bash check_runs.sh                       # the real runs instead of the simulated ones (the default)
 #   METHODS="bins tree" SINCE=2026-11-01 bash check_runs.sh nq
 #   bash check_runs.sh --mark                       # from now on only show failures after this moment
 #
@@ -30,7 +31,9 @@ set -uo pipefail
 cd "$(dirname "$0")"
 export DATASETS_ROOT="${DATASETS_ROOT:-../datasets}"
 export DATASET_DIR="${DATASET_DIR:-$DATASETS_ROOT}"
-[[ "${SIMULATE:-0}" == 1 ]] && RESULTS_DIR="${RESULTS_DIR:-/scratch/$USER/results_simulated}"   # simulated runs
+# Simulated runs by default, like run_me.sh (REAL=1 checks the real runs' results/ folder instead)
+if [[ "${REAL:-0}" == 1 ]]; then export SIMULATE=0; else export SIMULATE=1; fi
+[[ "$SIMULATE" == 1 ]] && RESULTS_DIR="${RESULTS_DIR:-/scratch/$USER/results_simulated}"   # simulated runs
 RES="${RESULTS_DIR:-/scratch/$USER/results}"
 BRES="${RESULTS_ROOT:-/scratch/dblackle/results}"
 SINCE_FILE="${SINCE_FILE:-logs/check/since}"
@@ -45,6 +48,7 @@ SINCE_SP="${SINCE/T/ }"   # "2026-11-09 05:12:00" for find -newermt and the fail
 METHODS="${METHODS:-bins pacmann tree tiptoe coeus}"
 DATASETS="${*:-scifact msmarco nq fever dbpedia-entity msmarco-v2-25m msmarco-v2-50m msmarco-v2}"
 OUT="logs/check/$(date +%Y%m%d_%H%M%S)"; mkdir -p "$OUT"
+echo "Checking $([[ "$SIMULATE" == 1 ]] && echo "SIMULATED runs ($RES; REAL=1 for the real runs)" || echo "REAL runs ($RES)")"
 echo "Failures since $SINCE ($([[ -s "$SINCE_FILE" ]] && echo "set by run_me.sh / --mark in $SINCE_FILE" || echo "default: 14 days")). SINCE=... to change it."
 has() { [[ " $METHODS " == *" $1 "* ]]; }
 hr() { printf '\n==== %s\n' "$*"; }
