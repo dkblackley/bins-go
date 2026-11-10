@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 	"strconv"
 	"time"
 
@@ -28,6 +29,9 @@ type VecBins struct {
 	vecPIR        *pianopir.SimpleBatchPianoPIR
 	docMap        map[int]string
 	maxQueryTerms int
+	// vecDocs maps an embedding-DB row to its corpus index when docs that are in
+	// no bin were left out (-vecPrune); nil means row i is corpus doc i.
+	vecDocs []uint32
 
 	rawDB  [][]uint64
 	config *globals.Args
@@ -87,8 +91,12 @@ func (d DBentry) Decode(config *globals.Args) []string {
 }
 
 func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
-	indices := v.MakeIndices(QID)
+	return v.searchBins(QID, v.MakeIndices(QID))
+}
 
+// searchBins runs both PIR rounds for the given bin indices. The ID DB holds
+// embedding-DB rows; the result is corpus indices.
+func (v VecBins) searchBins(QID string, indices []uint64) (globals.Decodable, error) {
 	if uint64(len(indices)) >= v.idPIR.Config().BatchSize {
 		logrus.Warnf("Too many indices in batch: %d for QID: %s - Possible corruption incoming", len(indices), QID)
 	}
@@ -104,7 +112,7 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 		// os.Exit(1)
 		// return DBentry{nil}, nil
 		// Add a random doc ID for security (so server doesn't realise we got nothing)
-		docIdx = append(docIdx, 10)
+		docIdx = append(docIdx, v.rowOfCorpus(10))
 	}
 
 	batch := int(v.vecPIR.Config().BatchSize)
@@ -126,12 +134,33 @@ func (v VecBins) DoSearch(QID string, _ int) (globals.Decodable, error) {
 		}
 		for k := 0; k < end-start; k++ {
 			if len(vecResults[k]) > 1 { // 1-word response means the lookup was dropped
-				retrieved = append(retrieved, docIdx[start+k])
+				retrieved = append(retrieved, v.corpusIdx(docIdx[start+k]))
 			}
 		}
 	}
 
 	return DBentry{retrieved}, nil
+}
+
+// corpusIdx turns an embedding-DB row into the corpus index of its doc.
+func (v VecBins) corpusIdx(row uint64) uint64 {
+	if v.vecDocs == nil {
+		return row
+	}
+	return uint64(v.vecDocs[row])
+}
+
+// rowOfCorpus is the embedding-DB row of a corpus index (row 0 when that doc
+// was left out of a pruned DB).
+func (v VecBins) rowOfCorpus(idx uint64) uint64 {
+	if v.vecDocs == nil {
+		return idx
+	}
+	row := sort.Search(len(v.vecDocs), func(i int) bool { return uint64(v.vecDocs[i]) >= idx })
+	if row < len(v.vecDocs) && uint64(v.vecDocs[row]) == idx {
+		return uint64(row)
+	}
+	return 0
 }
 
 func (v VecBins) collectDocIdx(results [][]uint64) []uint64 {
@@ -227,6 +256,136 @@ func MakeVecDb(config *globals.Args) VecBins {
 		config.Metadata["EmptyBins"] = strconv.Itoa(empty)
 	}
 
+	docMap, _ := MakeDocIDAndQueryIDMap(config.DatasetMeta)
+	meta := config.DatasetMeta
+	queires, err := LoadQueries(meta.Queries)
+	Must(err)
+	queryMap := make(map[string]globals.Query)
+	for q := range len(queires) {
+		qid := queires[q].ID
+		queryMap[qid] = queires[q]
+	}
+
+	binPir := buildVecBins(config, DB, docMap, bm25Vectors)
+	binPir.Queries = queryMap
+	return binPir
+
+}
+
+// vecBatchAndRounds applies -vecBatch / -vecRounds over the automatic Stage2
+// setting. Each query makes `rounds` sequential embedding-DB rounds of exactly
+// `batch` lookups, so it can fetch batch*rounds candidate embeddings; the rest
+// are dropped. The client hint grows with sqrt(batch/2 partitions), so a
+// smaller batch saves storage and, to keep the same coverage, costs rounds.
+// With only -vecBatch set, rounds are chosen to cover what the automatic
+// setting covered.
+func vecBatchAndRounds(autoBatch, autoRounds, batch, rounds int) (int, int) {
+	if batch <= 0 && rounds <= 0 {
+		return autoBatch, autoRounds
+	}
+	coverage := autoBatch * autoRounds
+	if batch <= 0 {
+		batch = (coverage + rounds - 1) / rounds
+	}
+	batch = max(batch, 2) // one partition at least
+	if rounds <= 0 {
+		rounds = (coverage + batch - 1) / batch
+	}
+	return batch, max(rounds, 1)
+}
+
+// binnedDocs lists the corpus indices that appear in at least one bin, in
+// corpus order (vecDocs: embedding-DB row -> corpus index), and the inverse
+// (rowOf: corpus index -> row, -1 for a doc in no bin).
+func binnedDocs(DB [][]string, flipped map[string]int, numDocs int) (vecDocs []uint32, rowOf []int32) {
+	rowOf = make([]int32, numDocs)
+	for i := range rowOf {
+		rowOf[i] = -1
+	}
+	for _, bin := range DB {
+		for _, id := range bin {
+			if idx, ok := flipped[id]; ok && idx < numDocs {
+				rowOf[idx] = -2 // in a bin; numbered below
+			}
+		}
+	}
+	for idx, r := range rowOf {
+		if r == -2 {
+			rowOf[idx] = int32(len(vecDocs))
+			vecDocs = append(vecDocs, uint32(idx))
+		}
+	}
+	if len(vecDocs) == 0 { // keep one row so the PIR DB is never empty
+		vecDocs = []uint32{0}
+		rowOf[0] = 0
+	}
+	return vecDocs, rowOf
+}
+
+// two uint32 per uint64; ids stored as row+1, 0 means empty. The row is the
+// corpus index, or rowOf[corpus index] when the embedding DB was pruned.
+func BuildIndexDB(DB [][]string, flipped map[string]int, rowOf []int32, maxRowSize int) ([][]uint64, uint64) {
+	sink := newRowSink("bins_vec0_id_db", len(DB)) // heap, or a file with -noram
+	for i, bin := range DB {
+		if len(bin) == 0 {
+			continue // leave nil; EntryXor already skips n==0
+		}
+		entry := make([]uint64, (len(bin)+1)/2)
+		for j, id := range bin {
+			idx, ok := flipped[id]
+			if !ok {
+				logrus.Warnf("doc %s not in corpus map", id)
+				continue
+			}
+			if rowOf != nil {
+				if idx >= len(rowOf) || rowOf[idx] < 0 {
+					logrus.Warnf("doc %s has no embedding-DB row", id)
+					continue
+				}
+				idx = int(rowOf[idx])
+			}
+			v := uint64(uint32(idx) + 1)
+			if j%2 == 0 {
+				entry[j/2] |= v
+			} else {
+				entry[j/2] |= v << 32
+			}
+		}
+		sink.Put(i, entry)
+		DB[i] = nil // free the strings as you go
+	}
+	return sink.Finish(), uint64((maxRowSize + 1) / 2)
+}
+
+// BuildVectorDB stores one embedding per row: every corpus doc, or with vecDocs
+// only those docs (row i = vectors[vecDocs[i]]).
+func BuildVectorDB(vectors [][]float32, dim int, vecDocs []uint32) ([][]uint64, uint64) {
+	wordsPerVec := (dim + 1) / 2
+	rows := len(vectors)
+	if vecDocs != nil {
+		rows = len(vecDocs)
+	}
+	sink := newRowSink("bins_vec0_vec_db", rows) // heap, or a file with -noram
+	e := make([]uint64, wordsPerVec)
+	for i := 0; i < rows; i++ {
+		v := vectors[i]
+		if vecDocs != nil {
+			v = vectors[vecDocs[i]]
+		}
+		if !sink.onDisk() {
+			e = make([]uint64, wordsPerVec) // the heap sink keeps the row; the disk sink copies it
+		}
+		for k := 0; k+1 < dim; k += 2 {
+			e[k/2] = uint64(math.Float32bits(v[k])) | uint64(math.Float32bits(v[k+1]))<<32
+		}
+		sink.Put(i, e)
+	}
+	return sink.Finish(), uint64(wordsPerVec)
+}
+
+// buildVecBins builds both PIR DBs of the two-round (vec0) layout from the bins
+// (doc ID strings), the corpus index -> doc ID map and the corpus embeddings.
+func buildVecBins(config *globals.Args, DB [][]string, docMap map[int]string, bm25Vectors [][]float32) VecBins {
 	// Padding is now done dynamically...
 	//pad := make([]float32, config.Dimensions)
 	maxRowSize := 0
@@ -236,16 +395,30 @@ func MakeVecDb(config *globals.Args) VecBins {
 		}
 	}
 
-	docMap, _ := MakeDocIDAndQueryIDMap(config.DatasetMeta)
 	flipped := make(map[string]int, len(docMap))
 
 	for key, value := range docMap {
 		flipped[value] = key
 	}
 
-	idRaw, idWords := BuildIndexDB(DB, flipped, maxRowSize)
-	vecRaw, vecWords := BuildVectorDB(bm25Vectors, int(config.Dimensions))
-	bm25Vectors = nil // vecRaw owns the data now
+	// Docs that are in no bin can never be fetched, so with -vecPrune the
+	// embedding DB keeps only the binned ones and the ID DB stores their new rows.
+	var vecDocs []uint32
+	var rowOf []int32
+	if config.VecPrune {
+		vecDocs, rowOf = binnedDocs(DB, flipped, len(bm25Vectors))
+		logrus.Infof("Embedding DB: %d of %d docs are in some bin, %d left out", len(vecDocs), len(bm25Vectors), len(bm25Vectors)-len(vecDocs))
+	}
+	config.Metadata["VecPrune"] = strconv.FormatBool(config.VecPrune)
+	config.Metadata["VecDocsStored"] = strconv.Itoa(len(bm25Vectors))
+	if vecDocs != nil {
+		config.Metadata["VecDocsStored"] = strconv.Itoa(len(vecDocs))
+	}
+	config.Metadata["VecDocsTotal"] = strconv.Itoa(len(bm25Vectors))
+
+	idRaw, idWords := BuildIndexDB(DB, flipped, rowOf, maxRowSize)
+	vecRaw, vecWords := BuildVectorDB(bm25Vectors, int(config.Dimensions), vecDocs)
+	bm25Vectors = nil // vecRaw owns the data now (the caller passes its last reference)
 
 	T := maxRowSize
 	BatchSize := 24
@@ -299,15 +472,6 @@ func MakeVecDb(config *globals.Args) VecBins {
 	vecPIR := pianopir.NewSimpleBatchPianoPIR(
 		uint64(len(vecRaw)), vecWords, vecWords*8, uint64(stage2Batch), vecRaw, 20, uint64(maxQuery))
 
-	meta := config.DatasetMeta
-	queires, err := LoadQueries(meta.Queries)
-	Must(err)
-	queryMap := make(map[string]globals.Query)
-	for q := range len(queires) {
-		qid := queires[q].ID
-		queryMap[qid] = queires[q]
-	}
-
 	binPir := VecBins{
 		N:                    len(idRaw),
 		Dimensions:           int(config.Dimensions),
@@ -320,10 +484,10 @@ func MakeVecDb(config *globals.Args) VecBins {
 		rawDB:                idRaw,
 		DBEntrySize:          idWords * 8,
 		DBTotalSize:          uint64(len(idRaw)) * idWords * 8,
-		Queries:              queryMap,
 		EnglishTokenAnalyzer: strictEnglishAnalyzer(),
 		config:               config,
 		maxQueryTerms:        maxQuery,
+		vecDocs:              vecDocs,
 	}
 
 	if config.DebugLevel >= 1 {
@@ -333,70 +497,4 @@ func MakeVecDb(config *globals.Args) VecBins {
 	}
 
 	return binPir
-
-}
-
-// vecBatchAndRounds applies -vecBatch / -vecRounds over the automatic Stage2
-// setting. Each query makes `rounds` sequential embedding-DB rounds of exactly
-// `batch` lookups, so it can fetch batch*rounds candidate embeddings; the rest
-// are dropped. The client hint grows with sqrt(batch/2 partitions), so a
-// smaller batch saves storage and, to keep the same coverage, costs rounds.
-// With only -vecBatch set, rounds are chosen to cover what the automatic
-// setting covered.
-func vecBatchAndRounds(autoBatch, autoRounds, batch, rounds int) (int, int) {
-	if batch <= 0 && rounds <= 0 {
-		return autoBatch, autoRounds
-	}
-	coverage := autoBatch * autoRounds
-	if batch <= 0 {
-		batch = (coverage + rounds - 1) / rounds
-	}
-	batch = max(batch, 2) // one partition at least
-	if rounds <= 0 {
-		rounds = (coverage + batch - 1) / batch
-	}
-	return batch, max(rounds, 1)
-}
-
-// two uint32 per uint64; ids stored as idx+1, 0 means empty
-func BuildIndexDB(DB [][]string, flipped map[string]int, maxRowSize int) ([][]uint64, uint64) {
-	sink := newRowSink("bins_vec0_id_db", len(DB)) // heap, or a file with -noram
-	for i, bin := range DB {
-		if len(bin) == 0 {
-			continue // leave nil; EntryXor already skips n==0
-		}
-		entry := make([]uint64, (len(bin)+1)/2)
-		for j, id := range bin {
-			idx, ok := flipped[id]
-			if !ok {
-				logrus.Warnf("doc %s not in corpus map", id)
-				continue
-			}
-			v := uint64(uint32(idx) + 1)
-			if j%2 == 0 {
-				entry[j/2] |= v
-			} else {
-				entry[j/2] |= v << 32
-			}
-		}
-		sink.Put(i, entry)
-		DB[i] = nil // free the strings as you go
-	}
-	return sink.Finish(), uint64((maxRowSize + 1) / 2)
-}
-
-func BuildVectorDB(vectors [][]float32, dim int) ([][]uint64, uint64) {
-	wordsPerVec := (dim + 1) / 2
-	sink := newRowSink("bins_vec0_vec_db", len(vectors)) // heap, or a file with -noram
-	e := make([]uint64, wordsPerVec)
-	for i, v := range vectors {
-		if !sink.onDisk() {
-			e = make([]uint64, wordsPerVec) // the heap sink keeps the row; the disk sink copies it
-		}
-		for k := 0; k+1 < dim; k += 2 {
-			e[k/2] = uint64(math.Float32bits(v[k])) | uint64(math.Float32bits(v[k+1]))<<32
-		}
-		sink.Put(i, e)
-	}
-	return sink.Finish(), uint64(wordsPerVec)
 }
