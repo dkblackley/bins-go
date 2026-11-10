@@ -347,6 +347,9 @@ def main():
     an = Analyzer(get_lucene_analyzer())
     qfile = f"{D}/queries.jsonl" if os.path.exists(f"{D}/queries.jsonl") else f"{D}/queries.dev.small.jsonl"
     qs = [json.loads(l) for l in open(qfile)]
+    for q in qs:   # BEIR queries have "_id", msmarco's queries.dev.small.jsonl has "id"
+        if "_id" not in q:
+            q["_id"] = str(q["id"])
     qs = [q for q in qs if q["_id"] in want]
     with open(f"{T}/queries.qrels.tsv", "w") as f:
         for q in qs:
