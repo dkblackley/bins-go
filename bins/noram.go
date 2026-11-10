@@ -38,7 +38,13 @@ func (s *rowSink) Finish() [][]uint64 {
 	if s.store == nil {
 		return s.rows
 	}
-	rows, err := s.store.Finish(pianopir.ShufflePermutation(uint64(s.store.Len())))
+	// Simulated PIR builds no hints, so nothing ever reads the DB in the shuffled order: map the rows where Put
+	// wrote them instead of copying the whole file again (same rows, same answers).
+	var order []int
+	if !pianopir.Simulate {
+		order = pianopir.ShufflePermutation(uint64(s.store.Len()))
+	}
+	rows, err := s.store.Finish(order)
 	Must(err)
 	return rows
 }

@@ -557,6 +557,47 @@ func (p *SimpleBatchPianoPIR) Config() *SimpleBatchPianoPIRConfig {
 	return p.config
 }
 
+// SplitByPartitionLimit splits idx into consecutive sub-batches, each of which Query accepts: at most
+// MaxQueryNum-3 lookups in any one partition (Query refuses a request that needs MaxQueryNum-2 or more), and, with
+// constant work on, few enough lookups that the public per-partition bound for the sub-batch stays under that limit.
+// A request that already fits comes back as the one batch idx. Order is kept within and across sub-batches.
+func (p *SimpleBatchPianoPIR) SplitByPartitionLimit(idx []uint64) [][]uint64 {
+	if p.download || len(p.subPIR) == 0 || len(idx) == 0 {
+		return [][]uint64{idx}
+	}
+	limit := int(p.subPIR[0].client.MaxQueryNum) - 3
+	if limit < 1 {
+		limit = 1
+	}
+	fits := func(b []uint64) bool {
+		occ := make(map[uint64]int)
+		for _, i := range b {
+			occ[i/p.config.PartitionSize]++
+			if occ[i/p.config.PartitionSize] > limit {
+				return false
+			}
+		}
+		if p.config.ConstantWork &&
+			constantWorkPartitionQueries(len(b), p.config.PartitionNum, constantWorkOccupancyFailureBits) > limit {
+			return false
+		}
+		return true
+	}
+	if fits(idx) {
+		return [][]uint64{idx}
+	}
+	var out [][]uint64
+	cur := make([]uint64, 0, len(idx))
+	for _, i := range idx {
+		if len(cur) > 0 && !fits(append(cur, i)) {
+			out = append(out, cur)
+			cur = make([]uint64, 0, len(idx))
+		}
+		cur = append(cur, i)
+	}
+	return append(out, cur)
+}
+
 // GetMetrics returns this DB's metrics under bins-style key names.
 // Values are float64 so stages can sum them key-by-key.
 func (p *SimpleBatchPianoPIR) GetMetrics() map[string]float64 {

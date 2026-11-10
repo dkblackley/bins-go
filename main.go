@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dkblackley/bins-go/Pacmann"
@@ -541,20 +543,55 @@ func main() {
 	if config.Text.Enabled {
 		reRanked = make(map[string][]string, len(encodedAnswers))
 	}
-	for qid, encodedAnswer := range encodedAnswers {
-		answers[qid] = encodedAnswer.Decode(&config)
-		if config.Text.Enabled {
-			if te, ok := encodedAnswer.(*bins.TextEntry); ok {
-				t0 := time.Now()
-				reRanked[qid] = te.Rank(&config, int(config.K))
-				textRankTime += time.Since(t0)
-				te.Release()
-			} else {
-				logrus.Errorf("text re-rank: answer for %s is %T, not a text entry", qid, encodedAnswer)
-			}
-		}
-		bar.Add(1)
+	// Answers are decoded on GOMAXPROCS workers: one at a time this was the slowest part of a simulated run (text
+	// bins on fever: ~0.27 s per query, 30 min for 6666 queries, longer than the PIR itself). Decode and Rank only
+	// read shared state (the text model, the IDF sketch, the doc-ID maps), so the results are the same. ReRankTime
+	// stays the sum of the per-query ranking times, as before.
+	decodeQIDs := make([]string, 0, len(encodedAnswers))
+	for qid := range encodedAnswers {
+		decodeQIDs = append(decodeQIDs, qid)
 	}
+	var (
+		decodeMu   sync.Mutex
+		decodeWG   sync.WaitGroup
+		rankNanos  atomic.Int64
+		nextDecode atomic.Int64
+	)
+	for w := 0; w < runtime.GOMAXPROCS(0); w++ {
+		decodeWG.Add(1)
+		go func() {
+			defer decodeWG.Done()
+			for {
+				i := int(nextDecode.Add(1) - 1)
+				if i >= len(decodeQIDs) {
+					return
+				}
+				qid := decodeQIDs[i]
+				encodedAnswer := encodedAnswers[qid] // read-only while the workers run
+				ids := encodedAnswer.Decode(&config)
+				var ranked []string
+				if config.Text.Enabled {
+					if te, ok := encodedAnswer.(*bins.TextEntry); ok {
+						t0 := time.Now()
+						ranked = te.Rank(&config, int(config.K))
+						rankNanos.Add(int64(time.Since(t0)))
+						te.Release()
+					} else {
+						logrus.Errorf("text re-rank: answer for %s is %T, not a text entry", qid, encodedAnswer)
+					}
+				}
+				decodeMu.Lock()
+				answers[qid] = ids
+				if config.Text.Enabled && ranked != nil {
+					reRanked[qid] = ranked
+				}
+				decodeMu.Unlock()
+				_ = bar.Add(1)
+			}
+		}()
+	}
+	decodeWG.Wait()
+	textRankTime = time.Duration(rankNanos.Load())
 	encodedAnswers = nil
 
 	bar.Finish()

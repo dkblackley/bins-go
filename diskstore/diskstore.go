@@ -231,9 +231,30 @@ func (s *RowStore) Put(i int, row []uint64) error {
 // Finish returns the rows, backed by a read-only mmap. physOrder[p] is the logical row the PIR stores at physical
 // position p (pianopir.ShufflePermutation): writing the rows in that order makes the PIR's preprocessing, which
 // walks each partition chunk by chunk in physical order, read the file front to back instead of jumping around.
-// nil physOrder keeps the logical order. The staging file is deleted.
+// nil physOrder keeps the staging file as it is: it is mapped in place, with no second copy (the rows are wherever
+// Put wrote them; only the read pattern of a real preprocessing pass cares about the layout, and a simulated run has
+// none). Otherwise the rows are copied out in that order and the staging file is deleted.
 func (s *RowStore) Finish(physOrder []int) ([][]uint64, error) {
 	rows := len(s.off)
+	if physOrder == nil {
+		// Rewriting meant reading the whole staging file once more (in shuffled row order, so mostly random page
+		// faults) and writing it again: for a 150 GB vec1 DB on NFS that alone took longer than the 30 min jobs.
+		data, err := mmapReadOnly(s.staging, s.end)
+		_ = s.staging.Close() // the mapping keeps the file; Cleanup removes it with the run folder
+		if err != nil {
+			return nil, err
+		}
+		ret := make([][]uint64, rows)
+		for i := 0; i < rows; i++ {
+			if s.off[i] >= 0 {
+				ret[i] = words(data, s.off[i], int64(s.n[i]))
+			}
+		}
+		logrus.Infof("noram: %s: %d rows, %.2f GB on disk in %s (staging order, not copied)", s.name, rows,
+			float64(s.end)/1e9, Dir)
+		s.off, s.n = nil, nil
+		return ret, nil
+	}
 	defer func() {
 		_ = s.staging.Close()
 		_ = os.Remove(s.staging.Name())

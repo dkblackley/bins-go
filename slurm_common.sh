@@ -28,8 +28,11 @@ if [[ "${SIMULATE:-0}" == 1 ]]; then
     export RESULTS_DIR="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results_simulated}"
 fi
 sim_args() { [[ "${SIMULATE:-0}" == 1 ]] && echo "-simulate"; return 0; }   # extra pir_app flag, or nothing
-declare -A SIM_MEM_BY_METHOD=([bins]="${SIM_MEM_FACTOR_BINS:-0.6}" [tree]="${SIM_MEM_FACTOR_TREE:-0.9}")
-SIM_TIME_FACTOR="${SIM_TIME_FACTOR:-0.5}"
+# tree 1.0 / 1.0 since 2026-11-10: simulated dbpedia tree runs peaked up to 47 GB at a 42 GB (x0.9) estimate, and
+# at x0.5 time (30 min) 31 of 184 timed out, while successful ones took up to 27 min. The tree's hints are small, so
+# simulating saves little of either.
+declare -A SIM_MEM_BY_METHOD=([bins]="${SIM_MEM_FACTOR_BINS:-0.6}" [tree]="${SIM_MEM_FACTOR_TREE:-1.0}")
+declare -A SIM_TIME_BY_METHOD=([bins]="${SIM_TIME_FACTOR_BINS:-${SIM_TIME_FACTOR:-0.5}}" [tree]="${SIM_TIME_FACTOR_TREE:-1.0}")
 
 # Simulated + low-RAM (SIMULATE=1 NORAM=1, run_sim_noram.sh): no hints, the PIR DB and embeddings on disk, so a run
 # needs a few GB and minutes. It gets its own model (bins_sim_noram_model, measured, not the real model x a factor),
@@ -204,7 +207,7 @@ estimate_resources() {
     if [[ "${SIMULATE:-0}" == 1 ]]; then
         local f="${SIM_MEM_BY_METHOD[$1]:-1}" g m
         g=$(awk -v x="$4" -v f="$f" 'BEGIN { printf "%.1f", x * f }')
-        m=$(awk -v x="$5" -v f="$SIM_TIME_FACTOR" 'BEGIN { x *= f; printf "%d", (x < 30 ? 30 : x) }')
+        m=$(awk -v x="$5" -v f="${SIM_TIME_BY_METHOD[$1]:-0.5}" 'BEGIN { x *= f; printf "%d", (x < 30 ? 30 : x) }')
         # tree: a simulated run only skips the (small) hints, so a real run of the same config is a safe upper bound
         # and a much better guess than the model, whose time ignores L/q/c (real nq runs: 9 min .. >115 min at the
         # same model estimate of 42 min). Used until the config has a simulated measurement of its own.
@@ -461,21 +464,27 @@ bins_model() {   # dataset vec dpb [bs] [noram] -> "GB minutes"
         } else printf "%.0f %d\n", ram, m }'
 }
 
-# Simulated -noram bins (SIMULATE=1 NORAM=1): no hints, PIR DB + embeddings on disk. Measured 2026-11-09 (heap peak,
-# RssAnon), after the text re-rank fix that stopped every answer's decoded docs being kept:
-#   scifact (5k docs): 0.35-0.7 GB, 5-99 s      nq (2.68M): 4.3 GB at bs 100 dpb 10, 6.85 GB at bs 10k dpb 250, 1-2.5 min
-# So a fixed ~1.5 KB/doc (corpus text, vocab, doc-ID maps; +0.4 KB/doc for text's coded corpus), plus ~115 B per
-# distinct (word, doc) pair T (as in bins_model), ~1 KB per bin and 16 B per DB slot of doc-ID strings; x1.3.
-# Time: ~1 min + ~0.6 min per million docs, x2. sim_floor raises both to SIM_MIN_GB / SIM_MIN_MIN.
+# Simulated -noram bins (SIMULATE=1 NORAM=1): no hints, PIR DB + embeddings on disk. Refit 2026-11-10 on the 1,500
+# successful runs after the MakeUnigramDB memory fix (af0983d): trec-covid, dbpedia-entity, fever, msmarco and
+# msmarco-v2-25m (nq/scifact ran before it, so they are left out; their own measurements still size their re-runs).
+#   heap peak  0.45 GB + 1.05 KB/doc (+0.4 KB/doc for text's coded corpus) + ~18 B per distinct (word, doc) pair T
+#              (as in bins_model) + ~40 B per bin; x1.6 covers 94% of the runs (x1.3 left 1 in 9 short; the rest of
+#              the spread is per dataset, e.g. dbpedia's peaks are up to 3x the fit, fever's 1.6x)
+#   minutes    0.2 + 0.43 per million docs + 0.03 per million T + 0.047 per GB of vec1 DB (E x 768 B, written to
+#              temp_storage on NFS) + 0.075 per billion text slots; x2.5. Fitted on runs from before the parallel
+#              decode and the no-copy -noram DB (2026-11-10), which cut the slowest phases, so it errs long.
+# Only for configs never measured on any dataset: otherwise _estimate_resources scales the closest measured dataset.
+# sim_floor raises both to SIM_MIN_GB / SIM_MIN_MIN.
 bins_sim_noram_model() {   # dataset vec dpb bs -> "GB minutes"
     awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
         dpw = (n / V) / 3.25; if (dpw < 1) dpw = 1
         T = 1.66 * V * sqrt(dpb) * sqrt(dpw)
         S = bs * dpb; x = (S > 0) ? T / S : 0
         E = (S <= 0) ? 0 : (x > 700 ? S : S * (1 - exp(-x)))
-        gb = 0.3 + n * 1.5e-6 + (vec == "text" ? n * 0.4e-6 : 0) + T * 115e-9 + bs * 1e-6 + E * 16e-9
-        gb *= 1.3
-        m = 2 * (1 + n * 0.6e-6 + T * 0.03e-6)
+        gb = 0.45 + n * 1.05e-6 + (vec == "text" ? n * 0.4e-6 : 0) + T * 18e-9 + bs * 40e-9
+        gb *= 1.6
+        m = 0.2 + n * 0.43e-6 + T * 0.03e-6 + (vec == "true" ? E * 768e-9 * 0.047 : 0) + (vec == "text" ? S * 0.075e-9 : 0)
+        m *= 2.5
         printf "%.0f %d\n", gb + 0.5, m + 0.5 }'
 }
 

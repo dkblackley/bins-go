@@ -7,9 +7,18 @@ import (
 	"math"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	pianopir "github.com/dkblackley/bins-go/pir-old"
 )
+
+var (
+	stage3SplitOnce    sync.Once
+	stage3SplitQueries atomic.Int64 // queries whose Stage3 request was split (Stage3SplitQueries in metadata)
+)
+
+// Stage3SplitQueries is how many queries' Stage3 requests went out as more than one sub-batch.
+func Stage3SplitQueries() int64 { return stage3SplitQueries.Load() }
 
 // Stage3Reranker performs dense reranking using query/document embeddings
 // Similar to step4.py: loads embeddings, computes cosine similarity, reranks
@@ -366,8 +375,27 @@ func (sr *Stage3Reranker) GetDocEmbeddingBatch(docIndices []int) map[int][]float
 		queryBlocks = append(queryBlocks, bid)
 	}
 
-	// 3. Execute Batch Query
-	responses, err := sr.pir.Query(queryBlocks)
+	// 3. Execute Batch Query. On a small corpus a query's blocks can be a large share of the DB (scifact: 648
+	// blocks, c=256 candidates), more than one partition's query budget allows in one request; it then goes out
+	// as several sub-batches (all real PIR queries, all their bytes counted, independent of each other).
+	var responses [][]uint64
+	var err error
+	subBatches := sr.pir.SplitByPartitionLimit(queryBlocks)
+	if len(subBatches) > 1 {
+		stage3SplitOnce.Do(func() {
+			fmt.Printf("Stage3 PIR: %d blocks need more than one partition's budget; sent as %d sub-batches "+
+				"(and likewise for later queries)\n", len(queryBlocks), len(subBatches))
+		})
+		stage3SplitQueries.Add(1)
+	}
+	for _, sb := range subBatches {
+		var part [][]uint64
+		part, err = sr.pir.Query(sb)
+		if err != nil {
+			break
+		}
+		responses = append(responses, part...)
+	}
 	if err != nil {
 		if StrictPIR {
 			panic(fmt.Sprintf("Stage3 PIR batch query failed: %v", err))
