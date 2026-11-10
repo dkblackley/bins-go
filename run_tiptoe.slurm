@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
-#SBATCH --time=0-08:00:00             # 2 h timed out in k-means + bundling on nq (tasks also wait on the shared lock)
+#SBATCH --time=0-01:00:00             # run stage: only simulates (minutes); run_all.sh sets the kmeans/db stages' limits
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
 #SBATCH --array=0-191%64
@@ -29,12 +29,8 @@
 # msmarco-v2 and its subsamples have their own script, run_tiptoe_msmarco_v2.slurm (longer preprocessing, one task
 # per preprocessed DB instead of per config).
 #
-# Usage:
-#   bash run_tiptoe.slurm --count                                   # prints the --array range for $TIPTOE_DATASETS
-#   sbatch run_tiptoe.slurm                                         # all of the default datasets below
-#   TIPTOE_DATASETS="nq fever" bash run_tiptoe.slurm --count        # a subset (then sbatch --array=0-<N-1>%64 ...)
-#   TIPTOE_DATASETS="nq fever" sbatch --array=0-447%64 run_tiptoe.slurm
-# If the cluster's MaxArraySize is below 896, submit the datasets in groups like that.
+# Usage: submit with datasets/run_all.sh (STAGES=tiptoe), which chains the three stages below with afterok.
+#   TIPTOE_DATASETS=nq TIPTOE_STAGE=kmeans|db|run bash run_tiptoe.slurm --count     # 3 / 12 / 48 per dataset
 #
 # Memory: preprocessing reads the embeddings memory-mapped (peak ~4 GB + <100 B per doc, measured on a 2M-doc set)
 # and the simulator holds almost nothing; the simplepir_bench timing run is capped at 8 GB (--bench-max-gb, it
@@ -42,16 +38,28 @@
 # dataset here. MODE=real on msmarco: Tiptoe builds its SimplePIR DB unsquished first (~16 GB at 8.8M docs) plus
 # the parsed corpus, so submit that with --mem=64G.
 #
-# Preprocessing (k-means + bundling, ~minutes to an hour on the big sets) is shared by every (hint, k) of one
-# (DPC, MA, BUNDLE) via flock, and the k-means itself by every (MA, BUNDLE) of one cluster count via
-# --kmeans-cache (also flocked), so 1344 tasks still only run one k-means per (dataset, cluster count).
+# Three stages (TIPTOE_STAGE), each a job array that waits for the one before (run_all.sh), so no task ever sits on
+# an allocation waiting for another task's lock:
+#   kmeans  one task per (dataset, DPC): the k-means (cached in tiptoe/kmeans_cache) + the first of its DBs
+#   db      one task per (dataset, DPC, MA, BUNDLE): the bundling of that DB (~45 min for fever at DPC 250)
+#   run     one task per config (+ HINT x k): only the simulation (minutes)
+# A stage refuses to start if the stage before it hasn't finished (marker file / tiptoe_meta.json missing), instead
+# of quietly doing that work itself; that path is what had dozens of tasks waiting on each other.
 
 TIPTOE_DATASETS="${TIPTOE_DATASETS:-scifact nq fever msmarco}"
+TIPTOE_STAGE="${TIPTOE_STAGE:-run}"   # kmeans | db | run, see above
+case $TIPTOE_STAGE in kmeans|db|run) ;; *) echo "TIPTOE_STAGE must be kmeans, db or run" >&2; exit 1 ;; esac
+DPC_LIST=(250 2500 40000)    # 2026-11-09, was 250 500 1000 2500 5000 10000 40000
+MA_LIST=(1 2)
+BUNDLE_LIST=(40 320)         # was 40 80 160 320
 DATA_ARR=(); DPC_ARR=(); MA_ARR=(); B_ARR=(); H_ARR=(); K_ARR=()
+KM_D=(); KM_DPC=(); DB_D=(); DB_DPC=(); DB_MA=(); DB_B=()
 for d in $TIPTOE_DATASETS; do
-  for dpc in 250 2500 40000; do          # 2026-11-09, was 250 500 1000 2500 5000 10000 40000
-    for ma in 1 2; do
-      for bundle in 40 320; do              # was 40 80 160 320
+  for dpc in "${DPC_LIST[@]}"; do
+    KM_D+=("$d"); KM_DPC+=("$dpc")
+    for ma in "${MA_LIST[@]}"; do
+      for bundle in "${BUNDLE_LIST[@]}"; do
+        DB_D+=("$d"); DB_DPC+=("$dpc"); DB_MA+=("$ma"); DB_B+=("$bundle")
         for hint in 125 500; do
           for k in 10 100; do
             DATA_ARR+=("$d"); DPC_ARR+=("$dpc"); MA_ARR+=("$ma"); B_ARR+=("$bundle"); H_ARR+=("$hint"); K_ARR+=("$k")
@@ -62,7 +70,11 @@ for d in $TIPTOE_DATASETS; do
   done
 done
 if [[ "${1:-}" == "--count" ]]; then
-    echo "${#DATA_ARR[@]} configs for: $TIPTOE_DATASETS (use --array=0-$(( ${#DATA_ARR[@]} - 1 ))%64)"
+    case $TIPTOE_STAGE in
+        kmeans) echo "${#KM_D[@]} kmeans tasks for: $TIPTOE_DATASETS (use --array=0-$(( ${#KM_D[@]} - 1 )))" ;;
+        db)     echo "${#DB_D[@]} db tasks for: $TIPTOE_DATASETS (use --array=0-$(( ${#DB_D[@]} - 1 )))" ;;
+        run)    echo "${#DATA_ARR[@]} configs for: $TIPTOE_DATASETS (use --array=0-$(( ${#DATA_ARR[@]} - 1 ))%64)" ;;
+    esac
     exit 0
 fi
 
@@ -85,12 +97,18 @@ export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 source datasets/env.sh     # conda env main (finds conda itself; CONDA_BASE/CONDA_ENV to override)
 
 task_id=$SLURM_ARRAY_TASK_ID
-dataset=${DATA_ARR[$task_id]}
-dpc=${DPC_ARR[$task_id]}
-ma=${MA_ARR[$task_id]}
-bundle=${B_ARR[$task_id]}
-hint=${H_ARR[$task_id]}
-k_val=${K_ARR[$task_id]}
+if [[ "$TIPTOE_STAGE" == kmeans ]]; then
+    dataset=${KM_D[$task_id]}; dpc=${KM_DPC[$task_id]}; ma=${MA_LIST[0]}; bundle=${BUNDLE_LIST[0]}
+elif [[ "$TIPTOE_STAGE" == db ]]; then
+    dataset=${DB_D[$task_id]}; dpc=${DB_DPC[$task_id]}; ma=${DB_MA[$task_id]}; bundle=${DB_B[$task_id]}
+else
+    dataset=${DATA_ARR[$task_id]}
+    dpc=${DPC_ARR[$task_id]}
+    ma=${MA_ARR[$task_id]}
+    bundle=${B_ARR[$task_id]}
+    hint=${H_ARR[$task_id]}
+    k_val=${K_ARR[$task_id]}
+fi
 method="tiptoe"
 
 DATASET_DIR="${DATASET_DIR:-../../datasets}"
@@ -112,23 +130,48 @@ finished=0
 trap '[[ $finished -eq 1 ]] || echo "${SLURM_ARRAY_JOB_ID:-?}_${SLURM_ARRAY_TASK_ID:-?} $(date "+%F %T")" >> "$FAIL_FILE"' EXIT
 trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT
 
-# 1) Preprocess (shared across hint sizes and k; flock so tasks don't race; k-means shared via --kmeans-cache)
+# 1) Preprocess: the kmeans and db stages build the DBs, the run stage only reads them
 TT_DIR="${DATASET_DIR}/tiptoe/${dataset}_dpc${dpc}_m${ma}_b${bundle}"
-mkdir -p "$(dirname "$TT_DIR")"
-(
-    flock 9
-    if [[ ! -f "${TT_DIR}/tiptoe_meta.json" ]]; then
-        python baselines/tiptoe/preprocess_tiptoe.py --dataset "$DATASET_DIR" --name "$dataset" \
-            --docs-per-cluster "$dpc" --multi-assign "$ma" --bundle-size "$bundle" --out "$TT_DIR" \
-            --kmeans-cache "${DATASET_DIR}/tiptoe/kmeans_cache"
-    fi
-) 9>"${TT_DIR}.lock"
+KM_DONE="${DATASET_DIR}/tiptoe/kmeans_cache/${dataset}_dpc${dpc}.done"   # written by the kmeans stage
+need() {   # need <file> <stage that makes it>
+    [[ -f "$1" ]] && return 0
+    echo "ERROR: $1 is missing: the $2 stage for $dataset dpc=$dpc hasn't finished. Submit tiptoe through" >&2
+    echo "       datasets/run_all.sh (STAGES=tiptoe), which runs kmeans -> db -> run in order." >&2
+    exit 1
+}
+preprocess() {   # builds $TT_DIR (flock: a re-submitted task can overlap a running one)
+    mkdir -p "$(dirname "$TT_DIR")" "${DATASET_DIR}/tiptoe/kmeans_cache"
+    (
+        flock 9
+        if [[ ! -f "${TT_DIR}/tiptoe_meta.json" ]]; then
+            python baselines/tiptoe/preprocess_tiptoe.py --dataset "$DATASET_DIR" --name "$dataset" \
+                --docs-per-cluster "$dpc" --multi-assign "$ma" --bundle-size "$bundle" --out "$TT_DIR" \
+                --kmeans-cache "${DATASET_DIR}/tiptoe/kmeans_cache"
+        fi
+    ) 9>"${TT_DIR}.lock"
+}
+case $TIPTOE_STAGE in
+    kmeans)   # the k-means, by building this DPC's first DB (its centroids go to the cache)
+        echo "kmeans: $dataset dpc=$dpc (via $TT_DIR)"
+        preprocess; touch "$KM_DONE"; finished=1; exit 0 ;;
+    db)       # one DB; its k-means is cached already
+        need "$KM_DONE" kmeans
+        echo "db: $TT_DIR"
+        preprocess; finished=1; exit 0 ;;
+esac
+need "${TT_DIR}/tiptoe_meta.json" db
 
 # multi-assign as applied (capped at the number of clusters): the simulator names its folder with it, so on a
 # 1-cluster scifact config ma=2 lands in the m1 folder and is skipped here instead of racing the ma=1 task
 read -r C MA_USED < <(python -c "import json;m=json.load(open('${TT_DIR}/tiptoe_meta.json'));print(m['num_clusters'],m['multi_assign'])")
 OUT_DIR="${RESULTS_ROOT}/${method}_${dataset}_c${C}_m${MA_USED}_b${bundle}_h${hint}_k${k_val}"
-if [[ -f "${OUT_DIR}/metadata.json" ]]; then
+# Several DPC values can give the same cluster count (scifact: 2500 and 40000 are both 1 cluster), so two tasks can
+# share OUT_DIR; without this lock both simulated at once and interleaved metadata.json ("}}", the "bad json" in
+# check_runs.sh). The second one now waits here (seconds) and then skips.
+mkdir -p "$(dirname "$OUT_DIR")"
+exec 8>"${OUT_DIR}.lock"
+flock 8
+if [[ -f "${OUT_DIR}/metadata.json" ]] && python -c "import json,sys; json.load(open(sys.argv[1]))" "${OUT_DIR}/metadata.json" 2>/dev/null; then
     # several DPC values can give the same cluster count (1 on scifact, the 25196 cap on msmarco-v2); first one wins
     echo "${OUT_DIR} already has results, skipping"; finished=1; exit 0
 fi

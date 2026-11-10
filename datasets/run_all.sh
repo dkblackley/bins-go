@@ -262,28 +262,44 @@ submit_dataset() {
     fi
 
     if has tiptoe; then
-        local n
+        # chained stages (each afterok on the one before), so no task holds an allocation waiting on another's lock:
+        #   small sets: kmeans (1 per DPC) -> db (1 per DB) -> run (1 per config, simulation only)
+        #   msmarco-v2*: kmeans (1 per cluster count) -> run (1 per DB: bundling + its 4 simulations)
+        # Limits from the logs: one fever DB bundles in ~45 min, a simulation takes minutes.
+        local tk td n
         if [[ "$d" == msmarco-v2* ]]; then
-            n=$(env TIPTOE_V2_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_tiptoe_msmarco_v2.slurm --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0)
-            echo "  tiptoe   $(submit "$embed" --export=ALL,TIPTOE_V2_DATASETS="$d" --array=0-$((n - 1))%8 \
-                 --job-name="tiptoe_$d$SFX" run_tiptoe_msmarco_v2.slurm) ($n preprocessed DBs x 4 configs)"
+            local t=0-06:00:00; [[ "$d" == msmarco-v2 ]] && t=0-12:00:00   # 138M docs: assignment + bundling ~2-4 h+
+            v2count() { env TIPTOE_V2_DATASETS="$d" TIPTOE_STAGE=$1 SLURM_SUBMIT_DIR="$PWD" bash run_tiptoe_msmarco_v2.slurm --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0; }
+            tk=$(submit "$embed" --export=ALL,TIPTOE_V2_DATASETS="$d",TIPTOE_STAGE=kmeans --array=0-$(( $(v2count kmeans) - 1 )) \
+                 --time=$t --job-name="tiptoekm_$d$SFX" run_tiptoe_msmarco_v2.slurm)
+            n=$(v2count run)
+            echo "  tiptoe   kmeans $tk, then $(submit "$tk" --export=ALL,TIPTOE_V2_DATASETS="$d",TIPTOE_STAGE=run \
+                 --array=0-$((n - 1))%8 --time=$t --job-name="tiptoe_$d$SFX" run_tiptoe_msmarco_v2.slurm) ($n DBs x 4 configs)"
         else
-            n=$(count_of TIPTOE_DATASETS="$d" run_tiptoe.slurm)
-            echo "  tiptoe   $(submit "$embed" --export=ALL,TIPTOE_DATASETS="$d" --array=0-$((n - 1))%64 \
-                 --job-name="tiptoe_$d$SFX" run_tiptoe.slurm) ($n tasks)"
+            ttcount() { env TIPTOE_DATASETS="$d" TIPTOE_STAGE=$1 SLURM_SUBMIT_DIR="$PWD" bash run_tiptoe.slurm --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0; }
+            tk=$(submit "$embed" --export=ALL,TIPTOE_DATASETS="$d",TIPTOE_STAGE=kmeans --array=0-$(( $(ttcount kmeans) - 1 )) \
+                 --time=0-04:00:00 --job-name="tiptoekm_$d$SFX" run_tiptoe.slurm)
+            td=$(submit "$tk" --export=ALL,TIPTOE_DATASETS="$d",TIPTOE_STAGE=db --array=0-$(( $(ttcount db) - 1 )) \
+                 --time=0-03:00:00 --job-name="tiptoedb_$d$SFX" run_tiptoe.slurm)
+            n=$(ttcount run)
+            echo "  tiptoe   kmeans $tk, db $td, then $(submit "$td" --export=ALL,TIPTOE_DATASETS="$d",TIPTOE_STAGE=run \
+                 --array=0-$((n - 1))%64 --time=0-01:00:00 --job-name="tiptoe_$d$SFX" run_tiptoe.slurm) ($n configs)"
         fi
     fi
 
     if has coeus; then
-        # postings ~12 B per (doc, term): ~5 GB on msmarco, ~50 GB on msmarco-v2; tokenising 138M docs takes hours
-        local n res=()
+        # A prep job tokenises the corpus once (COEUS_STAGE=prep, cached); every F/tf/k config then only builds its
+        # postings (~12 B per (doc, term): ~5 GB on msmarco, ~50 GB on msmarco-v2) and fails if the cache is missing.
+        local n prep_res=(--time=0-04:00:00) run_res=(--time=0-02:00:00) cprep
         n=$(count_of COEUS_DATASETS="$d" run_coeus.slurm)
         case $d in
-            msmarco-v2)     res=(--mem=120G --time=2-00:00:00) ;;
-            msmarco-v2-*)   res=(--mem=64G --time=1-00:00:00) ;;
+            msmarco-v2)     prep_res=(--mem=120G --time=2-00:00:00); run_res=(--mem=120G --time=0-12:00:00) ;;
+            msmarco-v2-*)   prep_res=(--mem=64G --time=1-00:00:00);  run_res=(--mem=64G --time=0-06:00:00) ;;
         esac
-        echo "  coeus    $(submit "$embed" --export=ALL,COEUS_DATASETS="$d" --array=0-$((n - 1)) "${res[@]}" \
-             --job-name="coeus_$d$SFX" run_coeus.slurm) ($n tasks)"
+        cprep=$(submit "$embed" --export=ALL,COEUS_DATASETS="$d",COEUS_STAGE=prep --array=0 "${prep_res[@]}" \
+                --job-name="coeusprep_$d$SFX" run_coeus.slurm)
+        echo "  coeus    prep $cprep, then $(submit "$cprep" --export=ALL,COEUS_DATASETS="$d" --array=0-$((n - 1)) \
+             "${run_res[@]}" --job-name="coeus_$d$SFX" run_coeus.slurm) ($n configs)"
     fi
 }
 

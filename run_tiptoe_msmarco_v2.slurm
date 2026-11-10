@@ -25,6 +25,10 @@
 #   * The DB is written as compact arrays (--format npy, ~200 B per doc copy, ~34 GB on msmarco-v2) and deleted after
 #     its simulations unless KEEP_TT=1. Only the small files (meta, centroids, bundle sizes) are kept.
 #   * k-means is shared across MA/BUNDLE through --kmeans-cache, so there's one k-means per (dataset, clusters).
+#     TIPTOE_STAGE=kmeans runs it first: one task per (dataset, clusters) preprocesses that cluster count's first DB
+#     (which caches the k-means), writes a marker and stops. The DB tasks (TIPTOE_STAGE=run, afterok on it; submit
+#     both through datasets/run_all.sh STAGES=tiptoe) refuse to start without the marker, so they never queue on
+#     the k-means lock.
 #
 # Memory: preprocessing reads the 106 GB embedding file memory-mapped. Peak is ~4 GB + <100 B per doc
 # (measured on a 2M-doc set), so ~15 GB on msmarco-v2. Page cache helps speed but isn't required, so 32G is enough.
@@ -68,8 +72,14 @@ for d in names:
 EOF
 )
 
+TIPTOE_STAGE="${TIPTOE_STAGE:-run}"   # kmeans | run
+case $TIPTOE_STAGE in kmeans|run) ;; *) echo "TIPTOE_STAGE must be kmeans or run" >&2; exit 1 ;; esac
+if [[ "$TIPTOE_STAGE" == kmeans ]]; then   # first DB of each (dataset, clusters): its preprocessing caches the k-means
+    mapfile -t TASKS < <(printf '%s\n' "${TASKS[@]}" | awk '!seen[$1 " " $3]++')
+fi
+
 if [[ "${1:-}" == "--count" ]]; then
-    echo "${#TASKS[@]} tasks for: $TIPTOE_V2_DATASETS (use --array=0-$(( ${#TASKS[@]} - 1 ))%8)"
+    echo "${#TASKS[@]} $([[ $TIPTOE_STAGE == kmeans ]] && echo "kmeans ")tasks for: $TIPTOE_V2_DATASETS (use --array=0-$(( ${#TASKS[@]} - 1 ))%8)"
     printf '  %s\n' "${TASKS[@]}" | awk '{print "  " $1, "C=" $3, "(dpc " $4 ")", "ma=" $5, "bundle=" $6}' | sort -u | head -80
     exit 0
 fi
@@ -106,12 +116,18 @@ all_done() {   # $1 = clusters, $2 = multi-assign as applied
         [[ -f "$(out_name "$1" "$2" "$hint" "$k")/metadata.json" ]] || return 1
     done; done
 }
-if all_done "$C" "$MA_PRED"; then
+if [[ "$TIPTOE_STAGE" == run ]] && all_done "$C" "$MA_PRED"; then
     echo "all 4 results already exist, nothing to do"; finished=1; exit 0
 fi
 
 # 1) Preprocess (flock in case a resubmitted task overlaps a running one)
-mkdir -p "$(dirname "$TT_DIR")"
+KM_DONE="${DATASET_DIR}/tiptoe/kmeans_cache/${dataset}_C${C}.done"   # written by the kmeans stage
+if [[ "$TIPTOE_STAGE" == run && ! -f "$KM_DONE" ]]; then
+    echo "ERROR: $KM_DONE is missing: the kmeans stage for $dataset C=$C hasn't finished. Submit tiptoe through" >&2
+    echo "       datasets/run_all.sh (STAGES=tiptoe), which runs kmeans -> run in order." >&2
+    exit 1
+fi
+mkdir -p "$(dirname "$TT_DIR")" "${DATASET_DIR}/tiptoe/kmeans_cache"
 (
     flock 9
     if [[ ! -f "${TT_DIR}/tiptoe_meta.json" ]]; then
@@ -120,6 +136,11 @@ mkdir -p "$(dirname "$TT_DIR")"
             --kmeans-cache "${DATASET_DIR}/tiptoe/kmeans_cache"
     fi
 ) 9>"${TT_DIR}.lock"
+if [[ "$TIPTOE_STAGE" == kmeans ]]; then
+    touch "$KM_DONE"
+    echo "kmeans done: $dataset C=$C cached, DB $TT_DIR built (its own run task simulates and deletes it)"
+    finished=1; exit 0
+fi
 # clusters / multi-assign as applied (empty clusters are dropped, multi-assign is capped at the cluster count)
 read -r C_USED MA_USED < <(python -c "import json;m=json.load(open('${TT_DIR}/tiptoe_meta.json'));print(m['num_clusters'],m['multi_assign'])")
 

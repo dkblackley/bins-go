@@ -133,6 +133,12 @@ record_failure() {
     kb=${kb:-0}
     local oom=""
     [[ "$rc" == 137 || "$rc" == 9 ]] && oom=1
+    # a step killed by the cgroup doesn't always come back as 137 through srun (e.g. ExitCode 0:125), but slurmstepd
+    # always logs it to the job's stderr; that's the only OOM signal a -noram run has (its peak RSS is meaningless)
+    if [[ -z "$oom" && -n "${SLURM_ARRAY_JOB_ID:-}" ]] && \
+       grep -qsiE 'oom[-_ ]kill|out of memory' logs/*_"${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID:-}".err 2>/dev/null; then
+        oom=1
+    fi
     # (not for -noram runs, whose peak RSS always reaches the limit: resident mmap'd file pages count, but the kernel
     # drops them instead of killing the job)
     [[ "$config" != *_noram ]] && (( req_kb > 0 && kb * 10 >= req_kb * 9 )) && oom=1
