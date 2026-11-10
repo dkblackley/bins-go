@@ -3,7 +3,7 @@
 #SBATCH --partition=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=0-01:30:00
 #SBATCH --output=logs/treedb_check.out
@@ -22,6 +22,11 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 OUT="/scratch/$USER/treedb_check_nq"
 REF="data/nq_tree"
 SHAPE="32,32,8"
+# Must match the worker count data/nq_tree was built with (16, logs/tree_artifacts_3325827.out): each worker writes its
+# share of the terms (term id % workers) and the merge appends worker 0's, then worker 1's, ..., so the rows come out in
+# a different order with a different count (same rows, same sizes, different bytes; that is what the 8-worker check
+# showed on 2026-11-10).
+WORKERS=16
 FILES="stage1_vocab.json stage1/B32_r32/data.bin stage1/B32_r32/idmap.bin B32_r32_s8/stage2/data.bin B32_r32_s8/stage2/idmap.bin"
 
 echo "treedb check started $(date '+%F %T') on $(hostname), job ${SLURM_JOB_ID:-local}, code $(git log -1 --format='%h %s' 2>/dev/null || echo "(no git on this node)")"
@@ -31,7 +36,7 @@ source datasets/env.sh
 rm -rf "$OUT"   # the builder skips shapes that already exist, so start empty
 SECONDS=0
 python3 tree/build_tree_artifacts.py --dataset-dir ../datasets/nq --out "$OUT" --name nq --index "$REF/index_nq" \
-    --combos "$SHAPE" --db-only --workers 8
+    --combos "$SHAPE" --db-only --workers $WORKERS
 rc=$?
 echo
 echo "build exit code $rc after ${SECONDS}s"
