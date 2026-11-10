@@ -227,7 +227,8 @@ tree_paths() {   # dataset B r s
 tree_missing() {   # dataset B r s -> the first missing input file, or nothing if the config can run
     tree_paths "$@"
     local f
-    for f in "$INDEX" "$QUERIES" "$QRELS" "$DOC_EMBED" "$DOC_ID_MAP" "$QUERY_EMBED" "$LAYOUT_PATH" "$VOCAB" \
+    # tree_main reads the analysed queries from the queries path with .tsv -> .analyzed.json (tree_main.go)
+    for f in "$INDEX" "$QUERIES" "${QUERIES/.tsv/.analyzed.json}" "$QRELS" "$DOC_EMBED" "$DOC_ID_MAP" "$QUERY_EMBED" "$LAYOUT_PATH" "$VOCAB" \
              "$STAGE1_DATA" "$STAGE1_IDMAP" "$STAGE2_DATA" "$STAGE2_IDMAP"; do
         [[ -e "$f" ]] || { echo "$f"; return; }
     done
