@@ -129,8 +129,12 @@ func BatchHintStorageBytes(DBSize, DBEntryByteNum, BatchSize, FailureProbLog2 ui
 
 func NewSimpleBatchPianoPIR(DBSize uint64, DBEntryByteNum uint64, BatchSize uint64, rawDB []uint64, FailureProbLog2 uint64) *SimpleBatchPianoPIR {
 	DBEntrySize := DBEntryByteNum / 8
-	if len(rawDB) != int(DBSize*DBEntrySize) {
-		log.Fatalf("BatchPIR: len(rawDB) = %v; want %v", len(rawDB), DBSize*DBEntrySize)
+	// rawDB may stop short of the last entry's end (by less than one entry): the missing words are zeros. That lets
+	// a caller pass a read-only mmap of a file whose length is not a whole number of entries (the tree's Stage3
+	// embeddings, 8 docs per entry) without copying it to the heap just to pad it; the short last partition is
+	// copied and zero-padded below anyway.
+	if want := int(DBSize * DBEntrySize); len(rawDB) > want || (DBSize > 0 && len(rawDB) <= want-int(DBEntrySize)) {
+		log.Fatalf("BatchPIR: len(rawDB) = %v; want %v (or less than one entry short)", len(rawDB), want)
 	}
 
 	// create the sub PIR classes
@@ -155,6 +159,10 @@ func NewSimpleBatchPianoPIR(DBSize uint64, DBEntryByteNum uint64, BatchSize uint
 		if hintBytes >= dbBytes {
 			fmt.Printf("BatchPIR: hints would take %.2f MB but the DB is only %.2f MB, the client downloads the DB instead\n",
 				hintBytes/1024/1024, dbBytes/1024/1024)
+			if len(rawDB) < int(DBSize*DBEntrySize) { // small DB: pad a copy
+				rawDB = append(append(make([]uint64, 0, DBSize*DBEntrySize), rawDB...),
+					make([]uint64, int(DBSize*DBEntrySize)-len(rawDB))...)
+			}
 			return &SimpleBatchPianoPIR{config: config, download: true, rawDB: rawDB}
 		}
 	}
@@ -164,8 +172,9 @@ func NewSimpleBatchPianoPIR(DBSize uint64, DBEntryByteNum uint64, BatchSize uint
 	for i := uint64(0); i < PartitionNum; i++ {
 		start := min(i*PartitionSize, DBSize)
 		end := min((i+1)*PartitionSize, DBSize)
-		part := rawDB[start*DBEntrySize : end*DBEntrySize]
-		if end-start < PartitionSize {
+		partEnd := min(end*DBEntrySize, uint64(len(rawDB)))
+		part := rawDB[min(start*DBEntrySize, partEnd):partEnd]
+		if end-start < PartitionSize || partEnd < end*DBEntrySize {
 			padded := make([]uint64, PartitionSize*DBEntrySize) // copy, cached Cuckoo tables are read-only mmaps
 			copy(padded, part)
 			part = padded

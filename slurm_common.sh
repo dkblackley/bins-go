@@ -110,6 +110,8 @@ record_usage() {
     # a -noram run's peak RSS counts resident mmap'd file pages (it just shows the memory limit); use the heap peak
     # pir_app measured instead
     local anon; anon=$(noram_peak_kb "$(dirname "$tfile")")
+    # the tree mmaps its Cuckoo cache and Stage 3 embeddings (2026-11-10): same story, use its heap peak
+    [[ -z "$anon" && $method == tree ]] && anon=$(meta_peak_kb "$(dirname "$tfile")" PeakAnonMB)
     [[ -n "$anon" ]] && kb=$anon
     [[ -n "$kb" && "$kb" -gt 0 ]] || { echo "record_usage: no peak RSS in $tfile, not recorded" >&2; return 0; }
     mkdir -p "$(dirname "$USAGE_FILE")"
@@ -120,10 +122,11 @@ record_usage() {
     echo "usage: $line"
 }
 
-noram_peak_kb() {   # results dir -> NoRAMPeakAnonMB from its metadata.json in KB, or nothing
+noram_peak_kb() { meta_peak_kb "$1" NoRAMPeakAnonMB; }   # results dir -> NoRAMPeakAnonMB in KB, or nothing
+meta_peak_kb() {   # results dir, metadata key (MB) -> its value in KB, or nothing
     local f="$1/metadata.json"
     [[ -s "$f" ]] || return 0
-    grep -oE '"NoRAMPeakAnonMB": *"[0-9.]+' "$f" | grep -oE '[0-9.]+$' | awk '{printf "%d\n", $1 * 1024}'
+    grep -oE "\"$2\": *\"[0-9.]+" "$f" | grep -oE '[0-9.]+$' | awk '{printf "%d\n", $1 * 1024}'
 }
 
 # record_failure <method> <dataset> <config> <measure file> <exit code> <elapsed seconds> [timeout]
@@ -160,6 +163,15 @@ record_failure() {
     [[ -n "$oom" || -n "$timeout" ]] || return 0
     local gb sec
     gb=$(awk -v k="$kb" -v r="$req_kb" -v o="$oom" 'BEGIN { m = (k > r ? k : r); if (o) m *= 1.5; printf "%.2f", m / 1048576 }')
+    # a tree run that timed out left its heap peak in peak_anon.txt (pir_app, PIR_PEAK_FILE): log that, not the
+    # request, so a time-limit retry doesn't also ask for 1.2x more memory every time
+    local pf; pf="$(dirname "$tfile")/peak_anon.txt"
+    if [[ -z "$oom" && $method == tree && -s "$pf" ]]; then
+        gb=$(awk '{ printf "%.2f", $1 / 1024 }' "$pf")
+        echo "heap peak before the time limit: ${gb} GB (after $(awk '{print $2}' "$pf") s of pir_app)"
+    elif [[ -n "$oom" && -s "$pf" ]]; then
+        echo "heap peak before the OOM kill: $(awk '{ printf "%.2f", $1 / 1024 }' "$pf") GB (after $(awk '{print $2}' "$pf") s); logging 1.5x the request"
+    fi
     if [[ -n "$timeout" ]]; then sec=$(( secs * 2 )); else sec=$secs; fi   # not $(( timeout ? .. )): bash would expand the word "timeout" recursively
     local line
     line=$(printf '%s\t%s\t%s\t%s\t%d\t%s\t%s' "$method" "$dataset" "$config" "$gb" "$sec" "$(date +%F)" \

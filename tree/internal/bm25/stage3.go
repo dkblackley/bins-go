@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	pianopir "github.com/dkblackley/bins-go/pir-old"
 )
@@ -203,19 +204,24 @@ func NewStage3Reranker(
 		dbSize := uint64((numDocs + blockSize - 1) / blockSize)
 		entrySizeBytes := uint64(sr.EmbedDim * bytesPerElem * blockSize)
 
-		// Convert raw bytes to uint64 array for PIR
-		embedUint64 := convertBytesToUint64(sr.docEmbedMmap)
-
-		// PADDING: Ensure the array is exactly the size PIR expects.
-		// PIR expects (dbSize * entrySizeInUint64s)
+		// The PIR DB is the embedding file itself: a read-only view of the mmap when it is 8-byte aligned and a
+		// whole number of words (always, for float32/float16 rows of an even dim after a standard .npy header), so
+		// nothing is copied to the heap. It used to be copied (convertBytesToUint64) and then padded with append,
+		// which reallocates: up to 2x N x 768 B of heap, ~210 GB for msmarco-v2's 138M docs. A partial last block is
+		// fine: the batch PIR zero-pads its short last partition (pir-old NewSimpleBatchPianoPIR).
 		dbEntrySizeUint64 := entrySizeBytes / 8
 		expectedLen := int(dbSize * dbEntrySizeUint64)
-
-		if len(embedUint64) < expectedLen {
-			padAmount := expectedLen - len(embedUint64)
-			fmt.Printf("Stage3 PIR: Padding embedding data with %d zeros to match block alignment\n", padAmount)
-			padding := make([]uint64, padAmount)
-			embedUint64 = append(embedUint64, padding...)
+		var embedUint64 []uint64
+		if b := sr.docEmbedMmap; len(b) > 0 && len(b)%8 == 0 && uintptr(unsafe.Pointer(&b[0]))%8 == 0 {
+			embedUint64 = unsafe.Slice((*uint64)(unsafe.Pointer(&b[0])), len(b)/8)
+			fmt.Printf("Stage3 PIR: DB is the mmap'd embedding file (%d words, %d short of %d blocks), not copied\n",
+				len(embedUint64), expectedLen-len(embedUint64), dbSize)
+		} else {
+			embedUint64 = convertBytesToUint64(sr.docEmbedMmap)
+			if len(embedUint64) < expectedLen {
+				fmt.Printf("Stage3 PIR: Padding embedding data with %d zeros to match block alignment\n", expectedLen-len(embedUint64))
+				embedUint64 = append(embedUint64, make([]uint64, expectedLen-len(embedUint64))...)
+			}
 		}
 
 		sr.pir = pianopir.NewSimpleBatchPianoPIR(

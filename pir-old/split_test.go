@@ -50,3 +50,31 @@ func TestSplitByPartitionLimit(t *testing.T) {
 		t.Fatalf("a request that fits was split: %v", s)
 	}
 }
+
+// A DB view up to one entry short (the tree's mmap'd Stage3 embeddings: a partial last block) reads as zero-padded.
+func TestShortRawDBIsZeroPadded(t *testing.T) {
+	defer func(d bool) { DownloadIfCheaper = d }(DownloadIfCheaper)
+	for _, download := range []bool{false, true} {
+		DownloadIfCheaper = download
+		const rows, words, batch = 1000, 6, 32
+		full := randomDB(rows, words, 9)
+		for k := words*(rows-1) + 1; k < words*rows; k++ {
+			full[k] = 0 // last entry: only its first word is real
+		}
+		short := full[:words*(rows-1)+1]
+		p := NewSimpleBatchPianoPIR(rows, words*8, batch, short, 20)
+		p.Preprocessing()
+		idx := []uint64{0, 1, rows / 2, rows - 2, rows - 1}
+		got, err := p.Query(idx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, row := range idx {
+			for w := 0; w < words; w++ {
+				if got[i][w] != full[int(row)*words+w] {
+					t.Fatalf("download=%v row %d word %d: got %d want %d", download, row, w, got[i][w], full[int(row)*words+w])
+				}
+			}
+		}
+	}
+}

@@ -58,10 +58,15 @@ has() { [[ " $STAGES " == *" $1 "* ]]; }
 mkdir -p logs
 
 submit() {   # submit <dependency job ids, space separated, may be empty> <sbatch args...> -> prints job id
+    # a job id prefixed "any:" is an afterany dependency (run once it ended, however), the rest afterok
     local deps="$1"; shift
-    local dep_arg=()
-    deps="$(echo $deps)"
-    [[ -n "$deps" ]] && dep_arg=(--dependency="afterok:${deps// /:}" --kill-on-invalid-dep=no)
+    local dep_arg=() ok="" any="" j
+    for j in $deps; do
+        if [[ $j == any:* ]]; then any+="${any:+:}${j#any:}"; else ok+="${ok:+:}$j"; fi
+    done
+    local spec="${ok:+afterok:$ok}"
+    [[ -n "$any" ]] && spec+="${spec:+,}afterany:$any"
+    [[ -n "$spec" ]] && dep_arg=(--dependency="$spec" --kill-on-invalid-dep=no)
     if [[ -n "${DRY_RUN:-}" ]]; then
         echo "  sbatch ${dep_arg[*]} $*" >&2
         echo "DRY$RANDOM"
@@ -156,9 +161,12 @@ pacmann_todo() {
 pacmann_count() { awk -v a="$1" 'BEGIN { n = split(a, P, ","); for (i = 1; i <= n; i++) { split(P[i], r, "-"); t += (r[2] == "" ? 1 : r[2] - r[1] + 1) } print t }'; }
 
 # submit_groups <method> <dataset> <plan file> <dependencies> <script for normal> <script for bigmem>
-submit_groups() {
+GROUP_JIDS=""   # the job ids the last submit_groups call submitted
+submit_groups() {   # submit_groups method dataset plan deps normal_script big_script [list prefix]
     local method=$1 d=$2 plan=$3 deps=$4 s_normal=$5 s_big=$6 gb min n f chunk=${MAX_ARRAY:-1000} off
+    local prefix="${7:-${method}_${d}}"
     local total; total=$(grep -c . "$plan" || true)
+    GROUP_JIDS=""
     while read -r gb min n f; do
         case $gb in
             missing) echo "  $method  SKIPPED $min of $total configs: inputs not there yet (first missing: $n)"; continue ;;
@@ -179,8 +187,9 @@ submit_groups() {
             # which list + offset this array runs, so queued_dirs (slurm_common.sh) can map its tasks to configs
             [[ -n "${DRY_RUN:-}" ]] || printf '%s\t%s\t%s\n' "$jid" "$f" "$off" >> "$SUBMITTED_FILE"
             echo "  $method  $jid (${gb}G ${min}min $part: $m configs, $(basename "$f"))"
+            GROUP_JIDS+=" $jid"
         done
-    done < <(group_plan "$plan" "$LIST_DIR" "${method}_${d}")
+    done < <(group_plan "$plan" "$LIST_DIR" "$prefix")
 }
 
 # submit_dataset <name> [extra dependency] ; sets EMBED_JOB to the job the dataset's embeddings come from
@@ -290,7 +299,19 @@ submit_dataset() {
         local plan="$LIST_DIR/tree_${d}.plan"
         ( DATASET="$d" SWEEP="${SWEEP:-all}" CHECK_INPUTS=$(inputs_pending "$prep $embed $treedb" && echo 0 || echo 1) \
             bash tree_sweep_grid.sh --plan ) > "$plan"
-        submit_groups tree "$d" "$plan" "$treedb $embed" run_tree_pir_old.slurm run_tree_pir_old.slurm
+        # Shared Cuckoo cache (tree_plan): the configs that build a shape's tables, and those whose shape is already
+        # cached, go first; the rest of each uncached shape are sized as cache hits and wait for the build jobs
+        # (afterany). Different list prefixes: group_plan rewrites its list files, and queued jobs still read theirs.
+        awk '$(NF-1) !~ /^after:/' "$plan" > "$plan.first"
+        awk '$(NF-1) ~ /^after:/' "$plan" > "$plan.after"
+        submit_groups tree "$d" "$plan.first" "$treedb $embed" run_tree_pir_old.slurm run_tree_pir_old.slurm "tree_${d}"
+        local tree_build_jids="$GROUP_JIDS"
+        if [[ -s "$plan.after" ]]; then
+            local any="" j
+            for j in $tree_build_jids; do any+=" any:$j"; done
+            echo "  tree     $(grep -c . "$plan.after") configs of shapes being built now: sized as cache hits, after${any:- (no build jobs submitted)}"
+            submit_groups tree "$d" "$plan.after" "$treedb $embed$any" run_tree_pir_old.slurm run_tree_pir_old.slurm "tree_${d}_after"
+        fi
     fi
 
     if has tiptoe; then

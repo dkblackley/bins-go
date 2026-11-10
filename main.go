@@ -269,6 +269,9 @@ func main() {
 	noramBlockMB := flag.Uint64("noram-hint-block-mb", 512, "-noram: MB of a client hint table filled at once per partition (up to 30 partitions at a time); bigger = fewer passes over the DB, more RAM")
 
 	flag.Parse()
+	// heap peak of every run (metadata PeakAnonMB); PIR_PEAK_FILE: also keep it in that file while running, so a
+	// killed run leaves it behind (run_tree_pir_old.slurm sets it)
+	diskstore.StartPeakSampler(os.Getenv("PIR_PEAK_FILE"))
 	if *noram {
 		if _, err := diskstore.Init(*noramDir, *dbFileName+"_"+*searchType); err != nil {
 			logrus.Fatalf("%v", err)
@@ -607,9 +610,10 @@ func main() {
 	config.Metadata["ReRankTime"] = (end.Sub(start) + textRankTime).String()
 	markSimulated(config.Metadata, *simulate)
 
+	// what the run really needed (heap etc.), without the mmap'd file pages that peak RSS counts (slurm_common.sh)
+	config.Metadata["PeakAnonMB"] = fmt.Sprintf("%.0f", diskstore.PeakAnonMB())
 	if *noram {
-		// what the run really needed (heap etc.), without the mmap'd file pages that peak RSS counts (slurm_common.sh)
-		config.Metadata["NoRAMPeakAnonMB"] = fmt.Sprintf("%.0f", diskstore.PeakAnonMB())
+		config.Metadata["NoRAMPeakAnonMB"] = config.Metadata["PeakAnonMB"]
 	}
 	oldOut := config.OutFile
 	config.OutFile = fmt.Sprintf("%s/%s.json", config.OutDir, config.OutFile)
