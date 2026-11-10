@@ -24,7 +24,7 @@ REF="data/nq_tree"
 SHAPE="32,32,8"
 FILES="stage1_vocab.json stage1/B32_r32/data.bin stage1/B32_r32/idmap.bin B32_r32_s8/stage2/data.bin B32_r32_s8/stage2/idmap.bin"
 
-echo "treedb check started $(date '+%F %T') on $(hostname), job ${SLURM_JOB_ID:-local}, code $(git log -1 --format='%h %s')"
+echo "treedb check started $(date '+%F %T') on $(hostname), job ${SLURM_JOB_ID:-local}, code $(git log -1 --format='%h %s' 2>/dev/null || echo "(no git on this node)")"
 echo
 
 source datasets/env.sh

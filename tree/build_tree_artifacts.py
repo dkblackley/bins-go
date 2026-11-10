@@ -69,7 +69,9 @@ class PostingsStream:
 
     def get(self, term):
         """-> (docs int64, tfs int64) or None if the term is not in the index."""
-        if not self.te.seekExact(self.BytesRef(term)):
+        # pyjnius won't pass a Python str as Java CharSequence, so hand BytesRef the UTF-8 bytes (its byte[]
+        # constructor): the same bytes BytesRef(CharSequence) would make, which is how Lucene stores the term.
+        if not self.te.seekExact(self.BytesRef(term.encode("utf-8"))):
             return None
         from array import array
         pe = self.te.postings(None, self.FREQS)
