@@ -142,6 +142,18 @@ record_failure() {
     # (not for -noram runs, whose peak RSS always reaches the limit: resident mmap'd file pages count, but the kernel
     # drops them instead of killing the job)
     [[ "$config" != *_noram ]] && (( req_kb > 0 && kb * 10 >= req_kb * 9 )) && oom=1
+    # scancel sends the same SIGTERM as the time limit (--signal=B:TERM@120 sends it 120 s before the limit). With
+    # more than 5 min left it was a cancel, not a timeout: logging it would bump the next estimate for nothing.
+    if [[ -n "$timeout" && -z "$oom" && -n "${SLURM_JOB_ID:-}" ]]; then
+        local left
+        left=$(squeue -h -j "$SLURM_JOB_ID" -o %L 2>/dev/null | head -1 | awk '
+            /^[0-9]/ { d = 0; t = $1; if (index(t, "-")) { split(t, a, "-"); d = a[1]; t = a[2] }
+                       n = split(t, p, ":"); s = 0; for (i = 1; i <= n; i++) s = s * 60 + p[i]; print d * 86400 + s }')
+        if [[ -n "$left" ]] && (( left > 300 )); then
+            echo "terminated with ${left}s of the time limit left: cancelled (scancel), not a timeout; usage not logged"
+            return 0
+        fi
+    fi
     [[ -n "$oom" || -n "$timeout" ]] || return 0
     local gb sec
     gb=$(awk -v k="$kb" -v r="$req_kb" -v o="$oom" 'BEGIN { m = (k > r ? k : r); if (o) m *= 1.5; printf "%.2f", m / 1048576 }')
@@ -166,7 +178,11 @@ load_real_usage() {   # once; the latest line per (method, dataset, config) wins
     while IFS=$'\t' read -r m d c gb s _date st; do
         [[ -n "$c" && "$gb" != max_rss_gb ]] || continue
         _REAL_MEM["$m|$d|$c"]=$gb; _REAL_SEC["$m|$d|$c"]=$s
-        if [[ "$st" == failed* ]]; then _REAL_FAIL["$m|$d|$c"]=1; else unset '_REAL_FAIL["$m|$d|$c"]'; fi
+        case $st in   # failed:oom / failed:timeout (failed:oomtimeout counts as oom)
+            failed:oom*) _REAL_FAIL["$m|$d|$c"]=oom ;;
+            failed*)     _REAL_FAIL["$m|$d|$c"]=timeout ;;
+            *)           unset '_REAL_FAIL["$m|$d|$c"]' ;;
+        esac
     done < "$REAL_USAGE_FILE"
 }
 
@@ -196,11 +212,15 @@ estimate_resources() {
             load_real_usage
             local rk="$1|$2|$3"
             if [[ -n "${_REAL_MEM[$rk]:-}" ]]; then
+                # A failed real run tells only one thing: a timeout logs the requested memory (not a peak), so only its
+                # time is used, as a lower bound; an OOM logs 1.5x what it had, so only its memory is used.
                 awk -v g="${_REAL_MEM[$rk]}" -v s="${_REAL_SEC[$rk]}" -v hm="$MEM_HEADROOM" -v ht="$TIME_HEADROOM" \
                     -v f="${_REAL_FAIL[$rk]:-}" -v fg="$g" -v fm="$m" '
-                    BEGIN { g = g * hm + 1; t = s * ht / 60 + 10
-                            if (f) { if (fg > g) g = fg; if (fm > t) t = fm }   # a failed real run: lower bound only
-                            printf "%.1f %d real-measured\n", g, t }'
+                    BEGIN { mg = g * hm + 1; mt = s * ht / 60 + 10
+                            if (f == "timeout") { g = fg; t = (mt > fm ? mt : fm) }
+                            else if (f == "oom") { g = (mg > fg ? mg : fg); t = fm }
+                            else { g = mg; t = mt }
+                            printf "%.1f %d real-measured%s\n", g, t, (f ? "-" f : "") }'
                 return
             fi
         fi
