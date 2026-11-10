@@ -7,7 +7,7 @@
 #   * bucket rounding                   mem_bucket <GB>, time_bucket <minutes>, slurm_time <minutes>
 #
 # Every finished run appends one line to $USAGE_FILE (default $RESULTS_DIR/resource_usage.tsv):
-#   method  dataset  config  max_rss_gb  elapsed_s  date  [failed:oom|timeout]
+#   method  dataset  config  max_rss_gb  elapsed_s  date (YYYY-MM-DDTHH:MM:SS; just the day before 2026-11-10)  [failed:oom|timeout]
 # so estimates become measurements as runs come back. Lookup order for a config:
 #   1. measured on this dataset             -> peak RSS x MEM_HEADROOM, elapsed x TIME_HEADROOM
 #   2. measured on another dataset          -> scaled by (docs ratio)^exp, with the larger headroom
@@ -121,7 +121,7 @@ record_usage() {
     mkdir -p "$(dirname "$USAGE_FILE")"
     local line
     line=$(printf '%s\t%s\t%s\t%.2f\t%d\t%s' "$method" "$dataset" "$config" "$(awk -v k="$kb" 'BEGIN{print k/1048576}')" \
-        "$secs" "$(date +%F)")
+        "$secs" "$(date +%FT%T)")
     ( flock 9; echo "$line" >> "$USAGE_FILE" ) 9>>"${USAGE_FILE}.lock"
     echo "usage: $line"
 }
@@ -178,7 +178,7 @@ record_failure() {
     fi
     if [[ -n "$timeout" ]]; then sec=$(( secs * 2 )); else sec=$secs; fi   # not $(( timeout ? .. )): bash would expand the word "timeout" recursively
     local line
-    line=$(printf '%s\t%s\t%s\t%s\t%d\t%s\t%s' "$method" "$dataset" "$config" "$gb" "$sec" "$(date +%F)" \
+    line=$(printf '%s\t%s\t%s\t%s\t%d\t%s\t%s' "$method" "$dataset" "$config" "$gb" "$sec" "$(date +%FT%T)" \
         "failed:${oom:+oom}${timeout:+timeout}")
     mkdir -p "$(dirname "$USAGE_FILE")"
     ( flock 9; echo "$line" >> "$USAGE_FILE" ) 9>>"${USAGE_FILE}.lock"

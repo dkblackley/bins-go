@@ -264,10 +264,13 @@ while IFS= read -r f; do tail -c 65536 "$f" 2>/dev/null; echo; done < "$OUT/erro
 echo "  which files: xargs -d '\\n' grep -l '<text>' < $OUT/error_files.txt | head"
 
 # ------------------------------------------------------------------------------------------------ 5. usage log
-hr "5. OOM / timeout entries in ${USAGE_FILE:-$RES/resource_usage.tsv} since ${SINCE%%T*}"
-awk -F'\t' -v d=" $DATASETS " -v s="${SINCE%%T*}" '$7 ~ /^failed/ && $6 >= s && index(d, " " $2 " ") { n[$1 " " $2 " " $7]++ }
+# the usage log has full timestamps since 2026-11-10 (older lines only the day, which sort before any time that day,
+# so they drop out once "since" is past them)
+hr "5. OOM / timeout entries in ${USAGE_FILE:-$RES/resource_usage.tsv} since $SINCE"
+awk -F'\t' -v d=" $DATASETS " -v s="$SINCE" '$7 ~ /^failed/ && $6 >= s && index(d, " " $2 " ") { n[$1 " " $2 " " $7]++ }
     END { for (k in n) printf "  %-50s %6d\n", k, n[k] }' "${USAGE_FILE:-$RES/resource_usage.tsv}" 2>/dev/null | sort
-echo "  (each one is re-estimated at 1.5x memory / 2x time the next time run_all.sh plans that config)"
+echo "  (each one is re-estimated at 1.5x memory / 2x time the next time run_all.sh plans that config; older entries"
+echo "   still count for that, they are just not listed: SINCE=2026-11-01 bash check_runs.sh shows them)"
 
 # ------------------------------------------------------------------------------------------------ 6. fail files
 hr "6. fail files in the repo root (tasks that exited without finishing): total, since $SINCE"
