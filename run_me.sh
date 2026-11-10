@@ -1,7 +1,10 @@
 #!/bin/bash
 # run_me.sh: run this after every fix. It never deletes results.
 #
-#   bash run_me.sh                       # scifact msmarco nq fever dbpedia-entity, bins + pacmann + tree
+#   bash run_me.sh                       # scifact msmarco nq fever dbpedia-entity msmarco-v2-25m msmarco-v2-50m
+#                                        # msmarco-v2, bins + pacmann + tree, SIMULATED low-RAM runs (SIMULATE=1
+#                                        # NORAM=1, what run_sim_noram.sh submits); the default since 2026-11-10
+#   REAL=1 bash run_me.sh                # real runs (hints, server timings): hundreds of GB and hours each
 #   bash run_me.sh nq fever              # only these datasets
 #   DRY_RUN=1 bash run_me.sh             # show what it would submit, change nothing
 #   STAGES="bins tree" bash run_me.sh    # only some methods
@@ -31,6 +34,12 @@ switch_pir_app() {
 
 main() {
     set -uo pipefail
+    # Simulated low-RAM unless REAL=1: a plain run_me.sh once queued 1,400 real jobs by accident (2026-11-10)
+    if [[ "${REAL:-0}" == 1 ]]; then
+        export SIMULATE=0 NORAM="${NORAM:-0}"
+    else
+        export SIMULATE=1 NORAM="${NORAM:-1}"
+    fi
     local self; self=$(readlink -f "$0")
     cd "$(dirname "$self")"
 
@@ -55,9 +64,12 @@ main() {
     mkdir -p logs/run_me logs/check
     exec > >(tee -a "logs/run_me/$ts.log") 2>&1
     local started; started=$(date +%FT%T)
-    local datasets="${*:-scifact msmarco nq fever dbpedia-entity}"
+    local datasets="${*:-scifact msmarco nq fever dbpedia-entity msmarco-v2-25m msmarco-v2-50m msmarco-v2}"
     local stages="${STAGES:-bins pacmann tree}"
+    local mode="REAL runs (REAL=1)"
+    [[ "$SIMULATE" == 1 ]] && mode="simulated$([[ "$NORAM" == 1 ]] && echo ", low-RAM (-noram)") (REAL=1 for real runs)"
     echo "run_me.sh $started  datasets: $datasets  stages: $stages${DRY_RUN:+  (DRY_RUN: nothing is submitted)}"
+    echo "   mode: $mode"
     git log -1 --format='   code: %h %ci %s'
 
     # ---- 2. exec bits

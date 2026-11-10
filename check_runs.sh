@@ -1,7 +1,8 @@
 #!/bin/bash
 # Status of the bins / pacmann / tree / tiptoe / coeus runs. Read-only: never submits, cancels, moves or deletes.
 #
-#   bash check_runs.sh                              # scifact msmarco nq fever dbpedia-entity, every method
+#   bash check_runs.sh                              # scifact msmarco nq fever dbpedia-entity msmarco-v2-25m
+#                                                   # msmarco-v2-50m msmarco-v2, every method
 #   bash check_runs.sh nq fever                     # only these datasets
 #   METHODS="bins tree" SINCE=2026-11-01 bash check_runs.sh nq
 #   bash check_runs.sh --mark                       # from now on only show failures after this moment
@@ -42,7 +43,7 @@ if [[ -z "${SINCE:-}" ]]; then
 fi
 SINCE_SP="${SINCE/T/ }"   # "2026-11-09 05:12:00" for find -newermt and the fail files
 METHODS="${METHODS:-bins pacmann tree tiptoe coeus}"
-DATASETS="${*:-scifact msmarco nq fever dbpedia-entity}"
+DATASETS="${*:-scifact msmarco nq fever dbpedia-entity msmarco-v2-25m msmarco-v2-50m msmarco-v2}"
 OUT="logs/check/$(date +%Y%m%d_%H%M%S)"; mkdir -p "$OUT"
 echo "Failures since $SINCE ($([[ -s "$SINCE_FILE" ]] && echo "set by run_me.sh / --mark in $SINCE_FILE" || echo "default: 14 days")). SINCE=... to change it."
 has() { [[ " $METHODS " == *" $1 "* ]]; }
@@ -261,4 +262,4 @@ hr "lists written to $OUT/"
 echo "  <method>_<dataset>_not_done.tsv : status  folder  config  [last error]   (status: crashed, queued, not_started, bad_json)"
 echo "  e.g.  cut -f1 $OUT/bins_nq_not_done.tsv | sort | uniq -c"
 echo "        awk -F'\\t' '\$1==\"crashed\"' $OUT/bins_nq_not_done.tsv | cut -f4 | sort | uniq -c | sort -rn | head"
-echo "  After a fix: bash run_me.sh   (pulls, rebuilds pir_app if needed, resubmits crashed + not started, moves 'since')"
+echo "  After a fix: $([[ "${SIMULATE:-0}" == 1 ]] || echo "REAL=1 ")bash run_me.sh   (pulls, rebuilds pir_app if needed, resubmits crashed + not started, moves 'since'; simulated low-RAM unless REAL=1)"
