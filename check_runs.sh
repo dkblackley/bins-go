@@ -72,6 +72,12 @@ sacct -u "$USER" -S "$SINCE" -X -n -P -o JobID,JobName,State,ExitCode,End 2>/dev
         k = $2 "|" st; n[k]++; if ($5 >= last[k]) { last[k] = $5; id[k] = $1 } }
       END { for (k in n) { split(k, a, "|"); printf "%s|%s|%d|%s|%s\n", a[1], a[2], n[k], id[k], last[k] } }' \
   | sort > "$OUT/failed_jobs.txt"
+# CANCELLED is almost always you (scancel) or a job whose dependency failed: one summary line, SHOW_CANCELLED=1 lists them
+if [[ -z "${SHOW_CANCELLED:-}" ]]; then
+    n_canc=$(awk -F'|' '$2 == "CANCELLED" { n += $3 } END { print n + 0 }' "$OUT/failed_jobs.txt")
+    grep -v '^[^|]*|CANCELLED|' "$OUT/failed_jobs.txt" > "$OUT/failed_jobs.tmp"; mv "$OUT/failed_jobs.tmp" "$OUT/failed_jobs.txt"
+    (( n_canc > 0 )) && echo "  ($n_canc CANCELLED tasks not listed: scancel or a failed dependency. SHOW_CANCELLED=1 lists them)"
+fi
 if [[ ! -s "$OUT/failed_jobs.txt" ]]; then
     echo "  none (or sacct not available)"
 else
@@ -242,8 +248,16 @@ EOF
 # ------------------------------------------------------------------------------------------------- 4. errors
 hr "4. most common error lines since $SINCE (live logs/*.err + results */error.log; numbers replaced by N)"
 { find logs -maxdepth 1 -name '*.err' -newermt "$SINCE_SP" -size +0 2>/dev/null
-  find "$RES" "$BRES" -mindepth 2 -maxdepth 3 -name error.log -newermt "$SINCE_SP" -size +0 2>/dev/null; } | sort -u > "$OUT/error_files.txt"
-echo "  $(wc -l < "$OUT/error_files.txt") non-empty error logs (list: $OUT/error_files.txt)"
+  find "$RES" "$BRES" -mindepth 2 -maxdepth 3 -name error.log -newermt "$SINCE_SP" -size +0 2>/dev/null; } | sort -u > "$OUT/error_files.all"
+# logs of cancelled jobs (scancel; not a time limit, that says "DUE TO TIME LIMIT") are left out: a noram run that is
+# cancelled deletes its on-disk DB while other threads still read it, so it ends in "fatal error: fault" / SIGSEGV
+while IFS= read -r f; do
+    if tail -c 65536 "$f" 2>/dev/null | grep -q ' CANCELLED AT ' && ! tail -c 65536 "$f" | grep -q 'DUE TO TIME LIMIT'; then
+        echo "$f" >> "$OUT/error_files.cancelled"
+    else echo "$f"; fi
+done < "$OUT/error_files.all" > "$OUT/error_files.txt"
+echo "  $(wc -l < "$OUT/error_files.txt") non-empty error logs (list: $OUT/error_files.txt);" \
+     "$(cat "$OUT/error_files.cancelled" 2>/dev/null | wc -l) more from cancelled jobs left out ($OUT/error_files.cancelled)"
 while IFS= read -r f; do tail -c 65536 "$f" 2>/dev/null; echo; done < "$OUT/error_files.txt" \
   | grep -aiE 'panic:|Traceback|^[A-Za-z]*Error|error:|Killed|oom|out of memory|DUE TO TIME LIMIT|CANCELLED|Segmentation|fatal' \
   | sed -E 's/[0-9]+/N/g' | cut -c1-150 | sort | uniq -c | sort -rn | head -20
@@ -259,7 +273,7 @@ echo "  (each one is re-estimated at 1.5x memory / 2x time the next time run_all
 hr "6. fail files in the repo root (tasks that exited without finishing): total, since $SINCE"
 for f in bins_low_fails bins_high_fails pacman_fails tree_fails tiptoe_fails tiptoe_v2_fails coeus_fails; do
     [[ -f $f ]] || continue
-    printf '  %-18s %6d  %6d since\n' "$f" "$(wc -l < "$f")" "$(awk -v s="$SINCE_SP" '($(NF-1) " " $NF) >= s' "$f" | wc -l)"
+    printf '  %-18s %6d  %6d since\n' "$f" "$(grep -c . "$f")" "$(awk -v s="$SINCE_SP" 'NF >= 2 && ($(NF-1) " " $NF) >= s' "$f" | wc -l)"
 done
 
 hr "lists written to $OUT/"

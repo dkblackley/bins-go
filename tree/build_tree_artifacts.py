@@ -448,8 +448,13 @@ def main():
     # ---------------- queries.tsv + analyzed json (opt3.py) + qrels.trec, only queries with qrels
     from pyserini.analysis import Analyzer, get_lucene_analyzer
     # BEIR layout (qrels/test.tsv with a header, queries.jsonl), or msmarco's (qrels/qrels.dev.tsv in TREC form
-    # "qid 0 pid rel", queries.dev.small.jsonl)
-    qp = f"{D}/qrels/test.tsv" if os.path.exists(f"{D}/qrels/test.tsv") else f"{D}/qrels/qrels.dev.tsv"
+    # "qid 0 pid rel", queries.dev.small.jsonl, the same files bins uses in main.go). Pick the qrels that go with the
+    # queries file: ../datasets/msmarco also has a qrels/test.tsv (TREC-DL), whose query ids are not in
+    # queries.dev.small.jsonl, and choosing it by itself wrote an empty queries.qrels.tsv (2026-11-10).
+    if os.path.exists(f"{D}/queries.jsonl"):
+        qfile, qp = f"{D}/queries.jsonl", f"{D}/qrels/test.tsv"
+    else:
+        qfile, qp = f"{D}/queries.dev.small.jsonl", f"{D}/qrels/qrels.dev.tsv"
     qrels = []
     for l in open(qp).read().splitlines():
         f = l.split()
@@ -459,12 +464,13 @@ def main():
             qrels.append(f)
     want = {q[0] for q in qrels}
     an = Analyzer(get_lucene_analyzer())
-    qfile = f"{D}/queries.jsonl" if os.path.exists(f"{D}/queries.jsonl") else f"{D}/queries.dev.small.jsonl"
     qs = [json.loads(l) for l in open(qfile)]
     for q in qs:   # BEIR queries have "_id", msmarco's queries.dev.small.jsonl has "id"
         if "_id" not in q:
             q["_id"] = str(q["id"])
     qs = [q for q in qs if q["_id"] in want]
+    if not qs:   # every tree run would answer 0 queries and fail after its whole preprocessing
+        sys.exit(f"no query in {qfile} has qrels in {qp}: not writing the query files")
     with open(f"{T}/queries.qrels.tsv", "w") as f:
         for q in qs:
             f.write(f"{q['_id']}\t{q['text']}\n")

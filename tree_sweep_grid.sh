@@ -304,6 +304,9 @@ tree_missing() {   # dataset B r s -> the first missing input file, or nothing i
              "$STAGE1_DATA" "$STAGE1_IDMAP" "$STAGE2_DATA" "$STAGE2_IDMAP"; do
         [[ -e "$f" ]] || { echo "$f"; return; }
     done
+    # an empty query list counts as missing (msmarco's was written empty on 2026-11-10: every run answered 0 queries),
+    # so run_all.sh queues the tree-db job that rewrites it
+    [[ -s "$QUERIES" ]] || { echo "$QUERIES (empty)"; return; }
     [[ "$DB_SIZE" -gt 0 ]] || echo "${DATASET_DIR:-../../datasets}/$1/num_docs.txt"
 }
 
