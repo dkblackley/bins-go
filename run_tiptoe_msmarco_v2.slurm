@@ -58,10 +58,10 @@ for d in names:
     else:
         sys.exit(f"No {f}, run datasets/prep_datasets.slurm for {d} first")
     seen = set()
-    for dpc in (250, 500, 1000, 2500, 5000, 10000, 40000):
+    for dpc in (250, 2500, 40000):   # 2026-11-09, was 250 500 1000 2500 5000 10000 40000
         c = min(max(1, round(n / dpc)), 25196)        # TIPTOE_MAX_CLUSTERS
         for ma in (1, 2):
-            for bundle in (40, 80, 160, 320):
+            for bundle in (40, 320):   # was 40 80 160 320
                 if (c, ma, bundle) not in seen:
                     seen.add((c, ma, bundle))
                     print(d, n, c, dpc, ma, bundle)

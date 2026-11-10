@@ -91,13 +91,14 @@ _big_grid() {   # dataset max_q sweep
         add_oat "$d" "$MQ" "$ANCHOR" B "4 8 16 32 64 128"
         add_oat "$d" "$MQ" "$ANCHOR" r "2 4 8 16 32 64 128 256"
         add_oat "$d" "$MQ" "$ANCHOR" s "1 2 4 8 16 32"
-        add_oat "$d" "$MQ" "$ANCHOR" L "1 2 4 8 16 32 64 100 200 400 800"
+        add_oat "$d" "$MQ" "$ANCHOR" L "1 4 16 32 64 100 400 800"        # was 1 2 4 8 16 32 64 100 200 400 800
         add_oat "$d" "$MQ" "$ANCHOR" q "1 2 3 4 6 8 12"
-        add_oat "$d" "$MQ" "$ANCHOR" c "1 2 4 8 16 32 64 128 256 400"
+        add_oat "$d" "$MQ" "$ANCHOR" c "1 4 16 32 64 128 256 400"        # was 1 2 4 8 16 32 64 128 256 400
     fi
     if [[ $sweep == grid || $sweep == all ]]; then
         #                  max_q  B             r         s        L                  q       P = c*s
-        add_pool_grid "$d" "$MQ" "8 16 32 64" "4 16 64" "2 4 8"  "2 8 32 128 512"   "2 4 8" "128 1024"
+        add_pool_grid "$d" "$MQ" "8 32 64"    "4 16 64" "2 8"    "2 16 128 512"     "2 8"   "128 1024"
+        # 2026-11-09, was: "8 16 32 64" "4 16 64" "2 4 8" "2 8 32 128 512" "2 4 8" "128 1024"
     fi
 }
 
@@ -120,12 +121,13 @@ build_tree_grid() {
             add_oat scifact $MQ "$ANCHOR" B "2 4 8 16 32 64"
             add_oat scifact $MQ "$ANCHOR" r "2 4 8 16 32 64"
             add_oat scifact $MQ "$ANCHOR" s "1 2 4 8 16"
-            add_oat scifact $MQ "$ANCHOR" L "1 2 3 5 10 20 40 80 160"
+            add_oat scifact $MQ "$ANCHOR" L "1 2 5 10 20 40 80 160"   # was 1 2 3 5 10 20 40 80 160
             add_oat scifact $MQ "$ANCHOR" q "1 2 4 6 8 12 16 24"
             add_oat scifact $MQ "$ANCHOR" c "1 2 4 8 16 20 40 80"
         fi
         if [[ $sweep == grid || $sweep == all ]]; then
-            add_pool_grid scifact $MQ "4 8 16 32" "2 4 16"   "1 2 4 8" "1 3 10 30 100" "2 8 16"  "16 64 256"
+            add_pool_grid scifact $MQ "4 16 32"   "2 4 16"   "1 4 8"   "1 10 30 100"   "2 16"    "16 64 256"
+            # 2026-11-09, was: "4 8 16 32" "2 4 16" "1 2 4 8" "1 3 10 30 100" "2 8 16" "16 64 256"
         fi
         ;;
     *) echo "Unknown DATASET: $dataset (one of: $TREE_DATASETS)" >&2; return 1 ;;

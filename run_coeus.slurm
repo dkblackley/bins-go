@@ -8,7 +8,7 @@
 #SBATCH --time=0-06:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-47               # for the default scifact + msmarco; other datasets: see --count below
+#SBATCH --array=0-23               # for the default scifact + msmarco; other datasets: see --count below
 #SBATCH --output=logs/Coeus_%A_%a.out
 #SBATCH --error=logs/Coeus_%A_%a.err
 
@@ -37,7 +37,7 @@ DATASET_DIR="${DATASET_DIR:-../../datasets}"
 COEUS_DATASETS="${COEUS_DATASETS:-scifact msmarco}"
 DATA_ARR=(); F_ARR=(); TF_ARR=(); K_ARR=()
 for d in $COEUS_DATASETS; do
-    for f in 8192 16384 32768 65536 131072 262144; do
+    for f in 8192 32768 262144; do   # 2026-11-09, was 8192 16384 32768 65536 131072 262144
         for tf in raw log; do
             for k in 10 100; do
                 DATA_ARR+=("$d"); F_ARR+=("$f"); TF_ARR+=("$tf"); K_ARR+=("$k")

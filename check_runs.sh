@@ -129,10 +129,10 @@ for d in $DATASETS; do
 import sys
 d, n, root = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 seen = set()
-for dpc in (250, 500, 1000, 2500, 5000, 10000, 40000):
+for dpc in (250, 2500, 40000):
     c = min(max(1, round(n / dpc)), 25196) if n else 0
     for ma in (1, 2):
-        for b in (40, 80, 160, 320):
+        for b in (40, 320):
             for h in (125, 500):
                 for k in (10, 100):
                     name = f"{root}/tiptoe_{d}_c{c}_m{min(ma, c)}_b{b}_h{h}_k{k}"
@@ -141,7 +141,7 @@ for dpc in (250, 500, 1000, 2500, 5000, 10000, 40000):
 EOF
     fi
     if has coeus; then
-        for f in 8192 16384 32768 65536 131072 262144; do for tf in raw log; do for k in 10 100; do
+        for f in 8192 32768 262144; do for tf in raw log; do for k in 10 100; do
             echo "coeus $d $BRES/coeus_${d}_k${k}_f${f}_tf${tf} F=$f tf=$tf k=$k"
         done; done; done
     fi

@@ -534,23 +534,40 @@ func main() {
 		progressbar.OptionSetDescription("Decoding stuff"),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 	)
+	// Text mode ranks each answer right after decoding it and then drops its decoded docs (TextEntry.Release), so only
+	// one answer's docs are in memory at a time. ReRankTime still counts only the BM25 ranking, as before.
+	var reRanked map[string][]string
+	var textRankTime time.Duration
+	if config.Text.Enabled {
+		reRanked = make(map[string][]string, len(encodedAnswers))
+	}
 	for qid, encodedAnswer := range encodedAnswers {
 		answers[qid] = encodedAnswer.Decode(&config)
+		if config.Text.Enabled {
+			if te, ok := encodedAnswer.(*bins.TextEntry); ok {
+				t0 := time.Now()
+				reRanked[qid] = te.Rank(&config, int(config.K))
+				textRankTime += time.Since(t0)
+				te.Release()
+			} else {
+				logrus.Errorf("text re-rank: answer for %s is %T, not a text entry", qid, encodedAnswer)
+			}
+		}
 		bar.Add(1)
 	}
+	encodedAnswers = nil
 
 	bar.Finish()
 
 	start = time.Now()
-	var reRanked map[string][]string
 	if config.Text.Enabled {
-		reRanked = TextBM25ReRank(encodedAnswers, answers, &config)
+		TextBM25Metrics(answers, reRanked, &config)
 	} else {
 		reRanked = CosineReRank(answers, &config)
 	}
 	end = time.Now()
 
-	config.Metadata["ReRankTime"] = end.Sub(start).String()
+	config.Metadata["ReRankTime"] = (end.Sub(start) + textRankTime).String()
 	markSimulated(config.Metadata, *simulate)
 
 	if *noram {
@@ -844,8 +861,9 @@ func CosineReRank(results map[string][]string, config *globals.Args) map[string]
 
 }
 
-// TextBM25ReRank is the client-side re-rank of the bins text mode: BM25 over the decoded text of every retrieved doc.
-func TextBM25ReRank(encoded map[string]globals.Decodable, results map[string][]string, config *globals.Args) map[string][]string {
+// TextBM25Metrics: MRR / Recall before and after the bins text mode's client-side BM25 re-rank.
+// The ranking itself (TextEntry.Rank) runs in main's decode loop, one answer at a time; this records the metrics.
+func TextBM25Metrics(results, reRanked map[string][]string, config *globals.Args) {
 	qrels, err := bins.LoadQrels(config.DatasetMeta.Qrels)
 	if err != nil {
 		logrus.Errorf("Error loading qrels from %s: %v", config.DatasetMeta.Qrels, err)
@@ -853,21 +871,10 @@ func TextBM25ReRank(encoded map[string]globals.Decodable, results map[string][]s
 	config.Metadata["MRRPreReRank"] = fmt.Sprintf("%.4f", calcMRR(results, qrels))
 	config.Metadata["RecallPreReRank"] = fmt.Sprintf("%.4f", calcRecall(results, qrels))
 
-	reRanked := make(map[string][]string, len(encoded))
-	for qid, e := range encoded {
-		te, ok := e.(*bins.TextEntry)
-		if !ok {
-			logrus.Errorf("TextBM25ReRank: answer for %s is %T, not a text entry", qid, e)
-			continue
-		}
-		reRanked[qid] = te.Rank(config, int(config.K))
-	}
-
 	config.Metadata["MRR"] = fmt.Sprintf("%.4f", calcMRR(reRanked, qrels))
 	config.Metadata["Recall"] = fmt.Sprintf("%.4f", calcRecall(reRanked, qrels))
 	logrus.Infof("MRR Pre re-rank: %s, Post BM25 re-rank: %s", config.Metadata["MRRPreReRank"], config.Metadata["MRR"])
 	logrus.Infof("Recall Pre re-rank: %s, Post BM25 re-rank: %s", config.Metadata["RecallPreReRank"], config.Metadata["Recall"])
-	return reRanked
 }
 
 func CosineSimilarity(a, b []float32) float32 {

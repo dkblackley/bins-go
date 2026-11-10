@@ -8,7 +8,7 @@
 #SBATCH --time=0-08:00:00             # 2 h timed out in k-means + bundling on nq (tasks also wait on the shared lock)
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-895%64
+#SBATCH --array=0-191%64
 #SBATCH --output=logs/Tiptoe_%A_%a.out
 #SBATCH --error=logs/Tiptoe_%A_%a.err
 #SBATCH --signal=B:TERM@120
@@ -25,7 +25,7 @@
 #   BUNDLE docs per URL bundle (Tiptoe: 160): bigger = more docs returned, bigger round-2 download
 #   HINT   embedding hint size in MB (Tiptoe: 500): moves bytes between upload (DB width) and download (DB height)
 #   k      10, 100
-#   per dataset: 7 DPC x 2 MA x 4 BUNDLE x 2 HINT x 2 k = 224 tasks; 4 datasets = 896.
+#   per dataset: 3 DPC x 2 MA x 2 BUNDLE x 2 HINT x 2 k = 48 tasks; 4 datasets = 192.
 # msmarco-v2 and its subsamples have their own script, run_tiptoe_msmarco_v2.slurm (longer preprocessing, one task
 # per preprocessed DB instead of per config).
 #
@@ -49,9 +49,9 @@
 TIPTOE_DATASETS="${TIPTOE_DATASETS:-scifact nq fever msmarco}"
 DATA_ARR=(); DPC_ARR=(); MA_ARR=(); B_ARR=(); H_ARR=(); K_ARR=()
 for d in $TIPTOE_DATASETS; do
-  for dpc in 250 500 1000 2500 5000 10000 40000; do
+  for dpc in 250 2500 40000; do          # 2026-11-09, was 250 500 1000 2500 5000 10000 40000
     for ma in 1 2; do
-      for bundle in 40 80 160 320; do
+      for bundle in 40 320; do              # was 40 80 160 320
         for hint in 125 500; do
           for k in 10 100; do
             DATA_ARR+=("$d"); DPC_ARR+=("$dpc"); MA_ARR+=("$ma"); B_ARR+=("$bundle"); H_ARR+=("$hint"); K_ARR+=("$k")

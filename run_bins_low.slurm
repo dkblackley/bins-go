@@ -46,7 +46,10 @@ db_size_of() {
     esac
 }
 
-BS_LIST=(100 500 1000 5000 10000 50000 100000 500000 1000000 5000000 10000000)
+# 2026-11-09: cut to 8 values (min and max kept); the full list was
+# (100 500 1000 5000 10000 50000 100000 500000 1000000 5000000 10000000)
+BS_LIST=(100 1000 10000 100000 500000 1000000 5000000 10000000)
+DPB_LIST=(10 25 50 100 250 500 1000 2500)   # was 10 25 50 75 100 250 500 1000 1500 2000 2500
 # BS_LIST=(100 500 1000 5000 10000 50000 100000 500000 1000000)
 
 DATA_ARR=()
@@ -82,7 +85,7 @@ add_bins_ablations() {
     for vec in $BINS_VECS; do
         for k in 10 100; do
             for bs in "${BS_LIST[@]}"; do
-                for dpb in 10 25 50 75 100 250 500 1000 1500 2000 2500; do
+                for dpb in "${DPB_LIST[@]}"; do
                     [[ "$(tier_of "$d" "$k" "$bs" "$dpb" "$vec")" == "$TIER" ]] || continue
                     # 25M-138M docs: fewer than 100k bins can only hold a tiny fraction of the corpus, skip them
                     [[ ( "$d" == msmarco-v2* || "$d" == miracl-en ) && "$bs" -lt 100000 ]] && continue

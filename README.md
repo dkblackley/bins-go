@@ -254,8 +254,8 @@ msmarco and scifact keep their original index/Stage 3 files; only missing shape 
 `datasets/README.md`, Notes).
 
 The grid (B, r, s, L, q, k_candidates) is defined once in `tree_sweep_grid.sh` and shared by the artifact build and
-the runs. `SWEEP=legacy|oat|grid|all` (default `all`: 961 configs / 51 shapes on msmarco-sized sets, 1,675 / 57 on
-scifact). See [`tree/SWEEP.md`](tree/SWEEP.md).
+the runs. `SWEEP=legacy|oat|grid|all` (default `all`: 278 configs / 33 shapes on msmarco-sized sets, 522 / 36 on
+scifact; cut down 2026-11-09 from 961 / 1,675). See [`tree/SWEEP.md`](tree/SWEEP.md).
 
 ```bash
 DATASET=nq bash tree_sweep_grid.sh --count      # configs and shapes
@@ -428,12 +428,12 @@ script's own grid at the script's `#SBATCH` resources.
 
 | Script | Grid per dataset | Datasets variable (default) | Default resources |
 |---|---|---|---|
-| `run_bins_low.slurm` / `run_bins_high.slurm` | vec x k{10,100} x 11 binSize x 11 docsPerBin = 484 (v2/miracl: binSize ≥ 100k only, 220), split into low/high tiers. **[PR #8]** + text = 726 | `BINS_DATASETS` (`msmarco scifact`) | 120G / 1500G bigmem, 7.5 h |
+| `run_bins_low.slurm` / `run_bins_high.slurm` | vec x k{10,100} x 8 binSize x 8 docsPerBin = 256 (v2/miracl: binSize ≥ 100k only, 160), split into low/high tiers. **[PR #8]** + text = 384 | `BINS_DATASETS` (`msmarco scifact`) | 120G / 1500G bigmem, 7.5 h |
 | `run_pacmann.slurm` | k{10,100} x steps{5..30} x neighb{8..48} = 72 | `PACMANN_DATASETS` (`msmarco scifact`) | 120G normal, 5 h |
-| `run_tree_pir_old.slurm` | `tree_sweep_grid.sh` (961 / 1,675 on scifact) | `DATASET` (one), `SWEEP` | 100G normal, 6 h |
-| `run_tiptoe.slurm` | DPC(7) x MA(2) x bundle(4) x hint(2) x k(2) = 224 | `TIPTOE_DATASETS` (`scifact nq fever msmarco`), `MODE=sim|real` | 32G, 2.5 h (real on msmarco: `--mem=64G`) |
+| `run_tree_pir_old.slurm` | `tree_sweep_grid.sh` (278 / 522 on scifact) | `DATASET` (one), `SWEEP` | 100G normal, 6 h |
+| `run_tiptoe.slurm` | DPC(3) x MA(2) x bundle(2) x hint(2) x k(2) = 48 | `TIPTOE_DATASETS` (`scifact nq fever msmarco`), `MODE=sim|real` | 32G, 2.5 h (real on msmarco: `--mem=64G`) |
 | `run_tiptoe_msmarco_v2.slurm` | **simulation only, don't use** (see the note at the top): one task per preprocessed DB, runs its 4 (hint, k) sims | `TIPTOE_V2_DATASETS` (`msmarco-v2-50m msmarco-v2`) | 32G, 12 h (64 tasks by default) |
-| `run_coeus.slurm` | F(6) x tf{raw,log} x k(2) = 24 | `COEUS_DATASETS` (`scifact msmarco`) | 120G, 2 days |
+| `run_coeus.slurm` | F(3) x tf{raw,log} x k(2) = 12 | `COEUS_DATASETS` (`scifact msmarco`) | 120G, 2 days |
 
 ```bash
 BINS_DATASETS="nq fever" bash run_bins_high.slurm --count

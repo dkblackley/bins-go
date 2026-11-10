@@ -27,6 +27,8 @@
 # and client storage; every timing -1) into $RESULTS_DIR, default /scratch/$USER/results_simulated, with their own
 # usage log and smaller first estimates (slurm_common.sh). The data stages and tiptoe/coeus are skipped then.
 #   SIMULATE=1 STAGES=tree bash datasets/run_all.sh nq dbpedia-entity fever msmarco
+# SIMULATE=1 NORAM=1 (what run_sim_noram.sh sets) also passes -noram and sizes the jobs for simulated low-RAM runs
+# (a few GB, minutes; floor 12 GB / 30 min): see run_sim_noram.sh.
 # MAX_GB=n skips every bins/tree group estimated above n GB (e.g. MAX_GB=100: only the normal partition).
 #
 # GPU=<profile> sends the embed jobs to another GPU queue instead of embed.slurm's DGX A100.40gb (fp16, short time
@@ -235,7 +237,14 @@ submit_dataset() {
         local n big=() todo
         n=$(count_of PACMANN_DATASETS="$d" run_pacmann.slurm)
         todo=$(pacmann_todo "$d" "$n")
-        is_big "$d" && big=(--partition=bigmem --mem=1500G)
+        if [[ "${SIMULATE:-0}" == 1 ]]; then
+            # simulated: no hints, sized from the dataset (slurm_common.sh pacmann_sim_model), not the 120 GB / 5 h default
+            local pg pm; read -r pg pm <<< "$(pacmann_sim_model "$d")"
+            pg=$(mem_bucket "$pg"); pm=$(time_bucket "$pm")
+            big=(--partition="$(partition_for "$pg")" --mem="${pg}G" --time="$(slurm_time "$pm")")
+        elif is_big "$d"; then
+            big=(--partition=bigmem --mem=1500G)
+        fi
         if [[ -z "$todo" ]]; then
             echo "  pacmann  SKIPPED: all $n configs finished or already queued"
         else

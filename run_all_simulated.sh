@@ -80,10 +80,10 @@ EOF
   # name, before anything runs, so two processes never write the same dir.
   if has tiptoe; then
     declare -A SEEN=() PRE=() CPLAN=()
-    DPCS="250 500 1000 2500 5000 10000 40000"
+    DPCS="250 2500 40000"
     for dpc in $DPCS; do CPLAN[$dpc]=$(python3 -c "print(min(max(1, round($N / $dpc)), $TIPTOE_MAX_CLUSTERS))"); done
     if [ "$N" -gt 1000000 ]; then MAS=${BIG_MA:-2}; BUNDLES=${BIG_BUNDLES:-160}
-    else MAS="1 2"; BUNDLES="40 80 160 320"; fi
+    else MAS="1 2"; BUNDLES="40 320"; fi
     echo "tiptoe grid: dpc={$DPCS} ma={$MAS} bundle={$BUNDLES}"
     n_ma=$(wc -w <<< "$MAS"); n_b=$(wc -w <<< "$BUNDLES")
     n_pre=$(( $(printf '%s\n' "${CPLAN[@]}" | sort -u | wc -l) * n_ma * n_b ))   # distinct C x ma x bundle
@@ -139,7 +139,7 @@ EOF
   # ---------- coeus ----------
   # F x tf x k. F values past the dataset's vocabulary are skipped by run_coeus.py (e.g. F>32768 on scifact).
   if has coeus; then
-    for F in 8192 16384 32768 65536 131072 262144; do
+    for F in 8192 32768 262144; do
       warmed=0
       for tf in raw log; do
         for k in 10 100; do

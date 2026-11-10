@@ -31,6 +31,22 @@ sim_args() { [[ "${SIMULATE:-0}" == 1 ]] && echo "-simulate"; return 0; }   # ex
 declare -A SIM_MEM_BY_METHOD=([bins]="${SIM_MEM_FACTOR_BINS:-0.6}" [tree]="${SIM_MEM_FACTOR_TREE:-0.9}")
 SIM_TIME_FACTOR="${SIM_TIME_FACTOR:-0.5}"
 
+# Simulated + low-RAM (SIMULATE=1 NORAM=1, run_sim_noram.sh): no hints, the PIR DB and embeddings on disk, so a run
+# needs a few GB and minutes. It gets its own model (bins_sim_noram_model, measured, not the real model x a factor),
+# a floor of SIM_MIN_GB / SIM_MIN_MIN, finer buckets near the floor, and only NORAM_CACHE_GB=2 of page-cache room.
+sim_noram() { [[ "${SIMULATE:-0}" == 1 && "${NORAM:-0}" == 1 ]]; }
+if sim_noram; then
+    SIM_MIN_GB="${SIM_MIN_GB:-12}"; SIM_MIN_MIN="${SIM_MIN_MIN:-30}"
+    MEM_BUCKETS="${MEM_BUCKETS:-12 $(seq -s' ' 16 4 48) $(seq -s' ' 56 8 96) 100 $(seq -s' ' 150 50 1500)}"
+    TIME_BUCKETS="${TIME_BUCKETS:-30 60 90 120 180 240 360 720 1440 2880}"
+    NORAM_CACHE_GB="${NORAM_CACHE_GB:-2}"
+fi
+sim_floor() {   # "GB minutes source" -> the same, raised to SIM_MIN_GB / SIM_MIN_MIN (sim_noram only)
+    if sim_noram; then
+        awk -v g="$SIM_MIN_GB" -v m="$SIM_MIN_MIN" '{ if ($1 < g) $1 = g; if ($2 < m) $2 = m; print }' <<< "$1"
+    else echo "$1"; fi
+}
+
 USAGE_FILE="${USAGE_FILE:-${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/resource_usage.tsv}"
 MEM_HEADROOM="${MEM_HEADROOM:-1.2}"      # measured on the same dataset
 TIME_HEADROOM="${TIME_HEADROOM:-1.5}"
@@ -388,6 +404,33 @@ bins_model() {   # dataset vec dpb [bs] [noram] -> "GB minutes"
         } else printf "%.0f %d\n", ram, m }'
 }
 
+# Simulated -noram bins (SIMULATE=1 NORAM=1): no hints, PIR DB + embeddings on disk. Measured 2026-11-09 (heap peak,
+# RssAnon), after the text re-rank fix that stopped every answer's decoded docs being kept:
+#   scifact (5k docs): 0.35-0.7 GB, 5-99 s      nq (2.68M): 4.3 GB at bs 100 dpb 10, 6.85 GB at bs 10k dpb 250, 1-2.5 min
+# So a fixed ~1.5 KB/doc (corpus text, vocab, doc-ID maps; +0.4 KB/doc for text's coded corpus), plus ~115 B per
+# distinct (word, doc) pair T (as in bins_model), ~1 KB per bin and 16 B per DB slot of doc-ID strings; x1.3.
+# Time: ~1 min + ~0.6 min per million docs, x2. sim_floor raises both to SIM_MIN_GB / SIM_MIN_MIN.
+bins_sim_noram_model() {   # dataset vec dpb bs -> "GB minutes"
+    awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
+        dpw = (n / V) / 3.25; if (dpw < 1) dpw = 1
+        T = 1.66 * V * sqrt(dpb) * sqrt(dpw)
+        S = bs * dpb; x = (S > 0) ? T / S : 0
+        E = (S <= 0) ? 0 : (x > 700 ? S : S * (1 - exp(-x)))
+        gb = 0.3 + n * 1.5e-6 + (vec == "text" ? n * 0.4e-6 : 0) + T * 115e-9 + bs * 1e-6 + E * 16e-9
+        gb *= 1.3
+        m = 2 * (1 + n * 0.6e-6 + T * 0.03e-6)
+        printf "%.0f %d\n", gb + 0.5, m + 0.5 }'
+}
+
+# Simulated pacmann (run_all.sh, SIMULATE=1): the real runs peaked at 33 GB / 26 min on nq and 62 GB / 46 min on
+# fever (sacct); without hints a simulated run needs less, so ~9 KB/doc + 4 GB and ~8 min per million docs + 15.
+pacmann_sim_model() {   # dataset -> "GB minutes"
+    awk -v n="$(dataset_docs "$1")" -v g="${SIM_MIN_GB:-12}" -v mm="${SIM_MIN_MIN:-30}" 'BEGIN {
+        gb = 4 + n * 9e-6; m = 15 + n * 8e-6
+        if (gb < g) gb = g; if (m < mm) m = mm
+        printf "%.0f %d\n", gb, m }'
+}
+
 # stdin: "dataset k bs dpb vec" per config -> stdout: the same + "GB minutes source missing" (missing = "-" if ready)
 # results folder of a bins config: the same name run_bins_low/high.slurm use (a metadata.json there = done)
 bins_out_dir() {   # dataset k bs dpb vec
@@ -414,11 +457,20 @@ bins_plan() {
         if is_queued bins "$d" "$od"; then echo "$d $k $bs $dpb $vec 0 0 - queued"; continue; fi
         local nr=0; bins_noram "$d" "$vec" "$dpb" "$bs" && nr=1
         local mk="$d.$vec.$dpb.$bs.$nr"   # the model depends on bs for every mode
-        [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs" "$nr")
-        local fb=(${model[$mk]})
-        local est; est=$(estimate_resources bins "$d" "$(bins_config_key "$vec" "$k" "$bs" "$dpb" "$nr")" "${fb[0]}" "${fb[1]}")
+        local est key; key=$(bins_config_key "$vec" "$k" "$bs" "$dpb" "$nr")
+        if sim_noram && (( nr )); then
+            # simulated -noram: its own measured model (already simulated, so not scaled by SIM_MEM_FACTOR)
+            [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_sim_noram_model "$d" "$vec" "$dpb" "$bs")
+            local fb=(${model[$mk]})
+            est=$(_estimate_resources bins "$d" "$key" "${fb[0]}" "${fb[1]}")
+        else
+            [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs" "$nr")
+            local fb=(${model[$mk]})
+            est=$(estimate_resources bins "$d" "$key" "${fb[0]}" "${fb[1]}")
+        fi
         # a measured -noram run logs its heap peak only (record_usage): add back the page-cache room the model has
         (( nr )) && est=$(awk -v c="${NORAM_CACHE_GB:-8}" '{ if ($3 != "model") $1 += c; print }' <<< "$est")
+        est=$(sim_floor "$est")
         local m="-"
         if [[ "${CHECK_INPUTS:-1}" == 1 ]]; then
             local mv="$d"; [[ $vec == text ]] && mv+=".text"
