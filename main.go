@@ -188,6 +188,7 @@ func main() {
 	idBatch := flag.Uint("idBatch", 0, "bins vec0: batch size of the ID DB, partitions = batch/2 (0 = 24)")
 	vecBatch := flag.Uint("vecBatch", 0, "bins vec0: embeddings fetched per embedding-DB round; partitions = batch/2, so smaller = less client storage (0 = automatic)")
 	vecPrune := flag.Bool("vecPrune", true, "bins vec0: leave docs that are in no bin out of the embedding DB (they can never be fetched); false = one row per corpus doc as before")
+	vecOrder := flag.String("vecOrder", "rr", "bins vec0: order of the stage-1 candidates sent to the embedding DB when batch*rounds can't fetch them all: rr = round robin, rank 1 of every term's bin, then rank 2, ... (default since 2026-11-11); bin = every doc of the first query term's bin, then the next term's (the old order)")
 	vecRounds := flag.Uint("vecRounds", 0, "bins vec0: embedding-DB rounds per query (0 = automatic: enough rounds to cover as many docs as the automatic setting)")
 	save := flag.Bool("save", false, "Whether or not to save data")
 	load := flag.Bool("load", false, "Whether or not to load data")
@@ -331,6 +332,7 @@ func main() {
 		IDBatch:           *idBatch,
 		VecBatch:          *vecBatch,
 		VecRounds:         *vecRounds,
+		VecOrder:          *vecOrder,
 		VecPrune:          *vecPrune,
 		DBSize:            *DBSize,
 		Save:              *save,

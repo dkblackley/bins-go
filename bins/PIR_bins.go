@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"sort"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/blugelabs/bluge/analysis"
@@ -32,9 +33,18 @@ type VecBins struct {
 	// vecDocs maps an embedding-DB row to its corpus index when docs that are in
 	// no bin were left out (-vecPrune); nil means row i is corpus doc i.
 	vecDocs []uint32
+	// roundRobin: candidates go to the embedding DB rank by rank across the query's bins (-vecOrder rr)
+	roundRobin bool
+	stats      *vecStats
 
 	rawDB  [][]uint64
 	config *globals.Args
+}
+
+// vecStats counts, over every query, the stage-1 candidates and how many of them the embedding-DB rounds
+// had no room for (batch * rounds < candidates), so a small -vecBatch / -vecRounds shows what it cost.
+type vecStats struct {
+	queries, candidates, dropped, truncated atomic.Int64
 }
 
 func (v VecBins) PIRPreprocess() time.Duration {
@@ -69,6 +79,13 @@ func (v VecBins) GetMetaData() map[string]string {
 	meta["IDBatchSize"] = strconv.FormatUint(v.idPIR.Config().BatchSize, 10)
 	meta["VecBatchSize"] = strconv.FormatUint(v.vecPIR.Config().BatchSize, 10)
 	meta["VecRounds"] = strconv.Itoa(v.maxQueryTerms)
+	meta["VecOrder"] = map[bool]string{true: "rr", false: "bin"}[v.roundRobin]
+	if q := v.stats.queries.Load(); q > 0 {
+		c, d := v.stats.candidates.Load(), v.stats.dropped.Load()
+		meta["VecCandidatesPerQuery"] = strconv.FormatFloat(float64(c)/float64(q), 'f', 2, 64)
+		meta["VecDroppedPerQuery"] = strconv.FormatFloat(float64(d)/float64(q), 'f', 2, 64)
+		meta["VecQueriesTruncatedFrac"] = strconv.FormatFloat(float64(v.stats.truncated.Load())/float64(q), 'f', 4, 64)
+	}
 	return meta
 }
 
@@ -117,6 +134,12 @@ func (v VecBins) searchBins(QID string, indices []uint64) (globals.Decodable, er
 
 	batch := int(v.vecPIR.Config().BatchSize)
 	dbSize := int(v.vecPIR.Config().DBSize)
+	if drop := len(docIdx) - batch*v.maxQueryTerms; drop > 0 {
+		v.stats.dropped.Add(int64(drop))
+		v.stats.truncated.Add(1)
+	}
+	v.stats.candidates.Add(int64(len(docIdx)))
+	v.stats.queries.Add(1)
 	retrieved := make([]uint64, 0, len(docIdx))
 	// Always MaxQueryTerms batches of exactly T, whatever the real term count
 	for it := 0; it < v.maxQueryTerms; it++ {
@@ -163,21 +186,52 @@ func (v VecBins) rowOfCorpus(idx uint64) uint64 {
 	return 0
 }
 
+// collectDocIdx turns the ID-DB answers (one per query term, in query order) into the distinct embedding-DB
+// rows to fetch. A bin lists its docs in BM25 rank order (searchTopDocs, mergeIntoBin), so with roundRobin the
+// list is rank 1 of every term's bin, then rank 2, ...: when batch*rounds cuts the list short, each term loses
+// its lowest-ranked docs instead of the last terms losing all of theirs.
 func (v VecBins) collectDocIdx(results [][]uint64) []uint64 {
-	docIdx := make([]uint64, 0, len(results)*v.T)
-	seen := make(map[uint32]struct{}, len(results)*v.T)
+	return collectDocIdx(results, v.T, v.roundRobin)
+}
 
-	for i := 0; i < len(results); i++ {
-		for _, w := range results[i] {
-			for _, half := range [...]uint32{uint32(w), uint32(w >> 32)} {
-				if half == 0 {
-					continue // padding, not doc 0
-				}
-				if _, dup := seen[half]; dup {
-					continue
-				}
-				seen[half] = struct{}{}
-				docIdx = append(docIdx, uint64(half-1))
+func collectDocIdx(results [][]uint64, T int, roundRobin bool) []uint64 {
+	docIdx := make([]uint64, 0, len(results)*T)
+	seen := make(map[uint32]struct{}, len(results)*T)
+	push := func(half uint32) {
+		if half == 0 {
+			return // padding, not doc 0
+		}
+		if _, dup := seen[half]; dup {
+			return
+		}
+		seen[half] = struct{}{}
+		docIdx = append(docIdx, uint64(half-1))
+	}
+	// doc j of a bin is half j%2 of word j/2
+	at := func(r []uint64, j int) uint32 {
+		if j/2 >= len(r) {
+			return 0
+		}
+		if j%2 == 0 {
+			return uint32(r[j/2])
+		}
+		return uint32(r[j/2] >> 32)
+	}
+
+	if roundRobin {
+		longest := 0
+		for _, r := range results {
+			longest = max(longest, 2*len(r))
+		}
+		for j := 0; j < longest; j++ {
+			for _, r := range results {
+				push(at(r, j))
+			}
+		}
+	} else {
+		for _, r := range results {
+			for j := 0; j < 2*len(r); j++ {
+				push(at(r, j))
 			}
 		}
 	}
@@ -459,13 +513,12 @@ func buildVecBins(config *globals.Args, DB [][]string, docMap map[int]string, bm
 
 	stage2Batch, maxQuery = vecBatchAndRounds(stage2Batch, maxQuery, int(config.VecBatch), int(config.VecRounds))
 
-	PartitionNum = max(stage2Batch/2, 1)
-	PartitionSize = (len(vecRaw) + PartitionNum - 1) / PartitionNum
-	PartitionNum = (len(vecRaw) + PartitionSize - 1) / PartitionSize // drop partitions that would start past DBSize
-	if maxQ := uint64(math.Sqrt(float64(PartitionSize)) * math.Log(float64(PartitionSize))); maxQ < 4*2 {
-		logrus.Errorf("BatchSize %d too large for DBSize %d: %d-row partitions allow only %d lookups between preprocessings",
-			stage2Batch, len(idRaw), PartitionSize, maxQ)
-		stage2Batch = int(maxQ)
+	// A batch of B makes B/2 partitions, and a Piano partition needs enough rows for 8 lookups between
+	// preprocessings (sqrt(P) ln P >= 8, i.e. P >= 16 to be safe): a -vecBatch too big for this (pruned)
+	// embedding DB is cut to the largest that fits; metadata.json's VecBatchSize is what was used.
+	if maxBatch := 2 * max(len(vecRaw)/16, 1); stage2Batch > maxBatch {
+		logrus.Warnf("Stage2 batch %d too large for the %d-row embedding DB, using %d", stage2Batch, len(vecRaw), maxBatch)
+		stage2Batch = maxBatch
 	}
 
 	logrus.Infof("Stage2 Max query size: %d and Stage2 Batch size is %d", maxQuery, stage2Batch)
@@ -488,6 +541,11 @@ func buildVecBins(config *globals.Args, DB [][]string, docMap map[int]string, bm
 		config:               config,
 		maxQueryTerms:        maxQuery,
 		vecDocs:              vecDocs,
+		roundRobin:           config.VecOrder == "rr",
+		stats:                &vecStats{},
+	}
+	if config.VecOrder != "" && config.VecOrder != "rr" && config.VecOrder != "bin" {
+		logrus.Fatalf("-vecOrder %q: use bin or rr", config.VecOrder)
 	}
 
 	if config.DebugLevel >= 1 {

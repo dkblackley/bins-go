@@ -49,6 +49,8 @@ db_size_of() {
 # (100 500 1000 5000 10000 50000 100000 500000 1000000 5000000 10000000)
 BS_LIST=(100 1000 10000 100000 500000 1000000 5000000 10000000)
 DPB_LIST=(10 25 50 100 250 500 1000 2500)   # was 10 25 50 75 100 250 500 1000 1500 2000 2500
+# 2026-11-11: msmarco-v2, msmarco-v2-25m and msmarco-v2-50m only: two bin sizes past BS_LIST's largest (10M)
+BS_LIST_V2_EXTRA=(20000000 50000000)
 # BS_LIST=(100 500 1000 5000 10000 50000 100000 500000 1000000)
 
 DATA_ARR=()
@@ -82,9 +84,12 @@ tier_of() {
 add_bins_ablations() {
     local d=$1
 
+    local sizes=("${BS_LIST[@]}")
+    [[ "$d" =~ ^msmarco-v2(-25m|-50m)?$ ]] && sizes+=("${BS_LIST_V2_EXTRA[@]}")
+
     for vec in $BINS_VECS; do
         for k in 10 100; do
-            for bs in "${BS_LIST[@]}"; do
+            for bs in "${sizes[@]}"; do
                 for dpb in "${DPB_LIST[@]}"; do
                     [[ "$(tier_of "$d" "$k" "$bs" "$dpb" "$vec")" == "$TIER" ]] || continue
                     # 25M-138M docs: fewer than 100k bins can only hold a tiny fraction of the corpus, skip them
@@ -111,6 +116,71 @@ TEXT_ORDER="${TEXT_ORDER:-3}"
 for d in $BINS_DATASETS; do
     add_bins_ablations "$d"
 done
+
+# Two-DB (vec0) batch / rounds sweep (2026-11-11), IN ADDITION to the grid above: that grid's vec0 runs use the
+# automatic batching (ID batch 24; embedding batch 3 x the largest bin, 1 round, or 3000 x 2 rounds past it; SciFact:
+# the largest bin x 6 rounds, or 500 x 15) and stay the baseline. The client hint of a batched Piano DB is
+# ~sqrt(batch x rows/2) entries (batch/2 partitions, each with its own hints), so the batch, not the DB size, is
+# what makes vec0's hints big (PACMANN's batch is its neighbour count, 8-48).
+# Each config is one vec value vb<B>r<R>i<I>: -vecBatch B lookups per embedding-DB round, -vecRounds R rounds,
+# -idBatch I (candidates are sent round robin, rank 1 of every query term's bin first, the default now). Results:
+# bins_vec0_<dataset>_k<K>_bs<BS>_dpb<DPB>_vb<B>_vr<R>_ib<I>.
+# Pruned per dpb, with cap = VEC0_SWEEP_MAX_TERMS x dpb (about the most candidates a query has): a batch over the cap
+# (almost all padding) or rounds past what the cap needs (B x (R-1) >= cap: the extra rounds fetch only padding);
+# and a batch too big for the corpus (Piano partitions need >= 16 rows; pir_app also cuts it at run time when the
+# pruned embedding DB is smaller).
+#   every dataset   batch 10 / 50 / 100 / 2500 x rounds 1 / 3 / 10 / 30, ID batch 24 (as before), k 10, at three
+#                   bin sizes of the grid (the batch's effect barely depends on bs): VEC0_SWEEP_<VB|VR|IB|BS|DPB|K>
+#   scifact         its own wider grid (runs take seconds): small batches and many rounds, where a local 812-run
+#                   grid found its smallest hints, and every ID batch: VEC0_SCIFACT_<VB|VR|IB|BS|DPB|K>
+# VEC0_SWEEP_DATASETS="" turns the sweep off; e.g. VEC0_SWEEP_DATASETS="msmarco scifact" limits it.
+VEC0_SWEEP_DATASETS="${VEC0_SWEEP_DATASETS-all}"
+VEC0_SWEEP_MAX_TERMS="${VEC0_SWEEP_MAX_TERMS:-8}"
+vec0_sweep_param() {   # dataset key -> its values (VEC0_SCIFACT_<key> for scifact, VEC0_SWEEP_<key> otherwise)
+    local d=$1 key=$2 v
+    if [[ "$d" == scifact ]]; then
+        v="VEC0_SCIFACT_$key"
+        case $key in
+            K)   echo "${!v:-10}" ;;
+            BS)  echo "${!v:-1000 10000 100000}" ;;
+            DPB) echo "${!v:-${DPB_LIST[*]}}" ;;
+            VB)  echo "${!v:-2 4 8 16 50 100}" ;;
+            VR)  echo "${!v:-1 5 10 20 30}" ;;
+            IB)  echo "${!v:-2 8 24}" ;;
+        esac
+    else
+        v="VEC0_SWEEP_$key"
+        case $key in
+            K)   echo "${!v:-10}" ;;
+            BS)  echo "${!v:-100000 1000000 10000000}" ;;
+            DPB) echo "${!v:-${DPB_LIST[*]}}" ;;
+            VB)  echo "${!v:-10 50 100 2500}" ;;
+            VR)  echo "${!v:-1 3 10 30}" ;;
+            IB)  echo "${!v:-24}" ;;
+        esac
+    fi
+}
+add_vec0_sweep() {
+    local d=$1 n k bs dpb ib vb vr cap
+    n=$(db_size_of "$d" 2>/dev/null) || n=""
+    for k in $(vec0_sweep_param "$d" K); do for bs in $(vec0_sweep_param "$d" BS); do
+        [[ ( "$d" == msmarco-v2* || "$d" == miracl-en ) && "$bs" -lt 100000 ]] && continue   # as in the grid
+        for dpb in $(vec0_sweep_param "$d" DPB); do
+            cap=$(( VEC0_SWEEP_MAX_TERMS * dpb ))
+            for ib in $(vec0_sweep_param "$d" IB); do for vb in $(vec0_sweep_param "$d" VB); do for vr in $(vec0_sweep_param "$d" VR); do
+                (( vb <= cap && vb * (vr - 1) < cap )) || continue
+                [[ -z "$n" ]] || (( vb <= 2 * n / 16 )) || continue
+                [[ "$(tier_of "$d" "$k" "$bs" "$dpb" false)" == "$TIER" ]] || continue
+                DATA_ARR+=("$d"); K_ARR+=("$k"); BS_ARR+=("$bs"); DPB_ARR+=("$dpb"); VEC_ARR+=("vb${vb}r${vr}i${ib}")
+            done; done; done
+        done
+    done; done
+}
+if [[ " $BINS_VECS " == *" false "* ]]; then
+    for d in $BINS_DATASETS; do
+        [[ "$VEC0_SWEEP_DATASETS" == all || " $VEC0_SWEEP_DATASETS " == *" $d "* ]] && add_vec0_sweep "$d"
+    done
+fi
 
 # One "dataset k bs dpb vec" line per config of this tier (datasets/run_all.sh reads it to build CONFIG_LISTs)
 if [[ "${1:-}" == "--list-raw" ]]; then
@@ -176,6 +246,11 @@ if [[ "$vec_val" == "text" ]]; then
     [[ "$TEXT_FORMAT" != bow || "$TEXT_ORDER" != 3 ]] && TAG_SUFFIX="_${TEXT_FORMAT}o${TEXT_ORDER}"
 elif [[ "$vec_val" == "true" ]]; then
     VEC_TAG="_vec1"
+elif [[ "$vec_val" =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)$ ]]; then   # vec0 client-storage sweep (add_vec0_sweep)
+    VEC_TAG="_vec0"
+    LAYOUT_ARGS=(-vectors=false -vecBatch "${BASH_REMATCH[1]}" -vecRounds "${BASH_REMATCH[2]}"
+                 -idBatch "${BASH_REMATCH[3]}" -vecOrder rr)
+    TAG_SUFFIX="$(vec0_sweep_suffix "$vec_val")"
 else
     VEC_TAG="_vec0"
 fi

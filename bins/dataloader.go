@@ -33,7 +33,9 @@ type beirDoc struct {
 	Text  string `json:"text"`
 	// These fields should always be empty, I just include it to avoid decoding errors
 	Abstract string `json:"abstract"` // used by SciFact
-	Metadata string `json:"metadata"`
+	// RawMessage, not string: msmarco's corpus.jsonl has "metadata": {} (an object), which a string field rejects on
+	// every line (the rest still decodes, but the text runs logged 8.8M errors and timed out). Never read.
+	Metadata json.RawMessage `json:"metadata"`
 }
 
 //func LoadBeirJSONL(path, indexDir string) {

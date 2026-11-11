@@ -58,9 +58,17 @@ TIME_HEADROOM="${TIME_HEADROOM:-1.5}"
 # at 0.94x / 1.28x / 1.87x. So 1.25x memory (an OOM is retried at 1.5x) and 1.5x time.
 SCALED_HEADROOM="${SCALED_HEADROOM:-1.5}"                 # time (and memory, unless SCALED_MEM_HEADROOM is set)
 SCALED_MEM_HEADROOM="${SCALED_MEM_HEADROOM:-1.25}"
-# how memory / time grow with corpus size, per method (1 = linear)
-declare -A MEM_SCALE_EXP=([tree]=1.0 [bins]=0.8)
-declare -A TIME_SCALE_EXP=([tree]=1.0 [bins]=1.0)
+# how memory / time grow with corpus size, per method (1 = linear), when scaling UP from a smaller dataset.
+# bins refit 2026-11-11 on the simulated -noram runs measured on 25m, 50m and msmarco-v2: time grows ~docs^1.3
+# (median; 50m -> v2 1.2-1.4, p90 1.5-1.6), memory ~docs^0.95. The old linear time put the msmarco-v2 runs scaled from
+# 50m at 2.8x its time when they needed ~3.9x: 52 of them hit 90/120/240 min limits. Replayed on every config measured
+# on two datasets, 1.3 / 0.9 times out 1 msmarco-v2 config instead of 22, for ~7% more memory requested.
+declare -A MEM_SCALE_EXP=([tree]=1.0 [bins]=0.9)
+declare -A TIME_SCALE_EXP=([tree]=1.0 [bins]=1.3)
+# scaling DOWN from a bigger dataset: the lower exponents give the larger (safe) estimate, since a superlinear
+# exponent shrinks a big run's numbers faster than the small run really shrinks
+declare -A MEM_SCALE_EXP_DOWN=([tree]=1.0 [bins]=0.8)
+declare -A TIME_SCALE_EXP_DOWN=([tree]=1.0 [bins]=1.0)
 
 # GB: 5G steps up to 100 (normal partition), then 50G steps up to 1500 (bigmem), so a request is at most 5G / 50G above
 # its estimate (it used to round 260G up to 500G)
@@ -205,13 +213,17 @@ load_real_usage() {   # once; the latest line per (method, dataset, config) wins
     done < "$REAL_USAGE_FILE"
 }
 
-declare -A _USAGE_MEM=() _USAGE_SEC=() _USAGE_DS=() _USAGE_FAIL=()
+declare -A _USAGE_MEM=() _USAGE_SEC=() _USAGE_DS=() _USAGE_FAIL=() _USAGE_BSL=()
 load_usage() {   # read $USAGE_FILE once; the latest line per (method, dataset, config) wins
     [[ -f "$USAGE_FILE" ]] || return 0
     local m d c gb s _date st
     while IFS=$'\t' read -r m d c gb s _date st; do
         [[ -n "$c" && "$gb" != max_rss_gb ]] || continue
         [[ -z "${_USAGE_MEM["$m|$d|$c"]:-}" ]] && _USAGE_DS["$m|$c"]+="$d "
+        # bins: the bin sizes measured for each (dataset, config minus its bs), for bins_bs_neighbor
+        if [[ -z "${_USAGE_MEM["$m|$d|$c"]:-}" && $m == bins && $c =~ ^(.*_bs)([0-9]+)(_.*)$ ]]; then
+            _USAGE_BSL["$d|${BASH_REMATCH[1]}|${BASH_REMATCH[3]}"]+="${BASH_REMATCH[2]} "
+        fi
         _USAGE_MEM["$m|$d|$c"]=$gb; _USAGE_SEC["$m|$d|$c"]=$s
         if [[ "$st" == failed* ]]; then _USAGE_FAIL["$m|$d|$c"]=1; else unset '_USAGE_FAIL["$m|$d|$c"]'; fi
     done < "$USAGE_FILE"
@@ -266,8 +278,10 @@ _estimate_resources() {
     done
     if [[ -n "$cands" && "$(dataset_docs "$d")" -gt 0 ]]; then
         # closest measured dataset by size, then scale by (docs ratio)^exp
-        awk -v cands="$cands" -v n="$(dataset_docs "$d")" -v em="${MEM_SCALE_EXP[$m]:-1}" \
-            -v et="${TIME_SCALE_EXP[$m]:-1}" -v h="$SCALED_HEADROOM" -v hm="$SCALED_MEM_HEADROOM" -v fg="$fb_gb" -v fm="$fb_min" '
+        awk -v cands="$cands" -v n="$(dataset_docs "$d")" -v emu="${MEM_SCALE_EXP[$m]:-1}" \
+            -v etu="${TIME_SCALE_EXP[$m]:-1}" -v emd="${MEM_SCALE_EXP_DOWN[$m]:-${MEM_SCALE_EXP[$m]:-1}}" \
+            -v etd="${TIME_SCALE_EXP_DOWN[$m]:-${TIME_SCALE_EXP[$m]:-1}}" \
+            -v h="$SCALED_HEADROOM" -v hm="$SCALED_MEM_HEADROOM" -v fg="$fb_gb" -v fm="$fb_min" '
         BEGIN {
             k = split(cands, C, " "); best = 0
             for (i = 1; i <= k; i++) {
@@ -276,6 +290,7 @@ _estimate_resources() {
                 if (!best || d < bd) { best = i; bd = d; bn = f[1]; br = r; bg = f[3]; bs = f[4]; bf = f[5] }
             }
             if (!best) { printf "%s %s model\n", fg, fm; exit }
+            if (br >= 1) { em = emu; et = etu } else { em = emd; et = etd }
             g = bg * br ^ em * hm + 1; t = bs * br ^ et * h / 60 + 10
             if (bf + 0) { if (fg > g) g = fg; if (fm > t) t = fm }   # scaled from a failed run: a lower bound only
             printf "%.1f %d scaled-from-%s\n", g, t, bn
@@ -360,6 +375,7 @@ queued_dirs() {
         if ($2 == "bins") {
             t = (f[5] == "true") ? "_vec1" : (f[5] == "text") ? "_text" : "_vec0"
             sfx = (f[5] == "text" && (tf != "bow" || to != 3)) ? "_" tf "o" to : ""
+            if (f[5] ~ /^vb[0-9]+r[0-9]+i[0-9]+$/) { v = substr(f[5], 3); split(v, a, /[ri]/); sfx = "_vb" a[1] "_vr" a[2] "_ib" a[3] }
             printf "%s/bins%s_%s_k%s_bs%s_dpb%s%s\t%s\n", res, t, f[1], f[2], f[3], f[4], sfx, $5
         } else
             printf "%s/%stree_grid_%s_b%s_r%s_s%s_L%s_q%s_c%s_k10\t%s\n", res, ttag(f[1]), f[1], f[2], f[3], f[4], f[5], f[6], f[7], $5
@@ -392,8 +408,14 @@ bins_config_key() {   # vec k bs dpb [noram: 1 = -noram run]
     case $1 in
         text) echo "text_k$2_bs$3_dpb$4$sfx" ;;
         true) echo "vec1_k$2_bs$3_dpb$4$sfx" ;;
-        *)    echo "vec0_k$2_bs$3_dpb$4$sfx" ;;
+        *)    echo "vec0_k$2_bs$3_dpb$4$(vec0_sweep_suffix "$1")$sfx" ;;
     esac
+}
+# vec0 client-storage sweep (run_bins_low/high.slurm add_vec0_sweep): vec value vb<B>r<R>i<I> -> "_vb<B>_vr<R>_ib<I>",
+# the results-folder / usage-key suffix; nothing for the plain layouts (true / false / text)
+vec0_sweep_suffix() {
+    [[ "$1" =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)$ ]] && echo "_vb${BASH_REMATCH[1]}_vr${BASH_REMATCH[2]}_ib${BASH_REMATCH[3]}"
+    return 0
 }
 
 # Low-RAM mode (README "Low-RAM mode"): pir_app -noram keeps the PIR DB, client hints and embeddings on disk.
@@ -463,6 +485,7 @@ bins_vocab() {   # dataset -> vocabulary size
 bins_model() {   # dataset vec dpb [bs] [noram] -> "GB minutes"
     awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" \
         -v noram="${5:-0}" -v cache="${NORAM_CACHE_GB:-8}" -v tf="${NORAM_TIME_FACTOR:-10}" 'BEGIN {
+        if (vec ~ /^vb/) vec = "false"   # vec0 client-storage sweep: the vec0 layout
         gb = 2.3 + n * 1.4e-6 + (vec != "text" ? n * 1.15e-6 : 0)
         gb += V * dpb * 27e-9 * (vec == "text" ? 2 : 1) + bs * 1e-6
         S = bs * dpb; dpw = (n / V) / 3.25; if (dpw < 1) dpw = 1
@@ -493,6 +516,7 @@ bins_model() {   # dataset vec dpb [bs] [noram] -> "GB minutes"
 # sim_floor raises both to SIM_MIN_GB / SIM_MIN_MIN.
 bins_sim_noram_model() {   # dataset vec dpb bs -> "GB minutes"
     awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
+        if (vec ~ /^vb/) vec = "false"   # vec0 client-storage sweep: the vec0 layout
         dpw = (n / V) / 3.25; if (dpw < 1) dpw = 1
         T = 1.66 * V * sqrt(dpb) * sqrt(dpw)
         S = bs * dpb; x = (S > 0) ? T / S : 0
@@ -536,8 +560,54 @@ bins_out_dir() {   # dataset k bs dpb vec
     case $5 in
         true) t=_vec1 ;;
         text) t=_text; [[ "${TEXT_FORMAT:-bow}" != bow || "${TEXT_ORDER:-3}" != 3 ]] && sfx="_${TEXT_FORMAT:-bow}o${TEXT_ORDER:-3}" ;;
+        vb*)  sfx=$(vec0_sweep_suffix "$5") ;;
     esac
     echo "${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/bins${t}_$1_k$2_bs$3_dpb$4${sfx}"
+}
+
+# vec0_sweep_base <dataset> <config key> <vec> <k> <bs> <dpb> <noram> -> "GB minutes", or nothing
+# A vec0 client-storage sweep config (vec vb<B>r<R>i<I>) not measured yet, sized from the plain vec0 run of the same
+# dataset/k/bs/dpb when that one is measured: the same corpus, bins and DBs, only the batching differs. Time x the
+# embedding lookups per query relative to the automatic batch (B x R / 3 dpb, between 1 and 4): a simulated lookup
+# is cheap next to building the DBs, so this errs long. NORAM_CACHE_GB is added like for a measurement.
+vec0_sweep_base() {
+    local d=$1 key=$2 vec=$3 k=$4 bs=$5 dpb=$6 nr=$7
+    [[ "$vec" =~ ^vb([0-9]+)r([0-9]+)i[0-9]+$ && -z "${_USAGE_MEM["bins|$d|$key"]:-}" ]] || return 0
+    local b=${BASH_REMATCH[1]} r=${BASH_REMATCH[2]} bk
+    bk=$(bins_config_key false "$k" "$bs" "$dpb" "$nr")
+    [[ -n "${_USAGE_MEM["bins|$d|$bk"]:-}" ]] || return 0
+    awk -v g="${_USAGE_MEM["bins|$d|$bk"]}" -v s="${_USAGE_SEC["bins|$d|$bk"]}" -v hm="$MEM_HEADROOM" -v ht="$TIME_HEADROOM" \
+        -v c="$([[ $nr == 1 ]] && echo "${NORAM_CACHE_GB:-8}" || echo 0)" -v x="$(( b * r ))" -v dpb="$dpb" 'BEGIN {
+        f = x / (3 * dpb); if (f < 1) f = 1; if (f > 4) f = 4
+        printf "%.1f %d\n", g * hm + 1 + c, s / 60 * ht * f + 10 }'
+}
+
+# bins_bs_neighbor <dataset> <config key> <model fn> <vec> <dpb> <bs> [noram] -> "GB minutes", or nothing
+# A bins config never measured on this dataset, sized from the same config (vec, k, dpb) at the closest measured bin
+# size on the SAME dataset, times the model's own ratio between the two bin sizes (never below 1) and the
+# same-dataset headroom. Better than the bare model for a new bin size (e.g. bs 20M/50M on msmarco-v2, where no
+# dataset has that bs, so nothing can be scaled across datasets): measured time and memory barely change with bs
+# above ~1M on the v2 sets (2026-11-11), while the model is ~2x over on their memory. A failed neighbour is only a
+# lower bound, so the model is kept when it is bigger. -noram keys get NORAM_CACHE_GB added, like a measurement.
+bins_bs_neighbor() {
+    local d=$1 key=$2 fn=$3 vec=$4 dpb=$5 bs=$6 nr=${7:-}
+    [[ -z "${_USAGE_MEM["bins|$d|$key"]:-}" && $key =~ ^(.*_bs)([0-9]+)(_.*)$ ]] || return 0
+    local pre=${BASH_REMATCH[1]} suf=${BASH_REMATCH[3]}
+    local best
+    best=$(awk -v l="${_USAGE_BSL["$d|$pre|$suf"]:-}" -v t="$bs" 'BEGIN {
+        n = split(l, B, " "); for (i = 1; i <= n; i++) { x = log(B[i] / t); if (x < 0) x = -x
+            if (b == "" || x < bx) { b = B[i]; bx = x } }
+        print b }')
+    [[ -n "$best" ]] || return 0
+    local k2="$pre$best$suf"
+    awk -v g="${_USAGE_MEM["bins|$d|$k2"]}" -v s="${_USAGE_SEC["bins|$d|$k2"]}" -v f="${_USAGE_FAIL["bins|$d|$k2"]:-}" \
+        -v hm="$MEM_HEADROOM" -v ht="$TIME_HEADROOM" -v c="$([[ $key == *_noram ]] && echo "${NORAM_CACHE_GB:-8}" || echo 0)" \
+        -v mn="$($fn "$d" "$vec" "$dpb" "$bs" $nr)" -v mo="$($fn "$d" "$vec" "$dpb" "$best" $nr)" 'BEGIN {
+        split(mn, N, " "); split(mo, O, " ")
+        rg = (O[1] > 0 ? N[1] / O[1] : 1); rt = (O[2] > 0 ? N[2] / O[2] : 1); if (rg < 1) rg = 1; if (rt < 1) rt = 1
+        g = g * rg * hm + 1 + c; t = s / 60 * rt * ht + 10
+        if (f) { if (N[1] > g) g = N[1]; if (N[2] > t) t = N[2] }
+        printf "%.1f %d\n", g, t }'
 }
 
 # Configs that already have a metadata.json come out as "... 0 0 - done" (group_plan counts them, nothing is
@@ -559,7 +629,11 @@ bins_plan() {
         if sim_noram && (( nr )); then
             # simulated -noram: its own measured model (already simulated, so not scaled by SIM_MEM_FACTOR)
             [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_sim_noram_model "$d" "$vec" "$dpb" "$bs")
-            local fb=(${model[$mk]})
+            local fb=(${model[$mk]}) nb
+            nb=$(bins_bs_neighbor "$d" "$key" bins_sim_noram_model "$vec" "$dpb" "$bs")
+            [[ -n "$nb" ]] && fb=($nb)   # the same config at the closest measured bs, before the bare model
+            nb=$(vec0_sweep_base "$d" "$key" "$vec" "$k" "$bs" "$dpb" "$nr")
+            [[ -n "$nb" ]] && fb=($nb)   # a vec0 sweep config: its plain vec0 run, measured
             est=$(_estimate_resources bins "$d" "$key" "${fb[0]}" "${fb[1]}")
         else
             [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs" "$nr")

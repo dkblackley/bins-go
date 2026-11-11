@@ -114,8 +114,9 @@ for d in $DATASETS; do
         { BINS_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_bins_low.slurm --list-raw 2>/dev/null
           BINS_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_bins_high.slurm --list-raw 2>/dev/null; } |
         while read -r ds k bs dpb vec; do
-            case $vec in true) t=_vec1;; false) t=_vec0;; text) t=_text;; esac
+            case $vec in true) t=_vec1;; false|vb*) t=_vec0;; text) t=_text;; esac
             sfx=""; [[ $vec == text && ( "${TEXT_FORMAT:-bow}" != bow || "${TEXT_ORDER:-3}" != 3 ) ]] && sfx="_${TEXT_FORMAT:-bow}o${TEXT_ORDER:-3}"
+            [[ $vec =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)$ ]] && sfx="_vb${BASH_REMATCH[1]}_vr${BASH_REMATCH[2]}_ib${BASH_REMATCH[3]}"   # vec0 sweep
             echo "bins $ds $RES/bins${t}_${ds}_k${k}_bs${bs}_dpb${dpb}${sfx} vec=$vec k=$k bs=$bs dpb=$dpb"
         done
     fi

@@ -20,6 +20,7 @@ type Args struct {
 	IDBatch           uint // bins vec0: batch size of the ID DB (0 = 24)
 	VecBatch          uint // bins vec0: batch size of each embedding-DB round (0 = automatic)
 	VecRounds         uint // bins vec0: embedding-DB rounds per query (0 = automatic)
+	VecOrder          string // bins vec0: candidate order for the embedding DB: "bin" (term by term) or "rr" (round robin)
 	VecPrune          bool // bins vec0: leave docs that are in no bin out of the embedding DB
 	Threshold         uint
 	DChoice           uint
