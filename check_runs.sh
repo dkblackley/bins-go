@@ -1,8 +1,10 @@
 #!/bin/bash
 # Status of the bins / pacmann / tree / tiptoe / coeus runs. Read-only: never submits, cancels, moves or deletes.
 #
-#   bash check_runs.sh                              # scifact msmarco nq fever dbpedia-entity, every method
+#   bash check_runs.sh                              # scifact msmarco nq fever dbpedia-entity msmarco-v2-25m
+#                                                   # msmarco-v2-50m msmarco-v2, every method
 #   bash check_runs.sh nq fever                     # only these datasets
+#   REAL=1 bash check_runs.sh                       # the real runs instead of the simulated ones (the default)
 #   METHODS="bins tree" SINCE=2026-11-01 bash check_runs.sh nq
 #   bash check_runs.sh --mark                       # from now on only show failures after this moment
 #
@@ -29,6 +31,9 @@ set -uo pipefail
 cd "$(dirname "$0")"
 export DATASETS_ROOT="${DATASETS_ROOT:-../datasets}"
 export DATASET_DIR="${DATASET_DIR:-$DATASETS_ROOT}"
+# Simulated runs by default, like run_me.sh (REAL=1 checks the real runs' results/ folder instead)
+if [[ "${REAL:-0}" == 1 ]]; then export SIMULATE=0; else export SIMULATE=1; fi
+[[ "$SIMULATE" == 1 ]] && RESULTS_DIR="${RESULTS_DIR:-/scratch/$USER/results_simulated}"   # simulated runs
 RES="${RESULTS_DIR:-/scratch/$USER/results}"
 BRES="${RESULTS_ROOT:-/scratch/dblackle/results}"
 SINCE_FILE="${SINCE_FILE:-logs/check/since}"
@@ -41,8 +46,9 @@ if [[ -z "${SINCE:-}" ]]; then
 fi
 SINCE_SP="${SINCE/T/ }"   # "2026-11-09 05:12:00" for find -newermt and the fail files
 METHODS="${METHODS:-bins pacmann tree tiptoe coeus}"
-DATASETS="${*:-scifact msmarco nq fever dbpedia-entity}"
+DATASETS="${*:-scifact msmarco nq fever dbpedia-entity msmarco-v2-25m msmarco-v2-50m msmarco-v2}"
 OUT="logs/check/$(date +%Y%m%d_%H%M%S)"; mkdir -p "$OUT"
+echo "Checking $([[ "$SIMULATE" == 1 ]] && echo "SIMULATED runs ($RES; REAL=1 for the real runs)" || echo "REAL runs ($RES)")"
 echo "Failures since $SINCE ($([[ -s "$SINCE_FILE" ]] && echo "set by run_me.sh / --mark in $SINCE_FILE" || echo "default: 14 days")). SINCE=... to change it."
 has() { [[ " $METHODS " == *" $1 "* ]]; }
 hr() { printf '\n==== %s\n' "$*"; }
@@ -66,6 +72,12 @@ sacct -u "$USER" -S "$SINCE" -X -n -P -o JobID,JobName,State,ExitCode,End 2>/dev
         k = $2 "|" st; n[k]++; if ($5 >= last[k]) { last[k] = $5; id[k] = $1 } }
       END { for (k in n) { split(k, a, "|"); printf "%s|%s|%d|%s|%s\n", a[1], a[2], n[k], id[k], last[k] } }' \
   | sort > "$OUT/failed_jobs.txt"
+# CANCELLED is almost always you (scancel) or a job whose dependency failed: one summary line, SHOW_CANCELLED=1 lists them
+if [[ -z "${SHOW_CANCELLED:-}" ]]; then
+    n_canc=$(awk -F'|' '$2 == "CANCELLED" { n += $3 } END { print n + 0 }' "$OUT/failed_jobs.txt")
+    grep -v '^[^|]*|CANCELLED|' "$OUT/failed_jobs.txt" > "$OUT/failed_jobs.tmp"; mv "$OUT/failed_jobs.tmp" "$OUT/failed_jobs.txt"
+    (( n_canc > 0 )) && echo "  ($n_canc CANCELLED tasks not listed: scancel or a failed dependency. SHOW_CANCELLED=1 lists them)"
+fi
 if [[ ! -s "$OUT/failed_jobs.txt" ]]; then
     echo "  none (or sacct not available)"
 else
@@ -128,10 +140,10 @@ for d in $DATASETS; do
 import sys
 d, n, root = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 seen = set()
-for dpc in (250, 500, 1000, 2500, 5000, 10000, 40000):
+for dpc in (250, 2500, 40000):
     c = min(max(1, round(n / dpc)), 25196) if n else 0
     for ma in (1, 2):
-        for b in (40, 80, 160, 320):
+        for b in (40, 320):
             for h in (125, 500):
                 for k in (10, 100):
                     name = f"{root}/tiptoe_{d}_c{c}_m{min(ma, c)}_b{b}_h{h}_k{k}"
@@ -140,7 +152,7 @@ for dpc in (250, 500, 1000, 2500, 5000, 10000, 40000):
 EOF
     fi
     if has coeus; then
-        for f in 8192 16384 32768 65536 131072 262144; do for tf in raw log; do for k in 10 100; do
+        for f in 8192 32768 262144; do for tf in raw log; do for k in 10 100; do
             echo "coeus $d $BRES/coeus_${d}_k${k}_f${f}_tf${tf} F=$f tf=$tf k=$k"
         done; done; done
     fi
@@ -236,28 +248,39 @@ EOF
 # ------------------------------------------------------------------------------------------------- 4. errors
 hr "4. most common error lines since $SINCE (live logs/*.err + results */error.log; numbers replaced by N)"
 { find logs -maxdepth 1 -name '*.err' -newermt "$SINCE_SP" -size +0 2>/dev/null
-  find "$RES" "$BRES" -mindepth 2 -maxdepth 3 -name error.log -newermt "$SINCE_SP" -size +0 2>/dev/null; } | sort -u > "$OUT/error_files.txt"
-echo "  $(wc -l < "$OUT/error_files.txt") non-empty error logs (list: $OUT/error_files.txt)"
+  find "$RES" "$BRES" -mindepth 2 -maxdepth 3 -name error.log -newermt "$SINCE_SP" -size +0 2>/dev/null; } | sort -u > "$OUT/error_files.all"
+# logs of cancelled jobs (scancel; not a time limit, that says "DUE TO TIME LIMIT") are left out: a noram run that is
+# cancelled deletes its on-disk DB while other threads still read it, so it ends in "fatal error: fault" / SIGSEGV
+while IFS= read -r f; do
+    if tail -c 65536 "$f" 2>/dev/null | grep -q ' CANCELLED AT ' && ! tail -c 65536 "$f" | grep -q 'DUE TO TIME LIMIT'; then
+        echo "$f" >> "$OUT/error_files.cancelled"
+    else echo "$f"; fi
+done < "$OUT/error_files.all" > "$OUT/error_files.txt"
+echo "  $(wc -l < "$OUT/error_files.txt") non-empty error logs (list: $OUT/error_files.txt);" \
+     "$(cat "$OUT/error_files.cancelled" 2>/dev/null | wc -l) more from cancelled jobs left out ($OUT/error_files.cancelled)"
 while IFS= read -r f; do tail -c 65536 "$f" 2>/dev/null; echo; done < "$OUT/error_files.txt" \
   | grep -aiE 'panic:|Traceback|^[A-Za-z]*Error|error:|Killed|oom|out of memory|DUE TO TIME LIMIT|CANCELLED|Segmentation|fatal' \
   | sed -E 's/[0-9]+/N/g' | cut -c1-150 | sort | uniq -c | sort -rn | head -20
 echo "  which files: xargs -d '\\n' grep -l '<text>' < $OUT/error_files.txt | head"
 
 # ------------------------------------------------------------------------------------------------ 5. usage log
-hr "5. OOM / timeout entries in ${USAGE_FILE:-$RES/resource_usage.tsv} since ${SINCE%%T*}"
-awk -F'\t' -v d=" $DATASETS " -v s="${SINCE%%T*}" '$7 ~ /^failed/ && $6 >= s && index(d, " " $2 " ") { n[$1 " " $2 " " $7]++ }
+# the usage log has full timestamps since 2026-11-10 (older lines only the day, which sort before any time that day,
+# so they drop out once "since" is past them)
+hr "5. OOM / timeout entries in ${USAGE_FILE:-$RES/resource_usage.tsv} since $SINCE"
+awk -F'\t' -v d=" $DATASETS " -v s="$SINCE" '$7 ~ /^failed/ && $6 >= s && index(d, " " $2 " ") { n[$1 " " $2 " " $7]++ }
     END { for (k in n) printf "  %-50s %6d\n", k, n[k] }' "${USAGE_FILE:-$RES/resource_usage.tsv}" 2>/dev/null | sort
-echo "  (each one is re-estimated at 1.5x memory / 2x time the next time run_all.sh plans that config)"
+echo "  (each one is re-estimated at 1.5x memory / 2x time the next time run_all.sh plans that config; older entries"
+echo "   still count for that, they are just not listed: SINCE=2026-11-01 bash check_runs.sh shows them)"
 
 # ------------------------------------------------------------------------------------------------ 6. fail files
 hr "6. fail files in the repo root (tasks that exited without finishing): total, since $SINCE"
 for f in bins_low_fails bins_high_fails pacman_fails tree_fails tiptoe_fails tiptoe_v2_fails coeus_fails; do
     [[ -f $f ]] || continue
-    printf '  %-18s %6d  %6d since\n' "$f" "$(wc -l < "$f")" "$(awk -v s="$SINCE_SP" '($(NF-1) " " $NF) >= s' "$f" | wc -l)"
+    printf '  %-18s %6d  %6d since\n' "$f" "$(grep -c . "$f")" "$(awk -v s="$SINCE_SP" 'NF >= 2 && ($(NF-1) " " $NF) >= s' "$f" | wc -l)"
 done
 
 hr "lists written to $OUT/"
 echo "  <method>_<dataset>_not_done.tsv : status  folder  config  [last error]   (status: crashed, queued, not_started, bad_json)"
 echo "  e.g.  cut -f1 $OUT/bins_nq_not_done.tsv | sort | uniq -c"
 echo "        awk -F'\\t' '\$1==\"crashed\"' $OUT/bins_nq_not_done.tsv | cut -f4 | sort | uniq -c | sort -rn | head"
-echo "  After a fix: bash run_me.sh   (pulls, rebuilds pir_app if needed, resubmits crashed + not started, moves 'since')"
+echo "  After a fix: $([[ "${SIMULATE:-0}" == 1 ]] || echo "REAL=1 ")bash run_me.sh   (pulls, rebuilds pir_app if needed, resubmits crashed + not started, moves 'since'; simulated low-RAM unless REAL=1)"

@@ -57,6 +57,8 @@ simplepir_bench
 pir_app_tiptoe
 __pycache__/
 pir_app
+# every pir_app build (run_me.sh); ./pir_app is a symlink to the newest
+/bin/
 
 # -noram scratch files (pir_app -noram, one folder per run, deleted at the end)
 temp_storage/

@@ -216,6 +216,7 @@ func (P *PIRTree) GetMetaData() map[string]string {
 	meta["pir_chunk_factor"] = ff(pianopir.ChunkSizeFactor)
 	meta["pir_query_budget"] = ff(pianopir.QueryBudgetScale)
 	meta["Stage3BatchSize"] = strconv.FormatUint(P.stage3BatchSize(), 10)
+	meta["Stage3SplitQueries"] = strconv.FormatInt(bm25.Stage3SplitQueries(), 10) // queries whose Stage3 request needed >1 sub-batch (small corpora)
 	meta["stage1_level_databases"] = strconv.Itoa(len(P.stage1DB.Levels))
 	meta["physical_cuckoo"] = strconv.FormatBool(len(P.stage1DB.Levels) > 0)
 	meta["cuckoo_hash_functions"] = "2"

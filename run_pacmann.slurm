@@ -16,6 +16,7 @@
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
+source ./noram_cleanup.sh
 # soft Go heap limit at 90% of the allocation (see slurm_common.sh)
 if [[ -n "${SLURM_MEM_PER_NODE:-}" && -z "${GOMEMLIMIT:-}" ]]; then export GOMEMLIMIT="$(( SLURM_MEM_PER_NODE * 9 / 10 ))MiB"; fi
 
@@ -97,10 +98,16 @@ on_exit() {
         echo "${SLURM_ARRAY_JOB_ID:-?}_${SLURM_ARRAY_TASK_ID:-?} rc=${rc} $(date '+%F %T')" >> "$FAIL_FILE"
     fi
     declare -F cleanup >/dev/null && cleanup || true
+    noram_cleanup_job   # -noram folders a killed run left in temp_storage (noram_cleanup.sh)
 }
 trap on_exit EXIT
 trap 'kill "${srun_pid:-}" 2>/dev/null; exit 143' TERM INT
 
+# SIMULATE=1: simulated PIR (pir_app -simulate), results in their own folder (as slurm_common.sh does for bins/tree)
+SIM_ARGS=()
+if [[ "${SIMULATE:-0}" == 1 ]]; then RESULTS_DIR="${RESULTS_DIR:-/scratch/$USER/results_simulated}"; SIM_ARGS=(-simulate); fi
+# NORAM=1: -noram, the .npy embeddings are mmap'd instead of read into RAM (for pacmann that is all -noram moves)
+[[ "${NORAM:-0}" == 1 ]] && SIM_ARGS+=(-noram -noram-dir "${NORAM_DIR:-temp_storage}")
 OUT_DIR="${RESULTS_DIR:-/scratch/$USER/results}/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 # OUT_DIR="../results/${method}_${dataset}_k${k_val}_steps${steps_val}_neighb${neighb_val}"
 if [[ -s "${OUT_DIR}/metadata.json" && -z "${FORCE:-}" ]]; then
@@ -131,7 +138,8 @@ echo "Output Dir:    $OUT_DIR"
 echo "========================================"
 
 cleanup() {
-    local prefix="${DATASET_DIR}/${dataset}/${dataset}_corpus_embed_f32_${DB_SIZE}_192_${neighb_val}_neigh${neighb_val}_step${steps_val}_k${k_val}"
+    # pir_app writes the graph to /scratch/$USER/pac (Pacmann/private-search.go) and never reads it back
+    local prefix="${PACMANN_CACHE_DIR:-/scratch/$USER/pac}/${dataset}_corpus_embed_f32_${DB_SIZE}_192_${neighb_val}_neigh${neighb_val}_step${steps_val}_k${k_val}"
     rm -rf -- "${prefix}.ngt" "${prefix}_graph.npy"
 }
 
@@ -147,6 +155,7 @@ srun ./pir_app \
     -outFile "results" \
     -dataset "$DATASET_DIR" \
     -debug 1 \
+    ${SIM_ARGS[@]+"${SIM_ARGS[@]}"} \
     -dim 192 &
 
 srun_pid=$!

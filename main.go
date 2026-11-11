@@ -10,6 +10,9 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dkblackley/bins-go/Pacmann"
@@ -17,6 +20,7 @@ import (
 	"github.com/dkblackley/bins-go/diskstore"
 	"github.com/dkblackley/bins-go/globals"
 	"github.com/dkblackley/bins-go/pianopir"
+	pirold "github.com/dkblackley/bins-go/pir-old"
 	testpir "github.com/dkblackley/bins-go/testPIR"
 	"github.com/dkblackley/bins-go/tiptoe"
 	"github.com/dkblackley/bins-go/tree/cmd"
@@ -256,12 +260,19 @@ func main() {
 	tiptoeURLHint := flag.Int("tiptoe-url-hint-mb", 100, "Tiptoe URL-service hint size target in MB (upstream default 100)")
 	tiptoeMaxQueries := flag.Int("tiptoe-max-queries", 0, "Tiptoe: answer only the first N queries (0 = all)")
 
+	// Simulated PIR (bins, pacmann, tree): lookups return the row directly, no hints are built, no XOR is done.
+	// Answers, MRR/Recall, rounds, bytes, LAN/WAN and client storage stay as in a real run (see
+	// pianopir/simulate.go); every server timing is written as -1.
+	simulate := flag.Bool("simulate", false, "Simulate the PIR: same answers, bytes, LAN/WAN and client storage, no hints or XOR (timings are written as -1)")
 	// Low-RAM mode: big read-only arrays go to files under <noram-dir>/<unique run folder>/ and are mmap'd
 	noram := flag.Bool("noram", false, "Low-RAM mode: keep the PIR databases, client hint tables and corpus embeddings on disk (mmap) instead of in RAM. Same results, slower; metadata gets \"noram\": \"true\" so the timings can be filtered out")
 	noramDir := flag.String("noram-dir", "temp_storage", "Where -noram puts its files; each run gets its own random subfolder, deleted at the end")
 	noramBlockMB := flag.Uint64("noram-hint-block-mb", 512, "-noram: MB of a client hint table filled at once per partition (up to 30 partitions at a time); bigger = fewer passes over the DB, more RAM")
 
 	flag.Parse()
+	// heap peak of every run (metadata PeakAnonMB); PIR_PEAK_FILE: also keep it in that file while running, so a
+	// killed run leaves it behind (run_tree_pir_old.slurm sets it)
+	diskstore.StartPeakSampler(os.Getenv("PIR_PEAK_FILE"))
 	if *noram {
 		if _, err := diskstore.Init(*noramDir, *dbFileName+"_"+*searchType); err != nil {
 			logrus.Fatalf("%v", err)
@@ -274,6 +285,16 @@ func main() {
 		}
 	}
 	pianopir.DownloadIfCheaper = *pirDownloadSmall // bins; the tree sets pir-old's copy from BinsConf
+	if *simulate {
+		switch *searchType {
+		case "bins", "pacmann", "tree":
+		default:
+			logrus.Fatalf("-simulate only applies to the Piano PIR methods (bins, pacmann, tree), not %q", *searchType)
+		}
+		pianopir.Simulate = true
+		pirold.Simulate = true
+		logrus.Warnf("SIMULATED PIR: no hints are built and no XOR is done; every timing in metadata.json is -1")
+	}
 
 	meta := GetDatasets(*datasetsDirectory, *dbFileName)
 
@@ -520,27 +541,81 @@ func main() {
 		progressbar.OptionSetDescription("Decoding stuff"),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 	)
-	for qid, encodedAnswer := range encodedAnswers {
-		answers[qid] = encodedAnswer.Decode(&config)
-		bar.Add(1)
+	// Text mode ranks each answer right after decoding it and then drops its decoded docs (TextEntry.Release), so only
+	// one answer's docs are in memory at a time. ReRankTime still counts only the BM25 ranking, as before.
+	var reRanked map[string][]string
+	var textRankTime time.Duration
+	if config.Text.Enabled {
+		reRanked = make(map[string][]string, len(encodedAnswers))
 	}
+	// Answers are decoded on GOMAXPROCS workers: one at a time this was the slowest part of a simulated run (text
+	// bins on fever: ~0.27 s per query, 30 min for 6666 queries, longer than the PIR itself). Decode and Rank only
+	// read shared state (the text model, the IDF sketch, the doc-ID maps), so the results are the same. ReRankTime
+	// stays the sum of the per-query ranking times, as before.
+	decodeQIDs := make([]string, 0, len(encodedAnswers))
+	for qid := range encodedAnswers {
+		decodeQIDs = append(decodeQIDs, qid)
+	}
+	var (
+		decodeMu   sync.Mutex
+		decodeWG   sync.WaitGroup
+		rankNanos  atomic.Int64
+		nextDecode atomic.Int64
+	)
+	for w := 0; w < runtime.GOMAXPROCS(0); w++ {
+		decodeWG.Add(1)
+		go func() {
+			defer decodeWG.Done()
+			for {
+				i := int(nextDecode.Add(1) - 1)
+				if i >= len(decodeQIDs) {
+					return
+				}
+				qid := decodeQIDs[i]
+				encodedAnswer := encodedAnswers[qid] // read-only while the workers run
+				ids := encodedAnswer.Decode(&config)
+				var ranked []string
+				if config.Text.Enabled {
+					if te, ok := encodedAnswer.(*bins.TextEntry); ok {
+						t0 := time.Now()
+						ranked = te.Rank(&config, int(config.K))
+						rankNanos.Add(int64(time.Since(t0)))
+						te.Release()
+					} else {
+						logrus.Errorf("text re-rank: answer for %s is %T, not a text entry", qid, encodedAnswer)
+					}
+				}
+				decodeMu.Lock()
+				answers[qid] = ids
+				if config.Text.Enabled && ranked != nil {
+					reRanked[qid] = ranked
+				}
+				decodeMu.Unlock()
+				_ = bar.Add(1)
+			}
+		}()
+	}
+	decodeWG.Wait()
+	textRankTime = time.Duration(rankNanos.Load())
+	encodedAnswers = nil
 
 	bar.Finish()
 
 	start = time.Now()
-	var reRanked map[string][]string
 	if config.Text.Enabled {
-		reRanked = TextBM25ReRank(encodedAnswers, answers, &config)
+		TextBM25Metrics(answers, reRanked, &config)
 	} else {
 		reRanked = CosineReRank(answers, &config)
 	}
 	end = time.Now()
 
-	config.Metadata["ReRankTime"] = end.Sub(start).String()
+	config.Metadata["ReRankTime"] = (end.Sub(start) + textRankTime).String()
+	markSimulated(config.Metadata, *simulate)
 
+	// what the run really needed (heap etc.), without the mmap'd file pages that peak RSS counts (slurm_common.sh)
+	config.Metadata["PeakAnonMB"] = fmt.Sprintf("%.0f", diskstore.PeakAnonMB())
 	if *noram {
-		// what the run really needed (heap etc.), without the mmap'd file pages that peak RSS counts (slurm_common.sh)
-		config.Metadata["NoRAMPeakAnonMB"] = fmt.Sprintf("%.0f", diskstore.PeakAnonMB())
+		config.Metadata["NoRAMPeakAnonMB"] = config.Metadata["PeakAnonMB"]
 	}
 	oldOut := config.OutFile
 	config.OutFile = fmt.Sprintf("%s/%s.json", config.OutDir, config.OutFile)
@@ -554,6 +629,28 @@ func main() {
 
 	//}
 
+}
+
+// markSimulated records whether the PIR was simulated and, if it was, overwrites every server timing
+// (TotalAnswerTime, PreprocessingTime, MaintainenceTime, the tree's round*_seconds, their Vec/Pre copies, ...)
+// with -1, so a simulated run can never pass for a real computation-time point on a plot. The network times
+// (LAN/WAN) are computed from bytes and rounds, so they stay. ReRankTime is the client's local re-rank, which
+// is not simulated, and GraphGenerationTime is Pacmann's graph build, which is not PIR.
+func markSimulated(meta map[string]string, simulated bool) {
+	meta["Simulated"] = strconv.FormatBool(simulated)
+	if !simulated {
+		return
+	}
+	for k := range meta {
+		if !strings.Contains(k, "Time") && !strings.Contains(k, "_seconds") {
+			continue
+		}
+		if strings.Contains(k, "LAN") || strings.Contains(k, "WAN") ||
+			strings.Contains(k, "ReRank") || strings.Contains(k, "GraphGeneration") {
+			continue
+		}
+		meta[k] = "-1"
+	}
 }
 
 func writeAnswers(answers map[string][]string, config globals.Args) {
@@ -807,8 +904,9 @@ func CosineReRank(results map[string][]string, config *globals.Args) map[string]
 
 }
 
-// TextBM25ReRank is the client-side re-rank of the bins text mode: BM25 over the decoded text of every retrieved doc.
-func TextBM25ReRank(encoded map[string]globals.Decodable, results map[string][]string, config *globals.Args) map[string][]string {
+// TextBM25Metrics: MRR / Recall before and after the bins text mode's client-side BM25 re-rank.
+// The ranking itself (TextEntry.Rank) runs in main's decode loop, one answer at a time; this records the metrics.
+func TextBM25Metrics(results, reRanked map[string][]string, config *globals.Args) {
 	qrels, err := bins.LoadQrels(config.DatasetMeta.Qrels)
 	if err != nil {
 		logrus.Errorf("Error loading qrels from %s: %v", config.DatasetMeta.Qrels, err)
@@ -816,21 +914,10 @@ func TextBM25ReRank(encoded map[string]globals.Decodable, results map[string][]s
 	config.Metadata["MRRPreReRank"] = fmt.Sprintf("%.4f", calcMRR(results, qrels))
 	config.Metadata["RecallPreReRank"] = fmt.Sprintf("%.4f", calcRecall(results, qrels))
 
-	reRanked := make(map[string][]string, len(encoded))
-	for qid, e := range encoded {
-		te, ok := e.(*bins.TextEntry)
-		if !ok {
-			logrus.Errorf("TextBM25ReRank: answer for %s is %T, not a text entry", qid, e)
-			continue
-		}
-		reRanked[qid] = te.Rank(config, int(config.K))
-	}
-
 	config.Metadata["MRR"] = fmt.Sprintf("%.4f", calcMRR(reRanked, qrels))
 	config.Metadata["Recall"] = fmt.Sprintf("%.4f", calcRecall(reRanked, qrels))
 	logrus.Infof("MRR Pre re-rank: %s, Post BM25 re-rank: %s", config.Metadata["MRRPreReRank"], config.Metadata["MRR"])
 	logrus.Infof("Recall Pre re-rank: %s, Post BM25 re-rank: %s", config.Metadata["RecallPreReRank"], config.Metadata["Recall"])
-	return reRanked
 }
 
 func CosineSimilarity(a, b []float32) float32 {

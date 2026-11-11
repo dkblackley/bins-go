@@ -86,9 +86,9 @@ else
   echo "no ./pir_app_tiptoe, running the Tiptoe simulator instead"
 fi
 declare -A SEEN=()
-for dpc in 250 500 1000 2500 5000 10000 40000; do
+for dpc in 250 2500 40000; do
   for ma in 1 2; do
-    for bundle in 40 80 160 320; do
+    for bundle in 40 320; do
       # preprocessing is ~1s and shared by every (hint, k), so it runs serially here: no races on $TT
       TT=$DATASETS/tiptoe/scifact_dpc${dpc}_m${ma}_b${bundle}
       if [ ! -f "$TT/tiptoe_meta.json" ]; then
@@ -124,7 +124,7 @@ run_jobs tiptoe
 # F x tf x k. F values past scifact's vocabulary (~28.9k terms, so F>32768) are skipped by run_coeus.py.
 # Quality + communication only; the opt2 server-time benchmark is never run.
 OPT2_ARG=""
-for F in 8192 16384 32768 65536 131072 262144; do
+for F in 8192 32768 262144; do
   warmed=0
   for tf in raw log; do
     for k in 10 100; do

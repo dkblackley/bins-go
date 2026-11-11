@@ -53,3 +53,40 @@ func TestRowStoreAndCleanup(t *testing.T) {
 		t.Fatalf("run dir still there: %v", err)
 	}
 }
+
+// Finish(nil) maps the staging file in place: same rows, no second file.
+func TestRowStoreFinishInPlace(t *testing.T) {
+	dir, err := Init(t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Cleanup()
+	st, err := NewRowStore("db", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rng := rand.New(rand.NewSource(2))
+	want := make([][]uint64, 50)
+	for _, i := range rng.Perm(50) { // any Put order
+		if i%7 == 3 {
+			continue // empty row
+		}
+		want[i] = make([]uint64, 1+rng.Intn(20))
+		for k := range want[i] {
+			want[i][k] = rng.Uint64()
+		}
+		if err := st.Put(i, want[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.Finish(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("rows differ")
+	}
+	if files, _ := filepath.Glob(filepath.Join(dir, "*")); len(files) != 2 { // owner, staging
+		t.Fatalf("files in run dir: %v", files)
+	}
+}

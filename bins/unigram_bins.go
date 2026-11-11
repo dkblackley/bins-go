@@ -137,33 +137,41 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 	set = nil
 	docs = nil
 
-	topDocs := make([][]string, len(words))
-	var next atomic.Int64
-	var wg sync.WaitGroup
-	for w := 0; w < runtime.GOMAXPROCS(0); w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				i := int(next.Add(1) - 1)
-				if i >= len(words) {
-					return
+	// Search the words in chunks (in parallel) and merge each chunk into the bins (in word order) before searching the
+	// next, so only one chunk's top docs are in memory at once instead of the whole vocabulary's (V x docsPerBin doc
+	// IDs: ~33 GB on nq at docsPerBin 2500). The merge order is the same as before, so the bins are identical.
+	const searchChunk = 1 << 16
+	topDocs := make([][]string, min(searchChunk, len(words)))
+	for lo := 0; lo < len(words); lo += searchChunk {
+		hi := min(lo+searchChunk, len(words))
+		var next atomic.Int64
+		next.Store(int64(lo))
+		var wg sync.WaitGroup
+		for w := 0; w < runtime.GOMAXPROCS(0); w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					i := int(next.Add(1) - 1)
+					if i >= hi {
+						return
+					}
+					topDocs[i-lo] = searchTopDocs(reader, words[i], int(config.DocsPerBin))
+					bar.Add(1)
 				}
-				topDocs[i] = searchTopDocs(reader, words[i], int(config.DocsPerBin))
-				bar.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-	bar.Finish()
-
-	for i, word := range words {
-		for d := uint(0); d <= config.DChoice; d++ {
-			var bin_index = hashTokenChoice(word, d)
-			mergeIntoBin(binsOrder, binHits, uint(bin_index)%realBinSize, topDocs[i], config.DocsPerBin)
+			}()
 		}
-		topDocs[i] = nil
+		wg.Wait()
+
+		for i := lo; i < hi; i++ {
+			for d := uint(0); d <= config.DChoice; d++ {
+				var bin_index = hashTokenChoice(words[i], d)
+				mergeIntoBin(binsOrder, binHits, uint(bin_index)%realBinSize, topDocs[i-lo], config.DocsPerBin)
+			}
+			topDocs[i-lo] = nil
+		}
 	}
+	topDocs = nil
 
 	bar.Finish()
 	binsSlice := make([][]string, realBinSize)
@@ -193,7 +201,9 @@ func searchTopDocs(reader *bluge.Reader, word string, n int) []string {
 	it, err := reader.Search(context.Background(), bluge.NewTopNSearch(n, boolean))
 	Must(err)
 
-	doc_ids := make([]string, 0, n)
+	// Not make(.., 0, n): most words match far fewer than n docs, and n slots per word for the whole vocabulary was
+	// most of the memory at large docsPerBin. Grow as needed, then return an exact-size copy.
+	doc_ids := make([]string, 0, min(n, 16))
 	for {
 		match, err := it.Next()
 		if err != nil || match == nil {
@@ -209,6 +219,9 @@ func searchTopDocs(reader *bluge.Reader, word string, n int) []string {
 		}))
 		doc_ids = append(doc_ids, docID)
 	}
+	if cap(doc_ids) > len(doc_ids) {
+		doc_ids = append(make([]string, 0, len(doc_ids)), doc_ids...)
+	}
 	return doc_ids
 }
 
@@ -221,7 +234,9 @@ func mergeIntoBin(binsOrder map[uint][]string, binHits map[uint]uint, bin uint, 
 	existing := binsOrder[bin]
 
 	seen := make(map[string]struct{}, len(existing)+len(incoming))
-	merged := make([]string, 0, threshold)
+	// at most threshold docs, and never more than the two inputs hold (with millions of bins, a full threshold-sized
+	// array per bin was GBs of empty slots)
+	merged := make([]string, 0, min(threshold, uint(len(existing)+len(incoming))))
 
 	push := func(id string) {
 		if _, dup := seen[id]; dup {

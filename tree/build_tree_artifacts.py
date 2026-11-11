@@ -50,6 +50,66 @@ def index_stats(rd):
     return N, st["total_terms"] / N
 
 
+class PostingsStream:
+    """A term's postings as two numpy arrays (Lucene docids ascending, term frequencies), read straight from Lucene's
+    PostingsEnum (docs + freqs, no positions). Same values, in the same order, as pyserini's
+    get_postings_list(term, analyzer=None) (field "contents", the raw term), which builds the whole list in Java with
+    positions and then one Python object per posting: ~10 GB per worker for a very common term of a 100M+ doc corpus,
+    which is why msmarco-v2 needed 1 TB. Here a posting costs 8 bytes while it is read (two int32 arrays).
+    Same number of Java calls per posting (nextDoc + freq instead of getDocid + getTF + getPositions)."""
+
+    def __init__(self, rd):
+        from pyserini.pyclass import autoclass
+        self.BytesRef = autoclass("org.apache.lucene.util.BytesRef")
+        PostingsEnum = autoclass("org.apache.lucene.index.PostingsEnum")
+        self.FREQS = PostingsEnum.FREQS
+        self.NO_MORE = autoclass("org.apache.lucene.search.DocIdSetIterator").NO_MORE_DOCS
+        terms = autoclass("org.apache.lucene.index.MultiTerms").getTerms(rd.reader, "contents")
+        self.te = terms.iterator()
+
+    def get(self, term):
+        """-> (docs int64, tfs int64) or None if the term is not in the index."""
+        # pyjnius won't pass a Python str as Java CharSequence, so hand BytesRef the UTF-8 bytes (its byte[]
+        # constructor): the same bytes BytesRef(CharSequence) would make, which is how Lucene stores the term.
+        if not self.te.seekExact(self.BytesRef(term.encode("utf-8"))):
+            return None
+        from array import array
+        pe = self.te.postings(None, self.FREQS)
+        docs, tfs = array("i"), array("i")
+        nxt, freq, end = pe.nextDoc, pe.freq, self.NO_MORE
+        d = nxt()
+        while d != end:
+            docs.append(d)
+            tfs.append(freq())
+            d = nxt()
+        if not docs:
+            return None
+        return np.frombuffer(docs, dtype=np.int32).astype(np.int64), np.frombuffer(tfs, dtype=np.int32).astype(np.int64)
+
+
+def postings_via_pyserini(rd, term):
+    """The original reader (pyserini get_postings_list): used to check PostingsStream, and by --pyserini-postings."""
+    pl = rd.get_postings_list(term, analyzer=None)
+    if not pl:
+        return None
+    docs = np.fromiter((p.docid for p in pl), dtype=np.int64, count=len(pl))
+    tfs = np.fromiter((p.tf for p in pl), dtype=np.int64, count=len(pl))
+    order = np.argsort(docs, kind="stable")
+    return docs[order], tfs[order]
+
+
+def rss_anon_mb():
+    """This process's resident anonymous memory (heap, not mmap'd index pages), in MB; 0 if unknown."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("RssAnon:"):
+                    return int(line.split()[1]) / 1024
+    except OSError:
+        pass
+    return 0.0
+
+
 def tree_height(num_leaves, r):
     # same expression as the existing scripts (float log, so keep it identical)
     return math.ceil(math.log(num_leaves, r)) if num_leaves > 1 else 0
@@ -104,9 +164,15 @@ def part_paths(out, w):
     return f"{out}/_parts/w{w:03d}"
 
 
+VERIFY_TERMS = 20          # per worker: check PostingsStream against pyserini on its first terms with df <= VERIFY_MAX_DF
+VERIFY_MAX_DF = 200_000
+
+
 def worker(args_tuple):
     out, index, terms_file, w, W, plan, cfg = args_tuple   # plan = {B: {r: [s, ...]}}
     rd = open_reader(index)
+    stream = None if cfg.get("pyserini_postings") else PostingsStream(rd)
+    verified, peak_mb, peak_df = 0, rss_anon_mb(), 0
     N = cfg["N"]
     pdir = part_paths(out, w)
     os.makedirs(pdir, exist_ok=True)
@@ -130,13 +196,19 @@ def worker(args_tuple):
             if tid % W != w:
                 continue
             term = json.loads(line)
-            pl = rd.get_postings_list(term, analyzer=None)
-            if not pl:
+            got = postings_via_pyserini(rd, term) if stream is None else stream.get(term)
+            if got is None:
                 continue
-            docs = np.fromiter((p.docid for p in pl), dtype=np.int64, count=len(pl))
-            tfs = np.fromiter((p.tf for p in pl), dtype=np.int64, count=len(pl))
-            order = np.argsort(docs, kind="stable")
-            docs, tfs = docs[order], tfs[order]
+            docs, tfs = got
+            if stream is not None and verified < VERIFY_TERMS and docs.size <= VERIFY_MAX_DF:
+                ref = postings_via_pyserini(rd, term)
+                if ref is None or not (np.array_equal(ref[0], docs) and np.array_equal(ref[1], tfs)):
+                    raise RuntimeError(f"worker {w}: postings of {term!r} differ from pyserini's get_postings_list "
+                                       f"({docs.size} vs {0 if ref is None else ref[0].size} postings); "
+                                       f"rerun with --pyserini-postings")
+                verified += 1
+            if stream is not None and docs.size > 1 and np.any(docs[1:] <= docs[:-1]):
+                raise RuntimeError(f"worker {w}: postings of {term!r} are not in ascending docid order")
             idf = math.log(1 + (N - len(docs) + 0.5) / (len(docs) + 0.5))
 
             for B, by_r in plan.items():
@@ -159,13 +231,23 @@ def worker(args_tuple):
                         rec["row"] = np.arange(cnt[0], cnt[0] + nodes.size, dtype=np.uint64)
                         d.write(rows.tobytes()); m.write(rec.tobytes()); cnt[0] += nodes.size
             n_terms += 1
+            if docs.size > peak_df or n_terms % 5000 == 0:   # the heap peaks on the longest postings lists
+                m = rss_anon_mb()
+                if m > peak_mb:
+                    peak_mb = m
+                peak_df = max(peak_df, docs.size)
             if n_terms % 200000 == 0:
-                print(f"  worker {w}: {n_terms:,} terms, {time.time() - t0:.0f}s", flush=True)
+                print(f"  worker {w}: {n_terms:,} terms, {time.time() - t0:.0f}s, heap peak {peak_mb / 1024:.1f} GB "
+                      f"(longest postings list {peak_df:,})", flush=True)
 
     for d, m, _ in files.values():
         d.close(); m.close()
-    print(f"  worker {w} done: {n_terms:,} terms in {time.time() - t0:.0f}s", flush=True)
-    return {k: v[2][0] for k, v in files.items()}
+    print(f"  worker {w} done: {n_terms:,} terms in {time.time() - t0:.0f}s, heap peak {peak_mb / 1024:.1f} GB, "
+          f"longest postings list {peak_df:,}" + (f", {verified} terms checked against pyserini" if stream else ""),
+          flush=True)
+    res = {k: v[2][0] for k, v in files.items()}
+    res["__peak_anon_mb"], res["__max_df"] = peak_mb, peak_df
+    return res
 
 
 # ----------------------------------------------------------------------------------------------- merge
@@ -198,6 +280,22 @@ def symlink(target, link):
     os.symlink(os.path.relpath(target, os.path.dirname(link)), link)
 
 
+def write_stats(T, stats, t_start):
+    """<out>/build_stats.json: time and heap peaks of this build, for sizing the next one (datasets/run_all.sh)."""
+    stats["total_s"] = round(time.time() - t_start)
+    stats["main_peak_anon_gb"] = round(max(stats.get("main_peak_anon_gb", 0), rss_anon_mb() / 1024), 2)
+    hist = []
+    p = f"{T}/build_stats.json"
+    if os.path.exists(p):
+        try:
+            prev = json.load(open(p))
+            hist = prev if isinstance(prev, list) else [prev]
+        except Exception:
+            pass
+    json.dump(hist + [stats], open(p, "w"), indent=1)
+    print(f"build stats: {json.dumps(stats)}", flush=True)
+
+
 # ----------------------------------------------------------------------------------------------- main
 
 def main():
@@ -221,7 +319,12 @@ def main():
     ap.add_argument("--scale", type=float, default=10.0)
     ap.add_argument("--skip-db", action="store_true", help="Only (re)write docmap/stage3/queries")
     ap.add_argument("--force", action="store_true", help="Rebuild combos whose files already exist")
+    ap.add_argument("--pyserini-postings", action="store_true",
+                    help="Read postings with pyserini's get_postings_list (the original, ~10x the memory) instead of "
+                         "streaming them from Lucene")
     args = ap.parse_args()
+    stats = {"workers": args.workers, "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    t_start = time.time()
 
     D, T, name = args.dataset_dir, args.out, args.name
     idx = args.index or f"{T}/index_{name}"
@@ -230,7 +333,8 @@ def main():
     rd = open_reader(idx)
     N, avgdl = index_stats(rd)
     cfg = {"N": N, "avgdl": avgdl, "ia": int(avgdl), "iar": int(round(avgdl)),
-           "k1": args.k1, "b": args.b, "scale": args.scale}
+           "k1": args.k1, "b": args.b, "scale": args.scale, "pyserini_postings": args.pyserini_postings}
+    stats["N"] = N
     print(f"N={N:,} avgdl={avgdl:.2f} workers={args.workers}")
 
     if args.combos:
@@ -275,7 +379,15 @@ def main():
             import multiprocessing as mp
             with mp.get_context("spawn").Pool(W) as pool:
                 counts = pool.map(worker, jobs)
-        print(f"postings pass done in {time.time() - t0:.0f}s, merging")
+        peaks = [c.pop("__peak_anon_mb", 0) for c in counts]
+        max_df = max(c.pop("__max_df", 0) for c in counts)
+        print(f"postings pass done in {time.time() - t0:.0f}s, merging. Heap peaks: workers max "
+              f"{max(peaks) / 1024:.1f} GB, all {W} together at most {sum(peaks) / 1024:.1f} GB (each worker's own "
+              f"peak, not simultaneous); main {rss_anon_mb() / 1024:.1f} GB; longest postings list {max_df:,} of {N:,} docs",
+              flush=True)
+        stats["postings_pass_s"] = round(time.time() - t0)
+        stats["worker_peak_anon_gb"] = [round(p / 1024, 2) for p in peaks]
+        stats["max_df"] = max_df
 
         for B, by_r in plan.items():
             for r, s_list in by_r.items():
@@ -294,6 +406,7 @@ def main():
     if os.path.exists(terms_file):
         os.remove(terms_file)
     if args.db_only:
+        write_stats(T, stats, t_start)
         print(f"--db-only: skipped docmap/stage3/queries. Done: {T}")
         return
 
@@ -329,13 +442,19 @@ def main():
             print("stage3: reordered embeddings to index order")
         with open(f"{T}/stage3_doc.npy.ids", "w") as f:
             f.write("\n".join(ext) + "\n")
+    stats["main_peak_anon_gb"] = round(rss_anon_mb() / 1024, 2)   # docmap + stage3 ids: the main process's peak
     del ext
 
     # ---------------- queries.tsv + analyzed json (opt3.py) + qrels.trec, only queries with qrels
     from pyserini.analysis import Analyzer, get_lucene_analyzer
     # BEIR layout (qrels/test.tsv with a header, queries.jsonl), or msmarco's (qrels/qrels.dev.tsv in TREC form
-    # "qid 0 pid rel", queries.dev.small.jsonl)
-    qp = f"{D}/qrels/test.tsv" if os.path.exists(f"{D}/qrels/test.tsv") else f"{D}/qrels/qrels.dev.tsv"
+    # "qid 0 pid rel", queries.dev.small.jsonl, the same files bins uses in main.go). Pick the qrels that go with the
+    # queries file: ../datasets/msmarco also has a qrels/test.tsv (TREC-DL), whose query ids are not in
+    # queries.dev.small.jsonl, and choosing it by itself wrote an empty queries.qrels.tsv (2026-11-10).
+    if os.path.exists(f"{D}/queries.jsonl"):
+        qfile, qp = f"{D}/queries.jsonl", f"{D}/qrels/test.tsv"
+    else:
+        qfile, qp = f"{D}/queries.dev.small.jsonl", f"{D}/qrels/qrels.dev.tsv"
     qrels = []
     for l in open(qp).read().splitlines():
         f = l.split()
@@ -345,9 +464,13 @@ def main():
             qrels.append(f)
     want = {q[0] for q in qrels}
     an = Analyzer(get_lucene_analyzer())
-    qfile = f"{D}/queries.jsonl" if os.path.exists(f"{D}/queries.jsonl") else f"{D}/queries.dev.small.jsonl"
     qs = [json.loads(l) for l in open(qfile)]
+    for q in qs:   # BEIR queries have "_id", msmarco's queries.dev.small.jsonl has "id"
+        if "_id" not in q:
+            q["_id"] = str(q["id"])
     qs = [q for q in qs if q["_id"] in want]
+    if not qs:   # every tree run would answer 0 queries and fail after its whole preprocessing
+        sys.exit(f"no query in {qfile} has qrels in {qp}: not writing the query files")
     with open(f"{T}/queries.qrels.tsv", "w") as f:
         for q in qs:
             f.write(f"{q['_id']}\t{q['text']}\n")
@@ -357,6 +480,7 @@ def main():
         for q in qrels:
             f.write(f"{q[0]} 0 {q[1]} {q[2]}\n")
     print(f"queries: {len(qs):,}. Done: {T}")
+    write_stats(T, stats, t_start)
 
 
 if __name__ == "__main__":

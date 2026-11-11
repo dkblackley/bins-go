@@ -13,10 +13,10 @@ cd "$(dirname "$0")/.."
 [[ $# -gt 0 ]] || { sed -n 2,10p "$0"; exit 1; }
 
 NEED=(
-    data/msmarco_reordered data/queries.dev.small.tsv data/qrels.dev.small.tsv
+    data/msmarco_reordered data/queries.dev.small.tsv data/queries.dev.small.analyzed.json data/qrels.dev.small.tsv
     data/stage3_doc_aligned_shuffle.npy data/stage3_doc_aligned.npy.ids data/stage3_query.npy
     data/block_permutations.json
-    indexes/scifact data/scifact/queries.qrels.tsv data/scifact/qrels.trec
+    indexes/scifact data/scifact/queries.qrels.tsv data/scifact/queries.qrels.analyzed.json data/scifact/qrels.trec
     data/scifact/clustered/stage3_e5_pca192_doc_embeddings.npy
     data/scifact/clustered/stage3_e5_pca192_doc_embeddings.npy.ids
     data/scifact/stage3_e5_pca192_query_embeddings.npy data/scifact/block_permutations.json

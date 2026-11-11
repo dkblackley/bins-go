@@ -67,7 +67,7 @@ func Init(base, tag string) (string, error) {
 	}
 
 	Dir, Enabled = dir, true
-	go sampleAnon()
+	StartPeakSampler("")
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
@@ -100,11 +100,29 @@ func Cleanup() {
 
 var peakAnonKB uint64 // guarded by mu
 
+var (
+	samplerOnce sync.Once
+	peakFile    string // guarded by mu
+	started     = time.Now()
+)
+
+// StartPeakSampler starts tracking the peak RssAnon (once per process; later calls only set the file). With a file,
+// it also rewrites "<peak MB> <seconds since start>" there every 10 s, so a run that is killed (OOM, time limit)
+// still leaves how much heap it had reached and when, for the next memory estimate (slurm_common.sh).
+func StartPeakSampler(file string) {
+	mu.Lock()
+	if file != "" {
+		peakFile = file
+	}
+	mu.Unlock()
+	samplerOnce.Do(func() { go sampleAnon() })
+}
+
 // sampleAnon tracks the peak of RssAnon (heap, stacks: the memory that cannot be paged back to a file). The usual
 // peak RSS (VmHWM, /usr/bin/time, sacct MaxRSS) also counts the mmap'd file pages that happen to be resident, so
-// for a -noram run it just shows the job's memory limit and says nothing about what the run needs.
+// for a -noram run (or a tree run that mmaps its Cuckoo cache) it shows the job's memory limit, not what it needs.
 func sampleAnon() {
-	for {
+	for tick := 0; ; tick++ {
 		if b, err := os.ReadFile("/proc/self/status"); err == nil {
 			for _, line := range strings.Split(string(b), "\n") {
 				if strings.HasPrefix(line, "RssAnon:") {
@@ -114,6 +132,14 @@ func sampleAnon() {
 					peakAnonKB = max(peakAnonKB, kb)
 					mu.Unlock()
 				}
+			}
+		}
+		if tick%10 == 0 {
+			mu.Lock()
+			f, kb := peakFile, peakAnonKB
+			mu.Unlock()
+			if f != "" {
+				_ = os.WriteFile(f, []byte(fmt.Sprintf("%.0f %.0f\n", float64(kb)/1024, time.Since(started).Seconds())), 0o644)
 			}
 		}
 		time.Sleep(time.Second)
@@ -231,9 +257,30 @@ func (s *RowStore) Put(i int, row []uint64) error {
 // Finish returns the rows, backed by a read-only mmap. physOrder[p] is the logical row the PIR stores at physical
 // position p (pianopir.ShufflePermutation): writing the rows in that order makes the PIR's preprocessing, which
 // walks each partition chunk by chunk in physical order, read the file front to back instead of jumping around.
-// nil physOrder keeps the logical order. The staging file is deleted.
+// nil physOrder keeps the staging file as it is: it is mapped in place, with no second copy (the rows are wherever
+// Put wrote them; only the read pattern of a real preprocessing pass cares about the layout, and a simulated run has
+// none). Otherwise the rows are copied out in that order and the staging file is deleted.
 func (s *RowStore) Finish(physOrder []int) ([][]uint64, error) {
 	rows := len(s.off)
+	if physOrder == nil {
+		// Rewriting meant reading the whole staging file once more (in shuffled row order, so mostly random page
+		// faults) and writing it again: for a 150 GB vec1 DB on NFS that alone took longer than the 30 min jobs.
+		data, err := mmapReadOnly(s.staging, s.end)
+		_ = s.staging.Close() // the mapping keeps the file; Cleanup removes it with the run folder
+		if err != nil {
+			return nil, err
+		}
+		ret := make([][]uint64, rows)
+		for i := 0; i < rows; i++ {
+			if s.off[i] >= 0 {
+				ret[i] = words(data, s.off[i], int64(s.n[i]))
+			}
+		}
+		logrus.Infof("noram: %s: %d rows, %.2f GB on disk in %s (staging order, not copied)", s.name, rows,
+			float64(s.end)/1e9, Dir)
+		s.off, s.n = nil, nil
+		return ret, nil
+	}
 	defer func() {
 		_ = s.staging.Close()
 		_ = os.Remove(s.staging.Name())

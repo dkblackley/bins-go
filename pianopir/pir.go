@@ -117,18 +117,19 @@ func (s *PianoPIRServer) PrivateQuery(offsets []uint32) ([][]uint64, error) {
 
 	}
 
-	var totalBytes = uint64(len(offsets) * 4)
-	for i := 0; i < len(tempRet); i++ {
-		totalBytes += uint64(len(tempRet[i])) * 8
-	}
-	s.RetrievalCountPadded += totalBytes
+	s.chargeQuery(len(offsets), maxLen)
+
+	return tempRet, nil
+}
+
+// chargeQuery counts the bytes of one query: nOffsets 4-byte offsets up, and a response down.
+func (s *PianoPIRServer) chargeQuery(nOffsets, maxLen int) {
+	s.RetrievalCountPadded += uint64(nOffsets*4) + s.config.MaxDBEntrySize*8
 
 	// What actually has to go over the wire: the XOR of entries shorter than MaxDBEntrySize ends in zero words,
 	// and XORing with zeros is a no-op, so the server only sends the first maxLen words plus a 4-byte length.
 	// The server already knows every entry's length and which entries it XORed, so the length leaks nothing new.
-	s.RetrievalCount += uint64(len(offsets)*4) + uint64(maxLen)*8 + ResponseLengthHeaderBytes
-
-	return tempRet, nil
+	s.RetrievalCount += uint64(nOffsets*4) + uint64(maxLen)*8 + ResponseLengthHeaderBytes
 }
 
 // PianoPIRClient is the stateful client for PianoPIR
@@ -174,6 +175,8 @@ type PianoPIRClient struct {
 
 	// local cache
 	localCache map[uint64][][]uint64
+
+	sim *simClient // non-nil when Simulate was on at creation: no hint tables, see simulate.go
 }
 
 func primaryNumParam(Q float64, ChunkSize float64, target uint64) uint64 {
@@ -195,6 +198,18 @@ func NewPianoPIRClient(config *PianoPIRConfig) *PianoPIRClient {
 	primaryHintNum = (primaryHintNum + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
 	maxQueryPerChunk := 3 * uint64(float64(maxQueryNum)/float64(config.SetSize))
 	maxQueryPerChunk = (maxQueryPerChunk + config.ThreadNum - 1) / config.ThreadNum * config.ThreadNum
+
+	if Simulate {
+		return &PianoPIRClient{
+			config:           config,
+			MaxQueryNum:      maxQueryNum,
+			QueryHistogram:   make([]uint64, config.SetSize),
+			primaryHintNum:   primaryHintNum,
+			maxQueryPerChunk: maxQueryPerChunk,
+			localCache:       make(map[uint64][][]uint64),
+			sim:              newSimClient(),
+		}
+	}
 
 	// make zeros now and fill later at preproc (on the heap, or in a file with -noram: see noram.go)
 	primaryParity := newParityTable(config, primaryHintNum, maxQueryPerChunk)
@@ -274,6 +289,10 @@ func (c *PianoPIRClient) PrintStorageBreakdown() {
 }
 
 func (c *PianoPIRClient) Initialization() {
+	if c.sim != nil {
+		c.simInitialization()
+		return
+	}
 	//TODO: implemente the preprocessing logic
 	c.FinishedQueryNum = 0
 
@@ -438,8 +457,8 @@ func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) [][]uint64 {
 		//}
 	}
 
-	if c.skipPrep {
-		// only for debugging and benchmarking
+	if c.skipPrep || c.sim != nil {
+		// only for debugging and benchmarking, or simulated (no hints to build)
 		return rawDB
 	}
 	if c.diskHints() { // -noram: hint tables on disk, fill them block by block (noram.go)
@@ -547,6 +566,9 @@ func (c *PianoPIRClient) UpdatePreprocessing(chunkId uint64, chunk [][]uint64) {
 }
 
 func (c *PianoPIRClient) Query(idx uint64, server *PianoPIRServer, realQuery bool) ([]uint64, error) {
+	if c.sim != nil {
+		return c.simQuery(idx, server, realQuery)
+	}
 
 	// TODO: Should just make red dynamically sized?
 	ret := make([]uint64, c.config.MaxDBEntrySize)
@@ -789,6 +811,9 @@ func trimmedWords(e []uint64) int {
 // entries all have the same size this is the same as LocalStorageSize (plus the small length fields); for the bins,
 // where a bin can be shorter than the largest one, it is what the client actually has to keep.
 func (c *PianoPIRClient) LocalStorageSizeTrimmed() float64 {
+	if c.sim != nil {
+		return c.sim.trimmedStorage // set by PianoPIR.LocalStorageSizeTrimmed
+	}
 	words := uint64(0)
 	stored := uint64(0)
 	for _, p := range c.primaryParity {
@@ -813,5 +838,8 @@ func (c *PianoPIRClient) LocalStorageSizeTrimmed() float64 {
 }
 
 func (p *PianoPIR) LocalStorageSizeTrimmed() float64 {
+	if c := p.client; c.sim != nil && c.sim.trimmedStorage < 0 {
+		c.sim.trimmedStorage = c.expectedTrimmedStorage(p.server.rawDB)
+	}
 	return p.client.LocalStorageSizeTrimmed()
 }

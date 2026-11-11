@@ -128,6 +128,13 @@ func (t *TextEntry) decode() {
 	}
 }
 
+// Release drops the decoded docs and the raw entries once this answer has been decoded and ranked. Every answer
+// decodes thousands of docs (the terms of each), so keeping them all until the last query is ranked held ~1 GB per
+// ~200 queries (6.8 GB on scifact at bs 100, dpb 250); released one by one, only one answer's docs are live at a time.
+func (t *TextEntry) Release() {
+	t.docs, t.entries = nil, nil
+}
+
 func (t *TextEntry) Decode(config *globals.Args) []string {
 	t.decode()
 	ids := make([]string, 0, len(t.docs))
