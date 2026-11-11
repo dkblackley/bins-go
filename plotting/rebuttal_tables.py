@@ -23,6 +23,7 @@ import os
 import globals as g
 import plot_utils as pu
 import select_configs as sc
+import frozen_values as fv
 
 log = logging.getLogger('rebuttal')
 
@@ -157,7 +158,9 @@ def make_tables(nested_data, datasets=None, methods=None, k=g.K_MAIN, n=N_BEST, 
         os.makedirs(g.FIGURE_DIR, exist_ok=True)
         base = os.path.join(g.FIGURE_DIR, f'rebuttal_best{n}_k{k}')
         with open(base + '.md', 'w') as f:
-            f.write(_markdown(all_rows, k, n, datasets) + '\n' + best_scores(nested_data, datasets, methods, k))
+            _, frozen = fv.frozen_values(nested_data, k=k, write=False, quiet=True)
+            f.write(_markdown(all_rows, k, n, datasets) + '\n' + best_scores(nested_data, datasets, methods, k) +
+                    '\n' + frozen.replace('\n#', '\n##').replace('# A. ', '## ', 1))
         with open(base + '.csv', 'w', newline='') as f:
             w = csv.DictWriter(f, fieldnames=list(all_rows[0]))
             w.writeheader()

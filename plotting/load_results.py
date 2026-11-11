@@ -43,7 +43,7 @@ finishes, so a folder without metadata.json is skipped (counted in the log).
         vec1     one single DB holding everything                           -> "1-stage"
     bins_text_{dataset}_k{K}_bs{BS}_dpb{DPB}
         text     one DB of compressed doc text, client BM25 re-rank (-text)  -> vec=2,
-                 loaded as its own method 'bins-text' so it never mixes into the embedding bins
+                 loaded as more 'bins' runs (vec=2, config text_bs<BS>_dpb<DPB>)
         dataset  msmarco | scifact
         k        documents returned per query in the final list (10 or 100)
         bs       bin size: number of entries in the DB (same as RealBinSize)
@@ -275,7 +275,9 @@ def parse_bins(folder, meta):
     if sweep and not g.INCLUDE_VEC0_SWEEP:
         return None
     sweep_tag = f"_vb{name['vb']}_vr{name['vr']}_ib{name['ib']}" if sweep else ''
-    run.update(method='bins-text' if vec == 2 else 'bins', dataset=name['dataset'], k=int(name['k']),
+    # text runs (vec=2) are PILLAR-Bin configs like the others (config 'text_bs.._dpb..'); the bs/dpb ablations
+    # still keep them apart, since they always ask for vec=0 or vec=1
+    run.update(method='bins', dataset=name['dataset'], k=int(name['k']),
                vec=vec, bs=bs, dpb=dpb, config=f'{tag}_bs{bs}_dpb{dpb}{sweep_tag}',
                # vec0 sweep: the batching asked for (VecBatchSize in metadata is what was used: pir_app cuts a batch
                # too big for the embedding DB) and how many candidates per query batch x rounds had no room for
@@ -476,7 +478,7 @@ def _load_folder(folder, candidates):
         if isinstance(value, float) and value < 0:
             run[key] = math.nan
     run.update(folder=folder, source=source, results_dir=results_dir)
-    return 'ok', run.get('method', method), run   # bins_text_* folders load as 'bins-text'
+    return 'ok', run.get('method', method), run
 
 
 def _list_folders(results_dir):
@@ -579,8 +581,25 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
                     ', '.join(bad_json + skipped))
     if g.FILTER_BINS_CLIENT_STORAGE if filter_bins_client is None else filter_bins_client:
         filter_bins_client_storage(nested_data)
+    exclude_client_storage(nested_data)
     print_summary(nested_data)
     return nested_data
+
+
+def exclude_client_storage(nested_data, methods=None):
+    """client_storage_mb -> NaN for g.STORAGE_EXCLUDE_METHODS (the reported value is kept as client_storage_mb_reported),
+    so client-storage plots and tables leave those methods out while every other metric keeps them."""
+    methods = g.STORAGE_EXCLUDE_METHODS if methods is None else methods
+    for method in methods:
+        n = 0
+        for runs in nested_data.get(method, {}).values():
+            for r in runs:
+                r['client_storage_mb_reported'] = r.get('client_storage_mb', math.nan)
+                r['client_storage_mb'] = math.nan
+                n += 1
+        if n:
+            log.info("%s: client storage left out of the comparisons (%d runs; STORAGE_EXCLUDE_METHODS=\"\" keeps it)",
+                     method, n)
 
 
 DROPPED_BINS = {}   # dataset -> bins runs the client storage filter took out (so reports can say what it hid)

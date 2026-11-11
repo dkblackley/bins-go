@@ -18,7 +18,8 @@ Inputs:
     queries.qrels.analyzed.json); baselines.py JSONs in g.BASELINES_DIRS (C).
 
 Item by item:
-  A  equal-quality comparison: fixed_score.py (cheapest config at/above a target)
+  A  frozen values: frozen_values.py (one MRR@10 / Recall@10 target and one WAN budget
+     shared by every dataset; Bin, Tree, PACMANN, and the PACMANN+Bin / PACMANN+Tree pairs)
   B  passage fetch (msmarco): PianoPIR cost of fetching the 10 final passages,
      modelled with the formulas pianopir/batch-pir.go uses (same batching as the
      tree's Stage 3), from the real passage lengths in corpus.jsonl
@@ -55,7 +56,7 @@ from collections import Counter, defaultdict
 import globals as g
 import load_results
 import plot_utils as pu
-import fixed_score
+import frozen_values
 
 log = logging.getLogger('rebuttal_numbers')
 
@@ -148,8 +149,8 @@ def rr_at_k(ranked, rel, k=K):
 # ------------------------------------------------------------------------------------------------------ items
 
 def item_A(nd):
-    _, text = fixed_score.fixed_score(nd, write=True, quiet=True)
-    return text.replace('# A. ', '## A. ', 1)
+    _, text = frozen_values.frozen_values(nd, write=True, quiet=True)
+    return text.replace('\n#', '\n##').replace('# A. ', '## A. ', 1)
 
 
 def item_B(nd):

@@ -132,8 +132,10 @@ done
 # pruned embedding DB is smaller).
 #   every dataset   batch 10 / 50 / 100 / 2500 x rounds 1 / 3 / 10 / 30, ID batch 24 (as before), k 10, at three
 #                   bin sizes of the grid (the batch's effect barely depends on bs): VEC0_SWEEP_<VB|VR|IB|BS|DPB|K>
-#   scifact         its own wider grid (runs take seconds): small batches and many rounds, where a local 812-run
-#                   grid found its smallest hints, and every ID batch: VEC0_SCIFACT_<VB|VR|IB|BS|DPB|K>
+#   scifact         its own grid, the same size as the others (236 configs, 4 bin sizes x every dpb): the small
+#                   batches and many rounds where a 1,800-config local sweep found its smallest hints (batch 4 x 30
+#                   rounds with ID batch 2 led its frontier); bs 1M is left out (its ID hint alone is 13-233 MB,
+#                   PACMANN's whole hint 12 MB): VEC0_SCIFACT_<VB|VR|IB|BS|DPB|K>
 # VEC0_SWEEP_DATASETS="" turns the sweep off; e.g. VEC0_SWEEP_DATASETS="msmarco scifact" limits it.
 VEC0_SWEEP_DATASETS="${VEC0_SWEEP_DATASETS-all}"
 VEC0_SWEEP_MAX_TERMS="${VEC0_SWEEP_MAX_TERMS:-8}"
@@ -143,11 +145,11 @@ vec0_sweep_param() {   # dataset key -> its values (VEC0_SCIFACT_<key> for scifa
         v="VEC0_SCIFACT_$key"
         case $key in
             K)   echo "${!v:-10}" ;;
-            BS)  echo "${!v:-1000 10000 100000}" ;;
+            BS)  echo "${!v:-100 1000 10000 100000}" ;;
             DPB) echo "${!v:-${DPB_LIST[*]}}" ;;
-            VB)  echo "${!v:-2 4 8 16 50 100}" ;;
-            VR)  echo "${!v:-1 5 10 20 30}" ;;
-            IB)  echo "${!v:-2 8 24}" ;;
+            VB)  echo "${!v:-4 16 50}" ;;
+            VR)  echo "${!v:-3 10 30}" ;;
+            IB)  echo "${!v:-2}" ;;
         esac
     else
         v="VEC0_SWEEP_$key"

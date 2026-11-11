@@ -46,20 +46,31 @@ RESULTS_DIRS = [d for d in RESULTS_DIR.split(os.pathsep) if d]
 # every server timing (TotalAnswerTime, PreprocessingTime, ...) is -1, loaded as NaN. With FALLBACK_TO_SIMULATED on,
 # load_results() takes each config from RESULTS_DIRS when it has a metadata.json there, else from these folders, and
 # marks every run with run['source'] = 'real' / 'simulated'. FALLBACK_TO_SIMULATED=0 reads RESULTS_DIRS only.
-SIMULATED_RESULTS_DIR = os.environ.get('SIMULATED_RESULTS_DIR', '/scratch/dblackle/results_simulated')
+# default: hopper's folder there, else ../datasets/results_simulated next to this repo (this machine)
+_SIM_DEFAULT = '/scratch/dblackle/results_simulated'
+if not os.path.isdir(_SIM_DEFAULT):
+    _SIM_DEFAULT = os.path.normpath(os.path.join(_HERE, '../../../../datasets/results_simulated'))
+SIMULATED_RESULTS_DIR = os.environ.get('SIMULATED_RESULTS_DIR', _SIM_DEFAULT)
 SIMULATED_RESULTS_DIRS = [d for d in SIMULATED_RESULTS_DIR.split(os.pathsep) if d]
 FALLBACK_TO_SIMULATED = os.environ.get('FALLBACK_TO_SIMULATED', '1') != '0'
-# ONLY_SIMULATED=1: read SIMULATED_RESULTS_DIRS (no RESULTS_DIRS, no fallback
-# to a real run when a simulated one is missing). EXTRA_RESULTS_DIRS (Tiptoe/Coeus, always simulated) are still read. Overrides FALLBACK_TO_SIMULATED. Every run gets source='simulated'.
-ONLY_SIMULATED = os.environ.get('ONLY_SIMULATED', '1') == '0'
+# ONLY_SIMULATED (on by default): read SIMULATED_RESULTS_DIRS only, no RESULTS_DIRS and no fallback to a real run
+# when a simulated one is missing. EXTRA_RESULTS_DIRS (Tiptoe/Coeus, always simulated) are still read. Overrides
+# FALLBACK_TO_SIMULATED. Every run gets source='simulated'. ONLY_SIMULATED=0 brings the real runs back.
+ONLY_SIMULATED = os.environ.get('ONLY_SIMULATED', '1') != '0'
 # the vec0 client-storage sweep (bins_vec0_..._vb<B>_vr<R>_ib<I>: embedding-DB batch / rounds, ID-DB batch) loads as more
 # PILLAR-Bin configs, so the method comparisons can pick them; INCLUDE_VEC0_SWEEP=0 leaves them out everywhere
-INCLUDE_VEC0_SWEEP = os.environ.get('INCLUDE_VEC0_SWEEP', '1') != '1'
+INCLUDE_VEC0_SWEEP = os.environ.get('INCLUDE_VEC0_SWEEP', '1') != '0'
+# Methods left out of every client-storage comparison: their client_storage_mb is set to NaN at load time (the reported
+# value stays in client_storage_mb_reported), so any plot or table with client storage on an axis skips them and every
+# other metric keeps them. Tiptoe (centroids only: 0.001-17 MB; it downloads a 35-42 MB token per query instead) and
+# Coeus (a 0.19 MB secret key; it sends 5-814 MB per query) dominate client storage outright, which hides the
+# PILLAR vs PACMANN comparison. STORAGE_EXCLUDE_METHODS="" puts them back.
+STORAGE_EXCLUDE_METHODS = os.environ.get('STORAGE_EXCLUDE_METHODS', 'tiptoe coeus').split()
 
 # PILLAR-Bin runs whose client storage is >= BINS_MAX_CLIENT_FRACTION of the dataset's embedding DB are dropped by
 # load_results(): at that point the client might as well download the embeddings. FILTER_BINS_CLIENT_STORAGE=0 keeps
 # every run (or pass filter_bins_client=False); BINS_MAX_CLIENT_FRACTION=0.5 etc. moves the cut.
-FILTER_BINS_CLIENT_STORAGE = os.environ.get('FILTER_BINS_CLIENT_STORAGE', '1') != '0'
+FILTER_BINS_CLIENT_STORAGE = os.environ.get('FILTER_BINS_CLIENT_STORAGE', '1') != '1'
 BINS_MAX_CLIENT_FRACTION = float(os.environ.get('BINS_MAX_CLIENT_FRACTION', 2 / 3))
 # Size (MB = 2^20 bytes, like DBSizeInBytesMB / ClientStorageMB) of ../datasets/<d>/<d>_corpus_embed_f32.npy on hopper,
 # checked 2026-11-10: docs x 192 dims x float32 (the PCA'd e5 embeddings), + the .npy header.
@@ -108,7 +119,7 @@ EXTRA_BASELINES = ['coeus', 'tiptoe']
 
 # The bins -text mode (bins_text_* folders: compressed doc text + client BM25). Set to [] to leave it out of the
 # method comparisons (keeps the old bar widths); its runs are then not loaded.
-TEXT_BINS = ['bins-text']
+TEXT_BINS = []   # bins_text_* runs load as plain 'bins' runs (vec=2), so no method / colour / legend entry of their own
 
 METHOD_ORDER = ['bins'] + TEXT_BINS + ['tree', 'pacmann'] + EXTRA_BASELINES   # order of lines, bars and legend entries
 
