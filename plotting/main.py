@@ -40,13 +40,14 @@ if __name__ == '__main__':
     # plot_metric_vs_latency.make_plots(nested_data)   # quality vs latency, per dataset
     # plot_best_histograms.make_plots(nested_data)     # best of the selected configs, per metric
     # plot_pareto_frontier.plot_pareto_frontier(nested_data)
-    plot_pareto_vs_latency.make_plots(nested_data)
+    # plot_pareto_vs_latency.make_plots(nested_data)
     # plot_pareto_single.make_plots(nested_data)
     # plot_bins_ablation_grid.make_plots(nested_data)  # bins: WAN, LAN, compute, comm vs bs and vs dpb
     # plot_bins_ablation_split.make_plots(nested_data)  # bins: storage, preproc, quality, a dataset each
     # plot_bins_vec_db.make_plots(nested_data)         # bins: the embedding DB, quality and cost
     # plot_bins_ablation_stacked.plot_bins_ablation_stacked(nested_data)
     # plot_pareto_grid.make_plots(nested_data)
+    plot_pareto_grid.make_client_storage_plot(nested_data)   # client storage vs MRR/Recall, MS MARCO + SciFact
 
     # the one-PDF-per-metric versions the two grids above replace
     # plot_db_size.make_plots(nested_data)             # bins DB size vs PACMANN baseline
@@ -58,13 +59,13 @@ if __name__ == '__main__':
     # plot_tree_stages.make_plots(nested_data)          # tree: latency split by PIR stage
     # plot_quality_vs_cost.make_plots(nested_data)      # all: quality vs preproc/storage cost
 
-    fixed_recall.fixed_recall(nested_data)              # tables: each method's cost at one shared recall
+    # fixed_recall.fixed_recall(nested_data)              # tables: each method's cost at one shared recall
 
     # rebuttal: best 5 configs per method/dataset on each cost knee (client storage, WAN, LAN) -> figures/rebuttal_best5_k10.md
-    rebuttal_tables.make_tables(nested_data)
+    #rebuttal_tables.make_tables(nested_data)
     # rebuttal: every [FILL] number existing results can give (items A-K, incl. fixed_score's equal-quality
     # comparison) -> figures/rebuttal_numbers.md; per-query files it still needs are listed at the end
-    rebuttal_numbers._add_stage3_batch(nested_data)
-    rebuttal_numbers.rebuttal_numbers(nested_data)
+    # rebuttal_numbers._add_stage3_batch(nested_data)
+    # rebuttal_numbers.rebuttal_numbers(nested_data)
 
     print(f"Done, figures in {g.FIGURE_DIR}")

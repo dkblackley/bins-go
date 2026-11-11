@@ -980,7 +980,46 @@ def make_plots(nested_data):
     return figures
 
 
+# ==========================================
+# CLIENT STORAGE ONLY (one figure, both datasets)
+# ==========================================
+
+STORAGE_DATASETS = ['msmarco', 'scifact']   # the columns
+STORAGE_QUALITY = ['mrr', 'recall']         # the rows
+STORAGE_FIG_NAME = 'pareto_client_storage'  # figures/<this>.pdf
+STORAGE_SUPTITLE = 'Client Storage vs Effectiveness'   # None for no title
+
+
+def make_client_storage_plot(nested_data):
+    """
+    figures/pareto_client_storage.pdf: client storage (x) against MRR@10 / Recall@10
+    (rows), MS MARCO and SciFact side by side (columns), every panel drawn by the
+    same machinery as the grid above. The axis ranges come from AXIS_DEFAULTS, so
+    ('msmarco', 'client_storage_mb') etc. set this figure's ranges too. Each panel
+    keeps its own y range (the datasets' MRR scales differ), so SHARE_Y_ROW is off here.
+    """
+    global PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS
+    saved = PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS
+    LEGEND_ROWS = [row + (['global'] if i == len(g.METHOD_LEGEND_ROWS) - 1 else [])   # every method,
+                   for i, row in enumerate(g.METHOD_LEGEND_ROWS)]                    # incl. text bins / baselines
+    PANELS = [dict(x='client_storage_mb', y=y, dataset=d,
+                   title=g.DATASET_LABELS.get(d, d) if row == 0 else None)
+              for row, y in enumerate(STORAGE_QUALITY) for d in STORAGE_DATASETS]
+    COLS, SHARE_Y_ROW, Y_LABEL_ROW = len(STORAGE_DATASETS), False, True
+    SUPTITLE = STORAGE_SUPTITLE.replace('{', '{{').replace('}', '}}') if STORAGE_SUPTITLE else None
+    try:
+        _frontier_counts.clear()
+        figure = plot_pareto_grid(nested_data, STORAGE_DATASETS[0], name=STORAGE_FIG_NAME)
+        if FRONTIER_SUMMARY:
+            print_frontier_summary()
+        return figure
+    finally:
+        PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS = saved
+
+
 if __name__ == '__main__':
     g.setup_logging()
     g.setup_style()
-    make_plots(load_results.load_results())
+    nested = load_results.load_results()
+    make_plots(nested)
+    make_client_storage_plot(nested)   # figures/pareto_client_storage.pdf

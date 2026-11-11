@@ -13,7 +13,9 @@ REAL VS SIMULATED
 With g.FALLBACK_TO_SIMULATED (the default; FALLBACK_TO_SIMULATED=0 turns it off, or pass
 fallback_simulated=False), each config is taken from the first place that has a
 metadata.json for it: RESULTS_DIRS, the extra baseline dirs, then SIMULATED_RESULTS_DIRS.
-run['source'] says which ('real' / 'simulated'). Simulated runs write -1 for every server
+run['source'] says which ('real' / 'simulated'). With g.ONLY_SIMULATED (ONLY_SIMULATED=1, or pass
+only_simulated=True) only SIMULATED_RESULTS_DIRS and the Tiptoe/Coeus dirs (EXTRA_RESULTS_DIRS, always simulated)
+are read: no real runs, no fallback. Simulated runs write -1 for every server
 timing, so any negative value is loaded as NaN (total_time, preprocessing_time, ...);
 quality, bytes, LAN/WAN and client storage are the same as a real run's. Sub-folders
 named like h3_lf0.88/ (msmarco-v2's tree runs with other Cuckoo settings) are read too;
@@ -482,7 +484,7 @@ def _list_folders(results_dir):
 
 
 def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallback_simulated=None,
-                 filter_bins_client=None):
+                 filter_bins_client=None, only_simulated=None):
     """
     Reads every folder's metadata.json in `results_dirs` (one path, a list of
     paths, or None for g.RESULTS_DIRS) with a thread pool. With fallback_simulated
@@ -493,6 +495,9 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
     file I/O, and json.load / the parsers only hold it for the small compute part.
     filter_bins_client (default g.FILTER_BINS_CLIENT_STORAGE) drops the bins runs whose
     client storage is too close to the embedding DB, see filter_bins_client_storage().
+    only_simulated (default g.ONLY_SIMULATED) reads `simulated_dirs` and nothing else:
+    results_dirs is ignored (the Tiptoe/Coeus EXTRA_RESULTS_DIRS are still read), and a config with no simulated
+    run is simply missing (it never falls back to a real run).
     """
     if results_dirs is None:
         results_dirs = g.RESULTS_DIRS
@@ -504,13 +509,22 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
         simulated_dirs = g.SIMULATED_RESULTS_DIRS
     elif isinstance(simulated_dirs, str):
         simulated_dirs = [d for d in simulated_dirs.split(os.pathsep) if d]
-    extra = [d for d in g.EXTRA_RESULTS_DIRS if d not in results_dirs]
+    if only_simulated is None:
+        only_simulated = g.ONLY_SIMULATED
+    # Tiptoe / Coeus (EXTRA_RESULTS_DIRS) are always simulated runs, so they're read in both modes
+    extra = [d for d in g.EXTRA_RESULTS_DIRS if d not in results_dirs and d not in simulated_dirs]
     for d in extra:
         if not os.path.isdir(d):
             log.debug("extra results directory not found, skipped: %s", d)
-    sources = [(d, 'real') for d in list(results_dirs) + [d for d in extra if os.path.isdir(d)]]
-    if fallback_simulated:
-        sources += [(d, 'simulated') for d in simulated_dirs if d not in results_dirs]
+    extra_sources = [(d, 'simulated') for d in extra if os.path.isdir(d)]
+    if only_simulated:
+        if not simulated_dirs:
+            raise ValueError("only_simulated is on but no simulated results dirs are set (SIMULATED_RESULTS_DIR)")
+        sources = [(d, 'simulated') for d in simulated_dirs] + extra_sources
+    else:
+        sources = [(d, 'real') for d in results_dirs] + extra_sources
+        if fallback_simulated:
+            sources += [(d, 'simulated') for d in simulated_dirs if d not in results_dirs]
     log.info("reading results from %s", ', '.join(f'{d} ({src})' for d, src in sources))
     nested_data = {method: {} for method in g.METHOD_ORDER}
 

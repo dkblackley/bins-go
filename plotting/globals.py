@@ -49,6 +49,9 @@ RESULTS_DIRS = [d for d in RESULTS_DIR.split(os.pathsep) if d]
 SIMULATED_RESULTS_DIR = os.environ.get('SIMULATED_RESULTS_DIR', '/scratch/dblackle/results_simulated')
 SIMULATED_RESULTS_DIRS = [d for d in SIMULATED_RESULTS_DIR.split(os.pathsep) if d]
 FALLBACK_TO_SIMULATED = os.environ.get('FALLBACK_TO_SIMULATED', '1') != '0'
+# ONLY_SIMULATED=1: read SIMULATED_RESULTS_DIRS (no RESULTS_DIRS, no fallback
+# to a real run when a simulated one is missing). EXTRA_RESULTS_DIRS (Tiptoe/Coeus, always simulated) are still read. Overrides FALLBACK_TO_SIMULATED. Every run gets source='simulated'.
+ONLY_SIMULATED = os.environ.get('ONLY_SIMULATED', '1') == '0'
 
 # PILLAR-Bin runs whose client storage is >= BINS_MAX_CLIENT_FRACTION of the dataset's embedding DB are dropped by
 # load_results(): at that point the client might as well download the embeddings. FILTER_BINS_CLIENT_STORAGE=0 keeps
