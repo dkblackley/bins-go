@@ -36,7 +36,9 @@ containing metadata.json (the only file read here), results.json,
 results_reRank.json, slurm_name.txt. Folders are created before the run
 finishes, so a folder without metadata.json is skipped (counted in the log).
 
-    bins_vec{0|1}_{dataset}_k{K}_bs{BS}_dpb{DPB}
+    bins_vec{0|1}_{dataset}_k{K}_bs{BS}_dpb{DPB}[_vb{B}_vr{R}_ib{I}]
+        _vb_vr_ib  vec0 client-storage sweep: embedding-DB batch, rounds, ID-DB batch (g.INCLUDE_VEC0_SWEEP;
+                 run['vec_sweep'] is True for these, and pu.bins_sweep leaves them out of the bs/dpb ablations)
         vec0     two DBs: BM25 bins DB, then a separate embedding (Vec) DB  -> "2-stage"
         vec1     one single DB holding everything                           -> "1-stage"
     bins_text_{dataset}_k{K}_bs{BS}_dpb{DPB}
@@ -150,7 +152,10 @@ import globals as g
 log = logging.getLogger('load')
 
 # bins_text_* = the -text mode (compressed doc text in one DB, client BM25 re-rank); parsed as vec=2
-BINS_NAME = re.compile(r'^bins_(?:vec(?P<vec>\d)|(?P<text>text))_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)$')
+# optional _vb<B>_vr<R>_ib<I>: the vec0 client-storage sweep (run_bins_*.slurm add_vec0_sweep: embedding-DB batch,
+# rounds, ID-DB batch, round-robin candidates)
+BINS_NAME = re.compile(r'^bins_(?:vec(?P<vec>\d)|(?P<text>text))_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)'
+                       r'(?:_vb(?P<vb>\d+)_vr(?P<vr>\d+)_ib(?P<ib>\d+))?$')
 PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
 TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?(?:_c(?P<c>\d+))?_k(?P<k>10)$')
 
@@ -161,10 +166,6 @@ TREE_STAGES = [1, 2, 3]   # each stage is one PIR DB; totals are the sum over th
 DURATION_PART = re.compile(r'(\d+(?:\.\d+)?)(h|ms|µs|μs|us|ns|m|s)')
 DURATION_UNITS = {'h': 3600, 'm': 60, 's': 1, 'ms': 1e-3, 'µs': 1e-6, 'μs': 1e-6, 'us': 1e-6, 'ns': 1e-9}
 
-
-# ==========================================
-# VALUE READERS
-# ==========================================
 
 def read_float(meta, key):
     """meta[key] as a float, NaN if missing or unreadable."""
@@ -222,9 +223,6 @@ def combine_parts(run, parts):
         run[key] = sum(values[key] for values in parts.values())
 
 
-# ==========================================
-# PARSERS (one per method)
-# ==========================================
 
 def parse_common(folder, meta, method):
     """Keys every method shares. Returns None if the run can't be made per-query."""
@@ -273,8 +271,17 @@ def parse_bins(folder, meta):
     vec = 2 if name['text'] else int(name['vec'])
     bs, dpb = int(name['bs']), int(name['dpb'])
     tag = 'text' if vec == 2 else f'vec{vec}'
+    sweep = name['vb'] is not None
+    if sweep and not g.INCLUDE_VEC0_SWEEP:
+        return None
+    sweep_tag = f"_vb{name['vb']}_vr{name['vr']}_ib{name['ib']}" if sweep else ''
     run.update(method='bins-text' if vec == 2 else 'bins', dataset=name['dataset'], k=int(name['k']),
-               vec=vec, bs=bs, dpb=dpb, config=f'{tag}_bs{bs}_dpb{dpb}',
+               vec=vec, bs=bs, dpb=dpb, config=f'{tag}_bs{bs}_dpb{dpb}{sweep_tag}',
+               # vec0 sweep: the batching asked for (VecBatchSize in metadata is what was used: pir_app cuts a batch
+               # too big for the embedding DB) and how many candidates per query batch x rounds had no room for
+               vec_sweep=sweep, vec_batch=read_float(meta, 'VecBatchSize'), vec_rounds=read_float(meta, 'VecRounds'),
+               id_batch=read_float(meta, 'IDBatchSize'), vec_dropped=read_float(meta, 'VecDroppedPerQuery'),
+               vec_candidates=read_float(meta, 'VecCandidatesPerQuery'),
                pir_rounds=2 if vec == 0 else 1,   # vec0 queries the BM25 DB, then the Vec DB
                real_bin_size=read_float(meta, 'RealBinSize'),
                empty_bins=read_float(meta, 'EmptyBins'),

@@ -54,6 +54,7 @@ def bins_sweep(nested_data, dataset, x_key, k, vec=None, bs=None, dpb=None):
         fixed = {'bs': bs if bs is not None else g.BINS_FIXED_BS.get(dataset)}
     if vec is not None:
         fixed['vec'] = vec
+    fixed['vec_sweep'] = False   # the vec0 batch/rounds sweep shares bs/dpb with the grid: not part of these sweeps
     return get_runs(nested_data, 'bins', dataset, k=k, **fixed)
 
 

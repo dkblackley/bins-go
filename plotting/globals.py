@@ -52,6 +52,9 @@ FALLBACK_TO_SIMULATED = os.environ.get('FALLBACK_TO_SIMULATED', '1') != '0'
 # ONLY_SIMULATED=1: read SIMULATED_RESULTS_DIRS (no RESULTS_DIRS, no fallback
 # to a real run when a simulated one is missing). EXTRA_RESULTS_DIRS (Tiptoe/Coeus, always simulated) are still read. Overrides FALLBACK_TO_SIMULATED. Every run gets source='simulated'.
 ONLY_SIMULATED = os.environ.get('ONLY_SIMULATED', '1') == '0'
+# the vec0 client-storage sweep (bins_vec0_..._vb<B>_vr<R>_ib<I>: embedding-DB batch / rounds, ID-DB batch) loads as more
+# PILLAR-Bin configs, so the method comparisons can pick them; INCLUDE_VEC0_SWEEP=0 leaves them out everywhere
+INCLUDE_VEC0_SWEEP = os.environ.get('INCLUDE_VEC0_SWEEP', '1') != '1'
 
 # PILLAR-Bin runs whose client storage is >= BINS_MAX_CLIENT_FRACTION of the dataset's embedding DB are dropped by
 # load_results(): at that point the client might as well download the embeddings. FILTER_BINS_CLIENT_STORAGE=0 keeps
