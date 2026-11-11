@@ -1,11 +1,31 @@
 """
-Loads every run under g.RESULTS_DIRS (RESULTS_DIR, ':'-separated) into
+Loads every run under g.RESULTS_DIRS (RESULTS_DIR, ':'-separated), falling back to
+g.SIMULATED_RESULTS_DIRS for configs that have no real run (see REAL VS SIMULATED), into
 
     nested_data[method][dataset] = [run, run, ...]
 
 where each run is a flat dict (keys listed under RUN KEYS below). Run
 `python load_results.py` for a summary, or
 `python load_results.py <folder>` to print one run.
+
+REAL VS SIMULATED
+-----------------
+With g.FALLBACK_TO_SIMULATED (the default; FALLBACK_TO_SIMULATED=0 turns it off, or pass
+fallback_simulated=False), each config is taken from the first place that has a
+metadata.json for it: RESULTS_DIRS, the extra baseline dirs, then SIMULATED_RESULTS_DIRS.
+run['source'] says which ('real' / 'simulated'). Simulated runs write -1 for every server
+timing, so any negative value is loaded as NaN (total_time, preprocessing_time, ...);
+quality, bytes, LAN/WAN and client storage are the same as a real run's. Sub-folders
+named like h3_lf0.88/ (msmarco-v2's tree runs with other Cuckoo settings) are read too;
+their runs' folder is 'h3_lf0.88/<name>'.
+
+BINS CLIENT STORAGE FILTER
+--------------------------
+With g.FILTER_BINS_CLIENT_STORAGE (default on; FILTER_BINS_CLIENT_STORAGE=0, or pass
+filter_bins_client=False), PILLAR-Bin runs ('bins', every vec) whose client_storage_mb is
+>= g.BINS_MAX_CLIENT_FRACTION (2/3) x g.EMBED_DB_MB[dataset] (the dataset's embedding file)
+are dropped after loading; the count per dataset is logged. Datasets missing from
+EMBED_DB_MB keep all their runs (with a warning).
 
 FOLDERS
 -------
@@ -132,6 +152,8 @@ BINS_NAME = re.compile(r'^bins_(?:vec(?P<vec>\d)|(?P<text>text))_(?P<dataset>[a-
 PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
 TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?(?:_c(?P<c>\d+))?_k(?P<k>10)$')
 
+CUCKOO_SUBDIR = re.compile(r'^h\d+_lf[0-9.]+$')   # tree results with non-default Cuckoo settings
+
 TREE_STAGES = [1, 2, 3]   # each stage is one PIR DB; totals are the sum over these
 
 DURATION_PART = re.compile(r'(\d+(?:\.\d+)?)(h|ms|µs|μs|us|ns|m|s)')
@@ -219,8 +241,9 @@ def parse_common(folder, meta, method):
         'mrr_pre_rerank':     read_float(meta, 'MRRPreReRank'),
         'recall':             read_float(meta, 'Recall'),
         'recall_pre_rerank':  read_float(meta, 'RecallPreReRank'),
-        'faithfulness':       read_float(meta, 'faithfulness'),
-        'answer_relevancy':   read_float(meta, 'answer_relevancy'),
+        # rag-eval/ragas_eval.py writes Faithfulness / AnswerRelevancy; older runs used the lowercase keys
+        'faithfulness':       read_float(meta, 'Faithfulness' if 'Faithfulness' in meta else 'faithfulness'),
+        'answer_relevancy':   read_float(meta, 'AnswerRelevancy' if 'AnswerRelevancy' in meta else 'answer_relevancy'),
         'total_time':         read_seconds(meta, 'TotalAnswerTime') / n,
         'rerank_time':        read_seconds(meta, 'ReRankTime') / n,
         'preprocessing_time': read_seconds(meta, 'PreprocessingTime'),   # one-off, not per query
@@ -410,74 +433,103 @@ PARSERS = {'bins': parse_bins, 'pacmann': parse_pacmann, 'tree': parse_tree,
 # LOADING
 # ==========================================
 
-def _load_folder(results_dir, folder):
+def _load_folder(folder, candidates):
     """
-    Reads and parses one run folder. Returns (status, method_or_None, run_or_None)
-    where status is 'ok', 'not_dir', 'unknown_method', 'no_metadata', 'bad_json',
-    or 'skipped'. Runs in a worker thread, so it must not touch shared state.
+    Reads and parses one run folder. `folder` is relative to a results dir (maybe 'h3_lf0.88/<name>'),
+    `candidates` the [(results_dir, source), ...] that have it, best first: the first with a metadata.json wins.
+    Returns (status, method_or_None, run_or_None) where status is 'ok', 'not_dir', 'unknown_method',
+    'no_metadata', 'bad_json', or 'skipped'. Runs in a worker thread, so it must not touch shared state.
     """
-    path = os.path.join(results_dir, folder)
-    if not os.path.isdir(path):
-        return 'not_dir', None, None
-
-    method = folder.split('_', 1)[0]
+    name = os.path.basename(folder)
+    method = name.split('_', 1)[0]
     if method not in PARSERS:
-        return 'unknown_method', None, None
+        return ('unknown_method' if any(os.path.isdir(os.path.join(d, folder)) for d, _ in candidates)
+                else 'not_dir'), None, None
 
-    meta_path = os.path.join(path, 'metadata.json')
-    if not os.path.exists(meta_path):
+    for results_dir, source in candidates:
+        meta_path = os.path.join(results_dir, folder, 'metadata.json')
+        if os.path.exists(meta_path):
+            break
+    else:
         return 'no_metadata', None, None
     try:
         with open(meta_path) as f:
             meta = json.load(f)
     except json.JSONDecodeError as err:
-        log.error("%s: corrupted metadata.json (%s)", folder, err)
+        log.error("%s (%s): corrupted metadata.json (%s)", folder, results_dir, err)
         return 'bad_json', None, None
 
-    run = PARSERS[method](folder, meta)
+    run = PARSERS[method](name, meta)
     if run is None:
         return 'skipped', None, None
+    # simulated runs write -1 for every timing they don't measure: NaN, not a negative per-query time
+    for key, value in run.items():
+        if isinstance(value, float) and value < 0:
+            run[key] = math.nan
+    run.update(folder=folder, source=source, results_dir=results_dir)
     return 'ok', run.get('method', method), run   # bins_text_* folders load as 'bins-text'
 
 
-def load_results(results_dirs=None, max_workers=32):
+def _list_folders(results_dir):
+    """Run folders in results_dir, relative to it: the top level plus h<H>_lf<LF>/ sub-folders' contents."""
+    out = []
+    for name in sorted(os.listdir(results_dir)):
+        if CUCKOO_SUBDIR.match(name) and os.path.isdir(os.path.join(results_dir, name)):
+            out += [os.path.join(name, sub) for sub in sorted(os.listdir(os.path.join(results_dir, name)))]
+        else:
+            out.append(name)
+    return out
+
+
+def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallback_simulated=None,
+                 filter_bins_client=None):
     """
     Reads every folder's metadata.json in `results_dirs` (one path, a list of
-    paths, or None for g.RESULTS_DIRS) with a thread pool. Loading is I/O-bound
-    (many small file reads, often over a network filesystem), so threads give a
-    big speedup despite the GIL: it's released during file I/O, and json.load /
-    the parsers only hold it for the small compute part.
+    paths, or None for g.RESULTS_DIRS) with a thread pool. With fallback_simulated
+    (default g.FALLBACK_TO_SIMULATED), a config with no metadata.json there is read
+    from `simulated_dirs` (default g.SIMULATED_RESULTS_DIRS) instead; run['source']
+    says which. Loading is I/O-bound (many small file reads, often over a network
+    filesystem), so threads give a big speedup despite the GIL: it's released during
+    file I/O, and json.load / the parsers only hold it for the small compute part.
+    filter_bins_client (default g.FILTER_BINS_CLIENT_STORAGE) drops the bins runs whose
+    client storage is too close to the embedding DB, see filter_bins_client_storage().
     """
     if results_dirs is None:
         results_dirs = g.RESULTS_DIRS
     elif isinstance(results_dirs, str):
         results_dirs = [d for d in results_dirs.split(os.pathsep) if d]
+    if fallback_simulated is None:
+        fallback_simulated = g.FALLBACK_TO_SIMULATED
+    if simulated_dirs is None:
+        simulated_dirs = g.SIMULATED_RESULTS_DIRS
+    elif isinstance(simulated_dirs, str):
+        simulated_dirs = [d for d in simulated_dirs.split(os.pathsep) if d]
     extra = [d for d in g.EXTRA_RESULTS_DIRS if d not in results_dirs]
     for d in extra:
         if not os.path.isdir(d):
             log.debug("extra results directory not found, skipped: %s", d)
-    results_dirs = list(results_dirs) + [d for d in extra if os.path.isdir(d)]
-    log.info("reading results from %s", ', '.join(results_dirs))
+    sources = [(d, 'real') for d in list(results_dirs) + [d for d in extra if os.path.isdir(d)]]
+    if fallback_simulated:
+        sources += [(d, 'simulated') for d in simulated_dirs if d not in results_dirs]
+    log.info("reading results from %s", ', '.join(f'{d} ({src})' for d, src in sources))
     nested_data = {method: {} for method in g.METHOD_ORDER}
 
-    jobs = []   # (results_dir, folder), a folder name seen twice is only loaded once
-    seen = {}
-    for results_dir in results_dirs:
+    # folder -> [(results_dir, source), ...] in priority order; each folder is loaded once, from the first of these
+    # with a metadata.json (a real run beats a simulated one; a real folder without metadata.json falls through)
+    candidates = {}
+    for results_dir, source in sources:
         if not os.path.isdir(results_dir):
-            log.error("results directory does not exist: %s", results_dir)
+            (log.warning if source == 'simulated' else log.error)("results directory does not exist: %s", results_dir)
             continue
-        for folder in sorted(os.listdir(results_dir)):
-            if folder in seen:
-                log.warning("%s is in both %s and %s, using the first", folder, seen[folder], results_dir)
-                continue
-            seen[folder] = results_dir
-            jobs.append((results_dir, folder))
+        for folder in _list_folders(results_dir):
+            candidates.setdefault(folder, []).append((results_dir, source))
+    jobs = sorted(candidates.items())
     no_metadata, bad_json, skipped = [], [], []
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         # pool.map yields results in `jobs` order even though workers finish
         # out of order, so nested_data ends up built deterministically.
-        for (_, folder), (status, method, run) in zip(
+        for (folder, _), (status, method, run) in zip(
                 jobs, pool.map(lambda job: _load_folder(*job), jobs)):
             if status == 'not_dir':
                 continue
@@ -504,22 +556,47 @@ def load_results(results_dirs=None, max_workers=32):
     if bad_json or skipped:
         log.warning("%d corrupted, %d skipped: %s", len(bad_json), len(skipped),
                     ', '.join(bad_json + skipped))
+    if g.FILTER_BINS_CLIENT_STORAGE if filter_bins_client is None else filter_bins_client:
+        filter_bins_client_storage(nested_data)
     print_summary(nested_data)
     return nested_data
 
 
+DROPPED_BINS = {}   # dataset -> bins runs the client storage filter took out (so reports can say what it hid)
+
+
+def filter_bins_client_storage(nested_data, fraction=None):
+    """Drops bins runs with client_storage_mb >= fraction x the dataset's embedding DB (g.EMBED_DB_MB), in place.
+    The dropped runs are kept in DROPPED_BINS[dataset]."""
+    fraction = g.BINS_MAX_CLIENT_FRACTION if fraction is None else fraction
+    for dataset, runs in nested_data.get('bins', {}).items():
+        limit = g.EMBED_DB_MB.get(dataset)
+        if limit is None:
+            log.warning("bins/%s: no embedding DB size in g.EMBED_DB_MB, client storage filter not applied", dataset)
+            continue
+        limit *= fraction
+        # NaN client storage compares False, so those runs are kept
+        keep = [r for r in runs if not r['client_storage_mb'] >= limit]
+        DROPPED_BINS[dataset] = [r for r in runs if r['client_storage_mb'] >= limit]
+        if len(keep) < len(runs):
+            log.info("bins/%s: dropped %d of %d runs with client storage >= %.0f MB (%.2f x the %.0f MB embedding DB)",
+                     dataset, len(runs) - len(keep), len(runs), limit, fraction, g.EMBED_DB_MB[dataset])
+        runs[:] = keep
+
+
 def print_summary(nested_data):
-    """One line per method/dataset: run count, k values, and keys that are NaN."""
+    """One line per method/dataset: run count (real / simulated), k values, and keys that are NaN."""
     for method, per_dataset in nested_data.items():
         if not per_dataset:
             log.warning("%s: no runs loaded", method)
         for dataset, runs in sorted(per_dataset.items()):
             ks = sorted({r['k'] for r in runs})
+            src = Counter(r.get('source', 'real') for r in runs)
             nan_counts = Counter(key for r in runs for key, value in r.items()
                                  if isinstance(value, float) and math.isnan(value))
-            missing = ', '.join(f'{key} ({n})' for key, n in nan_counts.most_common())
-            log.info("%-8s %-9s %4d runs, k=%s%s", method, dataset, len(runs), ks,
-                     f" | NaN: {missing}" if missing else "")
+            missing = ', '.join(f'{key} ({n})' for key, n in nan_counts.most_common(8))
+            log.info("%-8s %-15s %4d runs (%d real, %d simulated), k=%s%s", method, dataset, len(runs),
+                     src['real'], src['simulated'], ks, f" | NaN: {missing}" if missing else "")
 
 
 def find_run(nested_data, folder):

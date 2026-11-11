@@ -17,6 +17,9 @@ import plot_bins_comm_vs_bs
 import plot_bins_stages
 import plot_bins_vec_db
 import fixed_recall
+import fixed_score
+import rebuttal_numbers
+import rebuttal_tables
 import plot_db_size
 import plot_metric_vs_latency
 import plot_bins_client_storage
@@ -56,5 +59,12 @@ if __name__ == '__main__':
     # plot_quality_vs_cost.make_plots(nested_data)      # all: quality vs preproc/storage cost
 
     fixed_recall.fixed_recall(nested_data)              # tables: each method's cost at one shared recall
+
+    # rebuttal: best 5 configs per method/dataset on each cost knee (client storage, WAN, LAN) -> figures/rebuttal_best5_k10.md
+    rebuttal_tables.make_tables(nested_data)
+    # rebuttal: every [FILL] number existing results can give (items A-K, incl. fixed_score's equal-quality
+    # comparison) -> figures/rebuttal_numbers.md; per-query files it still needs are listed at the end
+    rebuttal_numbers._add_stage3_batch(nested_data)
+    rebuttal_numbers.rebuttal_numbers(nested_data)
 
     print(f"Done, figures in {g.FIGURE_DIR}")

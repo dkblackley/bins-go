@@ -41,7 +41,44 @@ EXTRA_RESULTS_DIRS = [os.path.normpath(os.path.join(_HERE, d))
                       for d in EXTRA_RESULTS_DIR.split(os.pathsep) if d]
 
 RESULTS_DIRS = [d for d in RESULTS_DIR.split(os.pathsep) if d]
+
+# Simulated runs (SIMULATE=1, run_me.sh's default): same quality, bytes, LAN/WAN and client storage as a real run, but
+# every server timing (TotalAnswerTime, PreprocessingTime, ...) is -1, loaded as NaN. With FALLBACK_TO_SIMULATED on,
+# load_results() takes each config from RESULTS_DIRS when it has a metadata.json there, else from these folders, and
+# marks every run with run['source'] = 'real' / 'simulated'. FALLBACK_TO_SIMULATED=0 reads RESULTS_DIRS only.
+SIMULATED_RESULTS_DIR = os.environ.get('SIMULATED_RESULTS_DIR', '/scratch/dblackle/results_simulated')
+SIMULATED_RESULTS_DIRS = [d for d in SIMULATED_RESULTS_DIR.split(os.pathsep) if d]
+FALLBACK_TO_SIMULATED = os.environ.get('FALLBACK_TO_SIMULATED', '1') != '0'
+
+# PILLAR-Bin runs whose client storage is >= BINS_MAX_CLIENT_FRACTION of the dataset's embedding DB are dropped by
+# load_results(): at that point the client might as well download the embeddings. FILTER_BINS_CLIENT_STORAGE=0 keeps
+# every run (or pass filter_bins_client=False); BINS_MAX_CLIENT_FRACTION=0.5 etc. moves the cut.
+FILTER_BINS_CLIENT_STORAGE = os.environ.get('FILTER_BINS_CLIENT_STORAGE', '1') != '0'
+BINS_MAX_CLIENT_FRACTION = float(os.environ.get('BINS_MAX_CLIENT_FRACTION', 2 / 3))
+# Size (MB = 2^20 bytes, like DBSizeInBytesMB / ClientStorageMB) of ../datasets/<d>/<d>_corpus_embed_f32.npy on hopper,
+# checked 2026-11-10: docs x 192 dims x float32 (the PCA'd e5 embeddings), + the .npy header.
+EMBED_DB_MB = {
+    'scifact': 3.8,
+    'msmarco': 6475.9,
+    'nq': 1964.0,
+    'fever': 3967.2,
+    'dbpedia-entity': 3395.5,
+    'msmarco-v2-25m': 18310.5,
+    'msmarco-v2-50m': 36621.1,
+    'msmarco-v2': 101341.0,
+    'trec-covid': 125.5,
+}
 FIGURE_DIR = os.path.join(_HERE, 'figures')
+
+# Inputs of the per-query rebuttal numbers (rebuttal_numbers.py): the datasets folder (corpus.jsonl, qrels/,
+# queries) and the repo's data/ folder (data/<d>_tree/queries.qrels.analyzed.json). Defaults match the local layout
+# next to bins-go; DATASETS_ROOT / TREE_DATA_DIR override.
+DATASETS_ROOT = os.environ.get('DATASETS_ROOT', os.path.normpath(os.path.join(_HERE, '../../../../datasets')))
+TREE_DATA_DIR = os.environ.get('TREE_DATA_DIR', os.path.normpath(os.path.join(_HERE, '../data')))
+# Non-private baselines (baselines.py writes <dataset>_k<k>.json): searched in these folders
+BASELINES_DIRS = [d for d in os.environ.get('BASELINES_DIRS', os.pathsep.join([
+    os.path.join(_HERE, '../baselines_out'), os.path.join(_HERE, '../baselines'),
+    os.path.join(DATASETS_ROOT, 'baselines')])).split(os.pathsep) if d]
 
 LOG_LEVEL = logging.INFO   # logging.DEBUG also prints every folder as it is parsed
 
@@ -88,8 +125,12 @@ METHOD_HATCHES = {'bins': '///', 'bins-text': '++', 'tree': 'xxx', 'pacmann': ''
 MRR_FROM_PRE_RERANK = {'coeus', 'tiptoe'}
 
 DATASETS = ['msmarco', 'scifact']
+# every dataset run_me.sh / check_runs.sh cover (the rebuttal tables use these)
+ALL_DATASETS = ['scifact', 'msmarco', 'nq', 'fever', 'dbpedia-entity', 'msmarco-v2-25m', 'msmarco-v2-50m', 'msmarco-v2']
 
-DATASET_LABELS = {'msmarco': 'MS MARCO', 'scifact': 'SciFact'}
+DATASET_LABELS = {'msmarco': 'MS MARCO', 'scifact': 'SciFact', 'nq': 'NQ', 'fever': 'FEVER',
+                  'dbpedia-entity': 'DBPedia', 'msmarco-v2-25m': 'MS MARCO v2 (25M)',
+                  'msmarco-v2-50m': 'MS MARCO v2 (50M)', 'msmarco-v2': 'MS MARCO v2'}
 DATASET_COLORS = {'msmarco': '#CC79A7', 'scifact': '#F0E442'}   # kept distinct from the method colours
 DATASET_MARKERS = {'msmarco': 'o', 'scifact': 's'}
 
