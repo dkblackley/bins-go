@@ -23,6 +23,14 @@
 #            already have their data, so for them use STAGES="tree-db tree". Tree runs are split by estimated RAM:
 #            <=100 GB on the normal partition, 250/500/1000/1500 GB on bigmem, one job array per bucket.
 #
+# SIMULATE=1 runs bins, pacmann and tree with pir_app -simulate (no hints, no XOR: same answers, MRR, bytes, LAN/WAN
+# and client storage; every timing -1) into $RESULTS_DIR, default /scratch/$USER/results_simulated, with their own
+# usage log and smaller first estimates (slurm_common.sh). The data stages and tiptoe/coeus are skipped then.
+#   SIMULATE=1 STAGES=tree bash datasets/run_all.sh nq dbpedia-entity fever msmarco
+# SIMULATE=1 NORAM=1 (what run_sim_noram.sh sets) also passes -noram and sizes the jobs for simulated low-RAM runs
+# (a few GB, minutes; floor 12 GB / 30 min): see run_sim_noram.sh.
+# MAX_GB=n skips every bins/tree group estimated above n GB (e.g. MAX_GB=100: only the normal partition).
+#
 # GPU=<profile> sends the embed jobs to another GPU queue instead of embed.slurm's DGX A100.40gb (fp16, short time
 # limits, 32 GB RAM, so they backfill sooner; a job that hits its limit requeues itself and resumes). Run it next to a series that's already queued: whichever embed finishes
 # first wins, the other one exits 3 and its dependants stay pending (DependencyNeverSatisfied) for you to scancel.
@@ -50,10 +58,15 @@ has() { [[ " $STAGES " == *" $1 "* ]]; }
 mkdir -p logs
 
 submit() {   # submit <dependency job ids, space separated, may be empty> <sbatch args...> -> prints job id
+    # a job id prefixed "any:" is an afterany dependency (run once it ended, however), the rest afterok
     local deps="$1"; shift
-    local dep_arg=()
-    deps="$(echo $deps)"
-    [[ -n "$deps" ]] && dep_arg=(--dependency="afterok:${deps// /:}" --kill-on-invalid-dep=no)
+    local dep_arg=() ok="" any="" j
+    for j in $deps; do
+        if [[ $j == any:* ]]; then any+="${any:+:}${j#any:}"; else ok+="${ok:+:}$j"; fi
+    done
+    local spec="${ok:+afterok:$ok}"
+    [[ -n "$any" ]] && spec+="${spec:+,}afterany:$any"
+    [[ -n "$spec" ]] && dep_arg=(--dependency="$spec" --kill-on-invalid-dep=no)
     if [[ -n "${DRY_RUN:-}" ]]; then
         echo "  sbatch ${dep_arg[*]} $*" >&2
         echo "DRY$RANDOM"
@@ -68,6 +81,7 @@ count_of() {   # count_of <env assignment> <script> -> number of array tasks
 
 # ---- GPU profile for the embed jobs (see header). Prints sbatch args for one embed MODE.
 SFX="${GPU:+_$GPU}"     # job name suffix, so two series are told apart in squeue
+[[ "${SIMULATE:-0}" == 1 ]] && SFX+="_sim"   # simulated jobs: queued_dirs keeps them apart from real ones
 gpu_args() {   # gpu_args <all|pca|shard|finish>
     [[ -z "${GPU:-}" ]] && return 0
     local part qos=gpu gres requeue="" cpus=16 t_all t_shard
@@ -97,6 +111,22 @@ EMB_ENV=""
 is_big() { [[ "$1" == msmarco-v2* || "$1" == miracl-en ]]; }
 
 source ./slurm_common.sh
+ONLY_IF_MISSING=""   # stages queued only when their outputs are missing (set for SIMULATE=1 below)
+if [[ "${SIMULATE:-0}" == 1 ]]; then
+    echo "SIMULATE=1: simulated PIR (pir_app -simulate, every timing -1), results in $RESULTS_DIR"
+    for s in prep embed tiptoe coeus; do
+        has "$s" && { echo "  (stage $s is not simulated; it is skipped here, run it without SIMULATE)"; STAGES=" ${STAGES/$s/} "; }
+    done
+    # The tree needs its artifacts (tree-db) and the bins their Bluge index (bins-index). Both are the same for real
+    # and simulated runs, so they are queued here too, but only for a dataset where something is missing; the
+    # simulated runs then wait for them (afterok). prep_tree.sh skips the B/r/s shapes that already exist.
+    has tree && ! has tree-db && STAGES+=" tree-db"
+    has bins && ! has bins-index && STAGES+=" bins-index"
+    ONLY_IF_MISSING=" tree-db bins-index "
+fi
+only_if_missing() { [[ "$ONLY_IF_MISSING" == *" $1 "* ]]; }
+# upstream_missing <file>: true if the file comes from prep/embed (which SIMULATE=1 never queues), not tree-db/bins-index
+upstream_missing() { [[ "$1" == *_embed_f32.npy || "$1" == */num_docs.txt || "$1" == */corpus.jsonl || "$1" == */queries*.jsonl || "$1" == */qrels/* ]]; }
 LIST_DIR="logs/lists/$(date +%Y%m%d_%H%M%S)"   # CONFIG_LIST files, kept so you can see what each array runs
 mkdir -p "$LIST_DIR"
 # Configs a job in the queue already covers are skipped (slurm_common.sh queued_dirs), so re-running this after a
@@ -131,9 +161,12 @@ pacmann_todo() {
 pacmann_count() { awk -v a="$1" 'BEGIN { n = split(a, P, ","); for (i = 1; i <= n; i++) { split(P[i], r, "-"); t += (r[2] == "" ? 1 : r[2] - r[1] + 1) } print t }'; }
 
 # submit_groups <method> <dataset> <plan file> <dependencies> <script for normal> <script for bigmem>
-submit_groups() {
+GROUP_JIDS=""   # the job ids the last submit_groups call submitted
+submit_groups() {   # submit_groups method dataset plan deps normal_script big_script [list prefix]
     local method=$1 d=$2 plan=$3 deps=$4 s_normal=$5 s_big=$6 gb min n f chunk=${MAX_ARRAY:-1000} off
+    local prefix="${7:-${method}_${d}}"
     local total; total=$(grep -c . "$plan" || true)
+    GROUP_JIDS=""
     while read -r gb min n f; do
         case $gb in
             missing) echo "  $method  SKIPPED $min of $total configs: inputs not there yet (first missing: $n)"; continue ;;
@@ -141,6 +174,9 @@ submit_groups() {
             done)    echo "  $method  SKIPPED $min of $total configs: already finished (metadata.json; FORCE=1 reruns them)"; continue ;;
             queued)  echo "  $method  SKIPPED $min of $total configs: a job in the queue already runs them"; continue ;;
         esac
+        if [[ -n "${MAX_GB:-}" ]] && (( ${gb%.*} > MAX_GB )); then   # MAX_GB=n: leave the biggest configs for later
+            echo "  $method  SKIPPED $n configs: estimated ${gb}G, above MAX_GB=$MAX_GB"; continue
+        fi
         local part script
         part=$(partition_for "$gb"); [[ $part == normal ]] && script=$s_normal || script=$s_big
         for (( off = 0; off < n; off += chunk )); do
@@ -151,8 +187,9 @@ submit_groups() {
             # which list + offset this array runs, so queued_dirs (slurm_common.sh) can map its tasks to configs
             [[ -n "${DRY_RUN:-}" ]] || printf '%s\t%s\t%s\n' "$jid" "$f" "$off" >> "$SUBMITTED_FILE"
             echo "  $method  $jid (${gb}G ${min}min $part: $m configs, $(basename "$f"))"
+            GROUP_JIDS+=" $jid"
         done
-    done < <(group_plan "$plan" "$LIST_DIR" "${method}_${d}")
+    done < <(group_plan "$plan" "$LIST_DIR" "$prefix")
 }
 
 # submit_dataset <name> [extra dependency] ; sets EMBED_JOB to the job the dataset's embeddings come from
@@ -188,15 +225,43 @@ submit_dataset() {
     fi
     EMBED_JOB="$embed"
 
-    if has tree-db; then
-        local big=()
-        is_big "$d" && big=(--partition=bigmem --mem=1000G)
-        treedb=$(submit "$embed" --export=ALL,DATASET="$d",SWEEP="${SWEEP:-all}",WORKERS="${WORKERS:-$(is_big "$d" && echo 12 || echo 16)}" \
-                 "${big[@]}" --job-name="treedb_$d$SFX" datasets/tree_artifacts.slurm)
-        echo "  tree-db  $treedb"
+    local tdb_miss="" bidx_miss=""
+    if has tree-db && only_if_missing tree-db; then
+        tdb_miss=$(DATASET="$d" SWEEP="${SWEEP:-all}" bash tree_sweep_grid.sh --missing 2>/dev/null || true)
+        if [[ -z "$tdb_miss" ]]; then
+            echo "  tree-db  artifacts all there, not queued"
+        elif upstream_missing "$tdb_miss"; then
+            echo "  tree-db  NOT queued: $tdb_miss is missing, which comes from prep/embed (run those without SIMULATE)"
+            tdb_miss=""
+        fi
+    fi
+    if has bins-index && only_if_missing bins-index; then
+        bidx_miss=$(bins_missing "$d")
+        if [[ -z "$bidx_miss" ]]; then
+            echo "  bins-index already built, not queued"
+        elif upstream_missing "$bidx_miss"; then
+            echo "  bins-index NOT queued: $bidx_miss is missing, which comes from prep/embed (run those without SIMULATE)"
+            bidx_miss=""
+        fi
     fi
 
-    if has bins-index; then
+    if has tree-db && { ! only_if_missing tree-db || [[ -n "$tdb_miss" ]]; }; then
+        [[ -n "$tdb_miss" ]] && echo "  tree-db  queued because $tdb_miss is missing"
+        # sized by treedb_model / the measured builds (slurm_common.sh), not the old flat 120 GB or 1000 GB
+        local tw="${WORKERS:-$(is_big "$d" && echo 12 || echo 16)}" te tg tm tsrc
+        load_usage
+        te=$(_estimate_resources treedb "$d" "W$tw" $(treedb_model "$d" "$tw"))
+        read -r tg tm tsrc <<< "$te"
+        tg=$(mem_bucket "$tg"); [[ $tg == over ]] && tg=${MEM_BUCKETS##* }
+        tm=$(time_bucket "$tm")
+        treedb=$(submit "$embed" --export=ALL,DATASET="$d",SWEEP="${SWEEP:-all}",WORKERS="$tw" \
+                 --partition="$(partition_for "$tg")" --mem="${tg}G" --time="$(slurm_time "$tm")" \
+                 --job-name="treedb_$d$SFX" datasets/tree_artifacts.slurm)
+        echo "  tree-db  $treedb (${tg}G ${tm}min, $tsrc)"
+    fi
+
+    if has bins-index && { ! only_if_missing bins-index || [[ -n "$bidx_miss" ]]; }; then
+        [[ -n "$bidx_miss" ]] && echo "  bins-index queued because $bidx_miss is missing"
         local big=()
         is_big "$d" && big=(--partition=bigmem --mem=500G)
         binsidx=$(submit "$prep $extra" --export=ALL,DATASET="$d" "${big[@]}" --job-name="binsidx_$d$SFX" \
@@ -219,7 +284,14 @@ submit_dataset() {
         local n big=() todo
         n=$(count_of PACMANN_DATASETS="$d" run_pacmann.slurm)
         todo=$(pacmann_todo "$d" "$n")
-        is_big "$d" && big=(--partition=bigmem --mem=1500G)
+        if [[ "${SIMULATE:-0}" == 1 ]]; then
+            # simulated: no hints, sized from the dataset (slurm_common.sh pacmann_sim_model), not the 120 GB / 5 h default
+            local pg pm; read -r pg pm <<< "$(pacmann_sim_model "$d")"
+            pg=$(mem_bucket "$pg"); pm=$(time_bucket "$pm")
+            big=(--partition="$(partition_for "$pg")" --mem="${pg}G" --time="$(slurm_time "$pm")")
+        elif is_big "$d"; then
+            big=(--partition=bigmem --mem=1500G)
+        fi
         if [[ -z "$todo" ]]; then
             echo "  pacmann  SKIPPED: all $n configs finished or already queued"
         else
@@ -233,32 +305,60 @@ submit_dataset() {
         local plan="$LIST_DIR/tree_${d}.plan"
         ( DATASET="$d" SWEEP="${SWEEP:-all}" CHECK_INPUTS=$(inputs_pending "$prep $embed $treedb" && echo 0 || echo 1) \
             bash tree_sweep_grid.sh --plan ) > "$plan"
-        submit_groups tree "$d" "$plan" "$treedb $embed" run_tree_pir_old.slurm run_tree_pir_old.slurm
+        # Shared Cuckoo cache (tree_plan): the configs that build a shape's tables, and those whose shape is already
+        # cached, go first; the rest of each uncached shape are sized as cache hits and wait for the build jobs
+        # (afterany). Different list prefixes: group_plan rewrites its list files, and queued jobs still read theirs.
+        awk '$(NF-1) !~ /^after:/' "$plan" > "$plan.first"
+        awk '$(NF-1) ~ /^after:/' "$plan" > "$plan.after"
+        submit_groups tree "$d" "$plan.first" "$treedb $embed" run_tree_pir_old.slurm run_tree_pir_old.slurm "tree_${d}"
+        local tree_build_jids="$GROUP_JIDS"
+        if [[ -s "$plan.after" ]]; then
+            local any="" j
+            for j in $tree_build_jids; do any+=" any:$j"; done
+            echo "  tree     $(grep -c . "$plan.after") configs of shapes being built now: sized as cache hits, after${any:- (no build jobs submitted)}"
+            submit_groups tree "$d" "$plan.after" "$treedb $embed$any" run_tree_pir_old.slurm run_tree_pir_old.slurm "tree_${d}_after"
+        fi
     fi
 
     if has tiptoe; then
-        local n
+        # chained stages (each afterok on the one before), so no task holds an allocation waiting on another's lock:
+        #   small sets: kmeans (1 per DPC) -> db (1 per DB) -> run (1 per config, simulation only)
+        #   msmarco-v2*: kmeans (1 per cluster count) -> run (1 per DB: bundling + its 4 simulations)
+        # Limits from the logs: one fever DB bundles in ~45 min, a simulation takes minutes.
+        local tk td n
         if [[ "$d" == msmarco-v2* ]]; then
-            n=$(env TIPTOE_V2_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_tiptoe_msmarco_v2.slurm --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0)
-            echo "  tiptoe   $(submit "$embed" --export=ALL,TIPTOE_V2_DATASETS="$d" --array=0-$((n - 1))%8 \
-                 --job-name="tiptoe_$d$SFX" run_tiptoe_msmarco_v2.slurm) ($n preprocessed DBs x 4 configs)"
+            local t=0-06:00:00; [[ "$d" == msmarco-v2 ]] && t=0-12:00:00   # 138M docs: assignment + bundling ~2-4 h+
+            v2count() { env TIPTOE_V2_DATASETS="$d" TIPTOE_STAGE=$1 SLURM_SUBMIT_DIR="$PWD" bash run_tiptoe_msmarco_v2.slurm --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0; }
+            tk=$(submit "$embed" --export=ALL,TIPTOE_V2_DATASETS="$d",TIPTOE_STAGE=kmeans --array=0-$(( $(v2count kmeans) - 1 )) \
+                 --time=$t --job-name="tiptoekm_$d$SFX" run_tiptoe_msmarco_v2.slurm)
+            n=$(v2count run)
+            echo "  tiptoe   kmeans $tk, then $(submit "$tk" --export=ALL,TIPTOE_V2_DATASETS="$d",TIPTOE_STAGE=run \
+                 --array=0-$((n - 1))%8 --time=$t --job-name="tiptoe_$d$SFX" run_tiptoe_msmarco_v2.slurm) ($n DBs x 4 configs)"
         else
-            n=$(count_of TIPTOE_DATASETS="$d" run_tiptoe.slurm)
-            echo "  tiptoe   $(submit "$embed" --export=ALL,TIPTOE_DATASETS="$d" --array=0-$((n - 1))%64 \
-                 --job-name="tiptoe_$d$SFX" run_tiptoe.slurm) ($n tasks)"
+            ttcount() { env TIPTOE_DATASETS="$d" TIPTOE_STAGE=$1 SLURM_SUBMIT_DIR="$PWD" bash run_tiptoe.slurm --count 2>/dev/null | grep -oE '^[0-9]+' || echo 0; }
+            tk=$(submit "$embed" --export=ALL,TIPTOE_DATASETS="$d",TIPTOE_STAGE=kmeans --array=0-$(( $(ttcount kmeans) - 1 )) \
+                 --time=0-04:00:00 --job-name="tiptoekm_$d$SFX" run_tiptoe.slurm)
+            td=$(submit "$tk" --export=ALL,TIPTOE_DATASETS="$d",TIPTOE_STAGE=db --array=0-$(( $(ttcount db) - 1 )) \
+                 --time=0-03:00:00 --job-name="tiptoedb_$d$SFX" run_tiptoe.slurm)
+            n=$(ttcount run)
+            echo "  tiptoe   kmeans $tk, db $td, then $(submit "$td" --export=ALL,TIPTOE_DATASETS="$d",TIPTOE_STAGE=run \
+                 --array=0-$((n - 1))%64 --time=0-01:00:00 --job-name="tiptoe_$d$SFX" run_tiptoe.slurm) ($n configs)"
         fi
     fi
 
     if has coeus; then
-        # postings ~12 B per (doc, term): ~5 GB on msmarco, ~50 GB on msmarco-v2; tokenising 138M docs takes hours
-        local n res=()
+        # A prep job tokenises the corpus once (COEUS_STAGE=prep, cached); every F/tf/k config then only builds its
+        # postings (~12 B per (doc, term): ~5 GB on msmarco, ~50 GB on msmarco-v2) and fails if the cache is missing.
+        local n prep_res=(--time=0-04:00:00) run_res=(--time=0-02:00:00) cprep
         n=$(count_of COEUS_DATASETS="$d" run_coeus.slurm)
         case $d in
-            msmarco-v2)     res=(--mem=120G --time=2-00:00:00) ;;
-            msmarco-v2-*)   res=(--mem=64G --time=1-00:00:00) ;;
+            msmarco-v2)     prep_res=(--mem=120G --time=2-00:00:00); run_res=(--mem=120G --time=0-12:00:00) ;;
+            msmarco-v2-*)   prep_res=(--mem=64G --time=1-00:00:00);  run_res=(--mem=64G --time=0-06:00:00) ;;
         esac
-        echo "  coeus    $(submit "$embed" --export=ALL,COEUS_DATASETS="$d" --array=0-$((n - 1)) "${res[@]}" \
-             --job-name="coeus_$d$SFX" run_coeus.slurm) ($n tasks)"
+        cprep=$(submit "$embed" --export=ALL,COEUS_DATASETS="$d",COEUS_STAGE=prep --array=0 "${prep_res[@]}" \
+                --job-name="coeusprep_$d$SFX" run_coeus.slurm)
+        echo "  coeus    prep $cprep, then $(submit "$cprep" --export=ALL,COEUS_DATASETS="$d" --array=0-$((n - 1)) \
+             "${run_res[@]}" --job-name="coeus_$d$SFX" run_coeus.slurm) ($n configs)"
     fi
 }
 

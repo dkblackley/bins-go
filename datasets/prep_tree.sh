@@ -55,10 +55,13 @@ with open('$T/coll/docs.jsonl', 'w') as o:
     for l in open('$D/corpus.jsonl'):
         d = json.loads(l); o.write(json.dumps({'id': d['_id'], 'contents': (d.get('title', '') + ' ' + d.get('text', '')).strip()}) + '\n')"
   # --threads 1 keeps Lucene internal docids in corpus order (the tree's blocks are runs of consecutive docids)
+  echo "$(date +%T) indexing $name (single-threaded, keeps corpus order)"
   python3 -m pyserini.index.lucene --collection JsonCollection --input "$T/coll" --index "$T/index_${name}" \
     --generator DefaultLuceneDocumentGenerator --threads 1
   rm -rf "$T/coll"
+  echo "$(date +%T) index done"
 fi
+echo "$(date +%T) building the stage 1/2 DBs, docmap, stage 3 and queries"
 
 python3 tree/build_tree_artifacts.py --dataset-dir "$D" --out "$T" --name "$name" \
   "${SHAPE_ARGS[@]}" --workers "$WORKERS" ${FORCE:+--force}

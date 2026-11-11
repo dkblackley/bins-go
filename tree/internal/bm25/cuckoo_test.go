@@ -80,6 +80,9 @@ func TestCuckooBuildAndCache(t *testing.T) {
 		t.Fatal("builder source was not called")
 	}
 	assertTestCuckooRows(t, table, items, valueBytes)
+	if table.cacheMmap == nil {
+		t.Fatal("a freshly built and cached table should be served from the cache file (mmap), not the heap")
+	}
 	if err := table.Close(); err != nil {
 		t.Fatal(err)
 	}

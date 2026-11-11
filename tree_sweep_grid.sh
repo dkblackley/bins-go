@@ -91,13 +91,14 @@ _big_grid() {   # dataset max_q sweep
         add_oat "$d" "$MQ" "$ANCHOR" B "4 8 16 32 64 128"
         add_oat "$d" "$MQ" "$ANCHOR" r "2 4 8 16 32 64 128 256"
         add_oat "$d" "$MQ" "$ANCHOR" s "1 2 4 8 16 32"
-        add_oat "$d" "$MQ" "$ANCHOR" L "1 2 4 8 16 32 64 100 200 400 800"
+        add_oat "$d" "$MQ" "$ANCHOR" L "1 4 16 32 64 100 400 800"        # was 1 2 4 8 16 32 64 100 200 400 800
         add_oat "$d" "$MQ" "$ANCHOR" q "1 2 3 4 6 8 12"
-        add_oat "$d" "$MQ" "$ANCHOR" c "1 2 4 8 16 32 64 128 256 400"
+        add_oat "$d" "$MQ" "$ANCHOR" c "1 4 16 32 64 128 256 400"        # was 1 2 4 8 16 32 64 128 256 400
     fi
     if [[ $sweep == grid || $sweep == all ]]; then
         #                  max_q  B             r         s        L                  q       P = c*s
-        add_pool_grid "$d" "$MQ" "8 16 32 64" "4 16 64" "2 4 8"  "2 8 32 128 512"   "2 4 8" "128 1024"
+        add_pool_grid "$d" "$MQ" "8 32 64"    "4 16 64" "2 8"    "2 16 128 512"     "2 8"   "128 1024"
+        # 2026-11-09, was: "8 16 32 64" "4 16 64" "2 4 8" "2 8 32 128 512" "2 4 8" "128 1024"
     fi
 }
 
@@ -120,12 +121,13 @@ build_tree_grid() {
             add_oat scifact $MQ "$ANCHOR" B "2 4 8 16 32 64"
             add_oat scifact $MQ "$ANCHOR" r "2 4 8 16 32 64"
             add_oat scifact $MQ "$ANCHOR" s "1 2 4 8 16"
-            add_oat scifact $MQ "$ANCHOR" L "1 2 3 5 10 20 40 80 160"
+            add_oat scifact $MQ "$ANCHOR" L "1 2 5 10 20 40 80 160"   # was 1 2 3 5 10 20 40 80 160
             add_oat scifact $MQ "$ANCHOR" q "1 2 4 6 8 12 16 24"
             add_oat scifact $MQ "$ANCHOR" c "1 2 4 8 16 20 40 80"
         fi
         if [[ $sweep == grid || $sweep == all ]]; then
-            add_pool_grid scifact $MQ "4 8 16 32" "2 4 16"   "1 2 4 8" "1 3 10 30 100" "2 8 16"  "16 64 256"
+            add_pool_grid scifact $MQ "4 16 32"   "2 4 16"   "1 4 8"   "1 10 30 100"   "2 16"    "16 64 256"
+            # 2026-11-09, was: "4 8 16 32" "2 4 16" "1 2 4 8" "1 3 10 30 100" "2 8 16" "16 64 256"
         fi
         ;;
     *) echo "Unknown DATASET: $dataset (one of: $TREE_DATASETS)" >&2; return 1 ;;
@@ -145,11 +147,15 @@ build_tree_grid() {
 TREE_MEM_CAL="${TREE_MEM_CAL:-0.75}"
 declare -A _TREE_MEM=()
 
-tree_mem_gb() {   # dataset B r s -> estimated GB (integer)
+# tree_mem_parts dataset B r s -> "N s1 s1max s2 s3 raw slots_max" (bytes; N docs): Stage 1 tables (all levels),
+# the biggest Stage 1 level, Stage 2, the fp32 Stage 3 embeddings, the raw data/idmap files, and the slot count of
+# the biggest table (a compact-layout build keeps 8 B of full key per slot while it runs). "1500" if unknown.
+declare -A _TREE_PARTS=()
+tree_mem_parts() {
     local _h lf; read -r _h lf <<< "$(tree_cuckoo "$1")"
     local key="$1|$2|$3|$4|$lf"
-    if [[ -z "${_TREE_MEM[$key]:-}" ]]; then
-        _TREE_MEM[$key]=$(awk -v d="$1" -v B="$2" -v r="$3" -v s="$4" -v sizes="$DATASET_SIZES" -v cal="$TREE_MEM_CAL" -v lf="$lf" '
+    if [[ -z "${_TREE_PARTS[$key]:-}" ]]; then
+        _TREE_PARTS[$key]=$(awk -v d="$1" -v B="$2" -v r="$3" -v s="$4" -v sizes="$DATASET_SIZES" -v lf="$lf" '
         function ppn(x,   i, lx) {   # (term,node) rows per node holding x docs, msmarco-like text
             lx = log(x)
             if (lx <= LX[1]) return exp(LY[1] + (lx - LX[1]) * (LY[2] - LY[1]) / (LX[2] - LX[1]))
@@ -164,24 +170,70 @@ tree_mem_gb() {   # dataset B r s -> estimated GB (integer)
             for (i = 1; i <= n; i++) { split(S[i], f, ":"); if (f[1] == d) { N = f[2]; w = f[3] / 56 } }
             if (!N) { print 1500; exit }
             nl = int((N + B - 1) / B); H = (nl > 1) ? int(log(nl) / log(r) + 0.999999999) : 0
-            s1 = 0; s1raw = 0
+            s1 = 0; s1raw = 0; s1max = 0; slots = 0
             for (l = 0; l < H; l++) {
                 span = B * r ^ (H - l); nodes = int((nl + r ^ (H - l) - 1) / r ^ (H - l))
                 rows = nodes * w * ppn(span < N ? span : N)
-                s1 += rows * (8 + up8(r)) / lf; s1raw += rows * (r + 16)
+                t = rows * (8 + up8(r)) / lf; s1 += t; s1raw += rows * (r + 16)
+                if (t > s1max) s1max = t; if (rows / lf > slots) slots = rows / lf
             }
             rows2 = nl * w * ppn(B)
             s2 = rows2 * (8 + up8(B / s)) / lf; s2raw = rows2 * (B / s + 16)
-            s3 = N * 192 * 4
-            printf "%d\n", cal * (1.5 * (s1 + s2 + s3) + s1raw + s2raw) / 1e9 + 4
+            if (rows2 / lf > slots) slots = rows2 / lf
+            printf "%d %.0f %.0f %.0f %.0f %.0f %.0f\n", N, s1, s1max, s2, N * 192 * 4, s1raw + s2raw, slots
         }')
     fi
-    echo "${_TREE_MEM[$key]}"
+    echo "${_TREE_PARTS[$key]}"
+}
+
+tree_mem_gb() {   # dataset B r s -> estimated GB (integer): a run that builds every table, as before 2026-11-10
+    local p; p=$(tree_mem_parts "$@")
+    [[ "$p" == 1500 ]] && { echo 1500; return; }
+    awk -v p="$p" -v cal="$TREE_MEM_CAL" 'BEGIN { split(p, a, " ")
+        printf "%d\n", cal * (1.5 * (a[2] + a[4] + a[5]) + a[6]) / 1e9 + 4 }'
+}
+
+# A run that finds its shape's tables in the shared cache (tree_cache_ready) mmaps them, and the Stage 3 PIR is the
+# mmap'd embedding file (2026-11-10), so the heap only holds: ~4 GB base, ~250 B per doc of doc-ID maps (main's
+# id -> string map, Stage 3's ID list and reverse map), and the zero-padded copy of each batch PIR's short last
+# partition (1/64 of each Cuckoo table at batch 128, 1/16 of the embeddings at batch 32). The mmap'd pages are
+# page cache the kernel can drop, as for the bins' -noram runs. x1.2 until cached runs are measured (an OOM is
+# logged and retried at 1.5x, and every run logs its heap peak, so erring low costs one retry, not a day in the queue).
+tree_cached_gb() {   # dataset B r s -> GB
+    local p; p=$(tree_mem_parts "$@")
+    [[ "$p" == 1500 ]] && { echo 1500; return; }
+    awk -v p="$p" 'BEGIN { split(p, a, " ")
+        printf "%d\n", (4e9 + a[1] * 250 + (a[2] + a[4]) / 64 + a[5] / 16) * 1.2 / 1e9 + 1 }'
+}
+# A run that builds the tables saves each one and switches to its mmap right away (bm25 buildOrLoadCuckooTable), so
+# its heap peaks at a cached run's plus the biggest single table (and 8 B per slot of full keys for a compact
+# layout), not all of them at once. x1.2, and never above the old all-tables model.
+tree_builder_gb() {   # dataset B r s -> GB
+    local p; p=$(tree_mem_parts "$@")
+    [[ "$p" == 1500 ]] && { echo 1500; return; }
+    local h _lf; read -r h _lf <<< "$(tree_cuckoo "$1")"
+    awk -v p="$p" -v c="$(tree_cached_gb "$@")" -v old="$(tree_mem_gb "$@")" -v compact=$([[ $h != 2 ]] && echo 1 || echo 0) '
+        BEGIN { split(p, a, " "); big = (a[3] > a[4] ? a[3] : a[4]) + (compact ? a[7] * 8 : 0)
+                g = c + big * 1.2 / 1e9; if (g > old) g = old; printf "%d\n", g + 1 }'
 }
 
 # Model time: msmarco runs took ~45 min (never above 2 h), so scale that by the RAM estimate (both follow DB size),
 # x2 because it is unmeasured, at least 30 min.
 tree_model_minutes() { awk -v g="$1" 'BEGIN { m = 2 * 45 * g / 62; printf "%d\n", (m < 30 ? 30 : m) }'; }
+# With the shared cache (2026-11-10), from the Stage 1 + 2 table size instead (tree_mem_parts), since the old rule
+# was never measured past msmarco and gave msmarco-v2 ~20 h. Measured: dbpedia sim runs (16 GB of tables) <= 27 min,
+# 4.5 min of it the build; real nq runs (14 GB, with hints) <= 57 min.
+#   build   30 min + 1.5 min per GB of tables          (dbpedia ~55 min, msmarco-v2 B32 r32 s8 ~8 h)
+#   cached  30 min + 0.75 min per GB, at least 45      (the query phase alone took up to ~22 min on dbpedia)
+tree_builder_minutes() { tree_table_minutes 1.5 30 "$@"; }
+tree_cached_minutes() { tree_table_minutes 0.75 45 "$@"; }
+tree_table_minutes() {   # per_GB floor dataset B r s -> minutes
+    local f=$1 floor=$2; shift 2
+    local p; p=$(tree_mem_parts "$@")
+    [[ "$p" == 1500 ]] && { echo 2880; return; }
+    awk -v p="$p" -v f="$f" -v fl="$floor" 'BEGIN { split(p, a, " "); m = 30 + f * (a[2] + a[4]) / 1e9
+        printf "%d\n", (m < fl ? fl : m) }'
+}
 
 tree_config_key() {   # B r s L q c [dataset] -> config name used in the usage log (cuckoo settings included)
     local tag="" h lf
@@ -201,7 +253,8 @@ tree_paths() {   # dataset B r s
         DB_SIZE=8841823; art="$root/data/msmarco/pir/$shape"
         INDEX="$root/data/msmarco_reordered"; QUERIES="$root/data/queries.dev.small.tsv"; QRELS="$root/data/qrels.dev.small.tsv"
         DOC_EMBED="$root/data/stage3_doc_aligned_shuffle.npy"; DOC_ID_MAP="$root/data/stage3_doc_aligned.npy.ids"
-        QUERY_EMBED="$root/data/stage3_query.npy"; BLOCK_PERMS="data/block_permutations.json"; CACHE_SUBDIR="" ;;
+        QUERY_EMBED="$root/data/stage3_query.npy"; BLOCK_PERMS="data/block_permutations.json"
+        CACHE_SUBDIR="msmarco_original/$shape" ;;   # not "msmarco/": the generic layout's tables differ
     scifact)
         DB_SIZE=5183; local dr="$root/data/scifact"; art="$dr/pir/$shape"
         INDEX="$root/indexes/scifact"; QUERIES="$dr/queries.qrels.tsv"; QRELS="$dr/qrels.trec"
@@ -222,21 +275,54 @@ tree_paths() {   # dataset B r s
     STAGE2_DATA="$art/stage2/data.bin"; STAGE2_IDMAP="$art/stage2/idmap.bin"
 }
 
+# ---- shared Cuckoo cache (one per dataset + shape, see run_tree_pir_old.slurm)
+tree_cache_dir() {   # dataset B r s -> the shape's shared Cuckoo cache folder
+    tree_paths "$@"
+    echo "${ROOT_DIR:-$PWD}/cuckoo_cache/${CACHE_SUBDIR}/shared"
+}
+tree_cache_marker() {   # dataset B r s -> marker file written once every table of the shape is cached
+    local h lf; read -r h lf <<< "$(tree_cuckoo "$1")"
+    echo "$(tree_cache_dir "$@")/.ready_h${h}_lf${lf}"
+}
+tree_mark_cache_ready() { touch "$(tree_cache_marker "$@")"; }
+# tree_cache_ready dataset B r s: exit 0 if the shape's tables are cached for the current artifacts (the marker is
+# newer than every Stage 1/2 input: rebuilt artifacts make pir_app rebuild the tables, so the marker no longer counts)
+tree_cache_ready() {
+    local m f; m=$(tree_cache_marker "$@")
+    [[ -e "$m" ]] || return 1
+    tree_paths "$@"
+    for f in "$STAGE1_DATA" "$STAGE1_IDMAP" "$STAGE2_DATA" "$STAGE2_IDMAP"; do
+        [[ -e "$f" && "$m" -nt "$f" ]] || return 1
+    done
+}
+
 tree_missing() {   # dataset B r s -> the first missing input file, or nothing if the config can run
     tree_paths "$@"
     local f
-    for f in "$INDEX" "$QUERIES" "$QRELS" "$DOC_EMBED" "$DOC_ID_MAP" "$QUERY_EMBED" "$LAYOUT_PATH" "$VOCAB" \
+    # tree_main reads the analysed queries from the queries path with .tsv -> .analyzed.json (tree_main.go)
+    for f in "$INDEX" "$QUERIES" "${QUERIES/.tsv/.analyzed.json}" "$QRELS" "$DOC_EMBED" "$DOC_ID_MAP" "$QUERY_EMBED" "$LAYOUT_PATH" "$VOCAB" \
              "$STAGE1_DATA" "$STAGE1_IDMAP" "$STAGE2_DATA" "$STAGE2_IDMAP"; do
         [[ -e "$f" ]] || { echo "$f"; return; }
     done
+    # an empty query list counts as missing (msmarco's was written empty on 2026-11-10: every run answered 0 queries),
+    # so run_all.sh queues the tree-db job that rewrites it
+    [[ -s "$QUERIES" ]] || { echo "$QUERIES (empty)"; return; }
     [[ "$DB_SIZE" -gt 0 ]] || echo "${DATASET_DIR:-../../datasets}/$1/num_docs.txt"
 }
 
-# One line per config of the current arrays: "d B r s L q c max_q GB minutes source missing"
+# One line per config of the current arrays: "d B r s L q c max_q GB minutes role:source missing"
 # (missing = first missing input, "-" if ready). Only checked when CHECK_INPUTS=1 (default), cached per shape.
+# role, for the shared Cuckoo cache (run_tree_pir_old.slurm):
+#   cached  the shape's tables are already cached: sized as a cache hit (tree_cached_gb), runs right away
+#   build   the one config per uncached shape that builds the tables (tree_builder_gb)
+#   after   the shape's other configs: sized as cache hits, run_all.sh makes them wait for the build jobs (afterany;
+#           if a build failed they build the tables themselves, and an OOM there is logged and retried bigger)
+# Usage keys are config + "_build" / "_cached": runs from before the shared cache (every table + two copies of the
+# embeddings on the heap) never size these, and a run that built the tables never sizes one that didn't.
 tree_plan() {
     load_usage; load_queued
-    local i; declare -A miss=()
+    [[ "${SIMULATE:-0}" == 1 ]] && load_real_usage   # once here: estimate_resources runs in a subshell per config
+    local i; declare -A miss=() ready=() builder=()
     for i in "${!DATA_ARR[@]}"; do
         local d=${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]}
         # already finished (same folder name as run_tree_pir_old.slurm): counted by group_plan, not submitted
@@ -248,15 +334,25 @@ tree_plan() {
         if is_queued tree "$d" "$od"; then
             echo "$d $B $r $s ${L_ARR[$i]} ${QWORDS_ARR[$i]} ${KCAND_ARR[$i]} ${MAX_Q_ARR[$i]} 0 0 - queued"; continue
         fi
-        local gb; gb=$(tree_mem_gb "$d" "$B" "$r" "$s")
-        local fb_gb; fb_gb=$(awk -v g="$gb" 'BEGIN { printf "%.0f", g * 1.2 }')
-        local est; est=$(estimate_resources tree "$d" "$(tree_config_key "$B" "$r" "$s" "${L_ARR[$i]}" "${QWORDS_ARR[$i]}" "${KCAND_ARR[$i]}" "$d")" \
-                         "$fb_gb" "$(tree_model_minutes "$gb")")
         local m="-"
         if [[ "${CHECK_INPUTS:-1}" == 1 ]]; then
             [[ -n "${miss[$d$B.$r.$s]+x}" ]] || miss[$d$B.$r.$s]=$(tree_missing "$d" "$B" "$r" "$s")
             m=${miss[$d$B.$r.$s]:--}
         fi
+        local shape="$d.$B.$r.$s" role
+        [[ -n "${ready[$shape]+x}" ]] || { tree_cache_ready "$d" "$B" "$r" "$s" && ready[$shape]=1 || ready[$shape]=0; }
+        if (( ready[$shape] )); then role=cached
+        elif [[ -z "${builder[$shape]:-}" && $m == "-" ]]; then role=build; builder[$shape]=1
+        else role=after; fi
+        local key; key=$(tree_config_key "$B" "$r" "$s" "${L_ARR[$i]}" "${QWORDS_ARR[$i]}" "${KCAND_ARR[$i]}" "$d")
+        local fb_gb fb_min
+        if [[ $role == build ]]; then
+            key+="_build"; fb_gb=$(tree_builder_gb "$d" "$B" "$r" "$s"); fb_min=$(tree_builder_minutes "$d" "$B" "$r" "$s")
+        else
+            key+="_cached"; fb_gb=$(tree_cached_gb "$d" "$B" "$r" "$s"); fb_min=$(tree_cached_minutes "$d" "$B" "$r" "$s")
+        fi
+        local est; est=$(estimate_resources tree "$d" "$key" "$fb_gb" "$fb_min")
+        est=$(awk -v r="$role" '{ $3 = r ":" $3; print }' <<< "$est")
         echo "$d $B $r $s ${L_ARR[$i]} ${QWORDS_ARR[$i]} ${KCAND_ARR[$i]} ${MAX_Q_ARR[$i]} $est $m"
     done
 }
@@ -274,6 +370,10 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         --count)  echo "${#DATA_ARR[@]} configs, $(tree_grid_shapes | wc -l) B/r/s artifact dirs for ${DATASET} SWEEP=${SWEEP:-all} (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))" ;;
         --list)   for i in "${!DATA_ARR[@]}"; do echo "$i ${DATA_ARR[$i]} B=${B_ARR[$i]} r=${R_ARR[$i]} s=${S_ARR[$i]} L=${L_ARR[$i]} q=${QWORDS_ARR[$i]} c=${KCAND_ARR[$i]}"; done ;;
         --shapes) tree_grid_shapes ;;
+        --missing) # first missing input over every B/r/s shape of the grid, nothing if all are there (run_all.sh)
+                  while read -r b r s; do
+                      m=$(tree_missing "$DATASET" "$b" "$r" "$s"); [[ -z "$m" ]] || { echo "$m"; break; }
+                  done < <(tree_grid_shapes) ;;
         --plan)   tree_plan ;;
         --mem)    for sh in $(tree_grid_shapes | tr ' ' ','); do IFS=, read -r b r s <<< "$sh"; gb=$(tree_mem_gb "$DATASET" "$b" "$r" "$s"); echo "B=$b r=$r s=$s model ~${gb} GB"; done ;;
         --summary) tree_plan | awk -v mb="$MEM_BUCKETS" '{ ready = ($12 == "-") ? "ready" : ($12 == "done" || $12 == "queued" ? $12 : "missing"); g = $9 + 0

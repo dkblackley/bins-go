@@ -7,7 +7,7 @@
 #   * bucket rounding                   mem_bucket <GB>, time_bucket <minutes>, slurm_time <minutes>
 #
 # Every finished run appends one line to $USAGE_FILE (default $RESULTS_DIR/resource_usage.tsv):
-#   method  dataset  config  max_rss_gb  elapsed_s  date  [failed:oom|timeout]
+#   method  dataset  config  max_rss_gb  elapsed_s  date (YYYY-MM-DDTHH:MM:SS; just the day before 2026-11-10)  [failed:oom|timeout]
 # so estimates become measurements as runs come back. Lookup order for a config:
 #   1. measured on this dataset             -> peak RSS x MEM_HEADROOM, elapsed x TIME_HEADROOM
 #   2. measured on another dataset          -> scaled by (docs ratio)^exp, with the larger headroom
@@ -19,10 +19,45 @@
 # Sourced at job start, so queued jobs get it too.
 if [[ -n "${SLURM_MEM_PER_NODE:-}" && -z "${GOMEMLIMIT:-}" ]]; then export GOMEMLIMIT="$(( SLURM_MEM_PER_NODE * 9 / 10 ))MiB"; fi
 
+# Simulated PIR (SIMULATE=1, pir_app -simulate): same answers, MRR, bytes, LAN/WAN and client storage as a real run,
+# no hints and no XOR, every timing -1 in metadata.json. These runs go to their own results folder (same folder
+# names) and their own usage log, so they never mix with or skip the real runs. Until a simulated config has been
+# measured, its estimate is the real-run model x SIM_MEM_FACTOR_<METHOD> / SIM_TIME_FACTOR (guesses: the bins hints are
+# about as big as the DB, the tree's are small next to its Cuckoo tables, so the tree mostly saves time).
+if [[ "${SIMULATE:-0}" == 1 ]]; then
+    export RESULTS_DIR="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results_simulated}"
+fi
+sim_args() { [[ "${SIMULATE:-0}" == 1 ]] && echo "-simulate"; return 0; }   # extra pir_app flag, or nothing
+# tree 1.0 / 1.0 since 2026-11-10: simulated dbpedia tree runs peaked up to 47 GB at a 42 GB (x0.9) estimate, and
+# at x0.5 time (30 min) 31 of 184 timed out, while successful ones took up to 27 min. The tree's hints are small, so
+# simulating saves little of either.
+declare -A SIM_MEM_BY_METHOD=([bins]="${SIM_MEM_FACTOR_BINS:-0.6}" [tree]="${SIM_MEM_FACTOR_TREE:-1.0}")
+declare -A SIM_TIME_BY_METHOD=([bins]="${SIM_TIME_FACTOR_BINS:-${SIM_TIME_FACTOR:-0.5}}" [tree]="${SIM_TIME_FACTOR_TREE:-1.0}")
+
+# Simulated + low-RAM (SIMULATE=1 NORAM=1, run_sim_noram.sh): no hints, the PIR DB and embeddings on disk, so a run
+# needs a few GB and minutes. It gets its own model (bins_sim_noram_model, measured, not the real model x a factor),
+# a floor of SIM_MIN_GB / SIM_MIN_MIN, finer buckets near the floor, and only NORAM_CACHE_GB=2 of page-cache room.
+sim_noram() { [[ "${SIMULATE:-0}" == 1 && "${NORAM:-0}" == 1 ]]; }
+if sim_noram; then
+    SIM_MIN_GB="${SIM_MIN_GB:-12}"; SIM_MIN_MIN="${SIM_MIN_MIN:-30}"
+    MEM_BUCKETS="${MEM_BUCKETS:-12 $(seq -s' ' 16 4 48) $(seq -s' ' 56 8 96) 100 $(seq -s' ' 150 50 1500)}"
+    TIME_BUCKETS="${TIME_BUCKETS:-30 60 90 120 180 240 360 720 1440 2880}"
+    NORAM_CACHE_GB="${NORAM_CACHE_GB:-2}"
+fi
+sim_floor() {   # "GB minutes source" -> the same, raised to SIM_MIN_GB / SIM_MIN_MIN (sim_noram only)
+    if sim_noram; then
+        awk -v g="$SIM_MIN_GB" -v m="$SIM_MIN_MIN" '{ if ($1 < g) $1 = g; if ($2 < m) $2 = m; print }' <<< "$1"
+    else echo "$1"; fi
+}
+
 USAGE_FILE="${USAGE_FILE:-${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}/resource_usage.tsv}"
 MEM_HEADROOM="${MEM_HEADROOM:-1.2}"      # measured on the same dataset
 TIME_HEADROOM="${TIME_HEADROOM:-1.5}"
-SCALED_HEADROOM="${SCALED_HEADROOM:-1.5}" # scaled from another dataset (mem and time)
+# scaled from another dataset. Checked 2026-11-10 on the 235 bins configs measured on both msmarco and msmarco-v2-25m
+# (2.8x the docs): memory ~ docs^0.8 came out at 1.04x actual/scaled (median), 1.15x (p90), 1.38x (max); time ~ docs
+# at 0.94x / 1.28x / 1.87x. So 1.25x memory (an OOM is retried at 1.5x) and 1.5x time.
+SCALED_HEADROOM="${SCALED_HEADROOM:-1.5}"                 # time (and memory, unless SCALED_MEM_HEADROOM is set)
+SCALED_MEM_HEADROOM="${SCALED_MEM_HEADROOM:-1.25}"
 # how memory / time grow with corpus size, per method (1 = linear)
 declare -A MEM_SCALE_EXP=([tree]=1.0 [bins]=0.8)
 declare -A TIME_SCALE_EXP=([tree]=1.0 [bins]=1.0)
@@ -79,20 +114,23 @@ record_usage() {
     # a -noram run's peak RSS counts resident mmap'd file pages (it just shows the memory limit); use the heap peak
     # pir_app measured instead
     local anon; anon=$(noram_peak_kb "$(dirname "$tfile")")
+    # the tree mmaps its Cuckoo cache and Stage 3 embeddings (2026-11-10): same story, use its heap peak
+    [[ -z "$anon" && $method == tree ]] && anon=$(meta_peak_kb "$(dirname "$tfile")" PeakAnonMB)
     [[ -n "$anon" ]] && kb=$anon
     [[ -n "$kb" && "$kb" -gt 0 ]] || { echo "record_usage: no peak RSS in $tfile, not recorded" >&2; return 0; }
     mkdir -p "$(dirname "$USAGE_FILE")"
     local line
     line=$(printf '%s\t%s\t%s\t%.2f\t%d\t%s' "$method" "$dataset" "$config" "$(awk -v k="$kb" 'BEGIN{print k/1048576}')" \
-        "$secs" "$(date +%F)")
+        "$secs" "$(date +%FT%T)")
     ( flock 9; echo "$line" >> "$USAGE_FILE" ) 9>>"${USAGE_FILE}.lock"
     echo "usage: $line"
 }
 
-noram_peak_kb() {   # results dir -> NoRAMPeakAnonMB from its metadata.json in KB, or nothing
+noram_peak_kb() { meta_peak_kb "$1" NoRAMPeakAnonMB; }   # results dir -> NoRAMPeakAnonMB in KB, or nothing
+meta_peak_kb() {   # results dir, metadata key (MB) -> its value in KB, or nothing
     local f="$1/metadata.json"
     [[ -s "$f" ]] || return 0
-    grep -oE '"NoRAMPeakAnonMB": *"[0-9.]+' "$f" | grep -oE '[0-9.]+$' | awk '{printf "%d\n", $1 * 1024}'
+    grep -oE "\"$2\": *\"[0-9.]+" "$f" | grep -oE '[0-9.]+$' | awk '{printf "%d\n", $1 * 1024}'
 }
 
 # record_failure <method> <dataset> <config> <measure file> <exit code> <elapsed seconds> [timeout]
@@ -105,19 +143,66 @@ record_failure() {
     kb=${kb:-0}
     local oom=""
     [[ "$rc" == 137 || "$rc" == 9 ]] && oom=1
+    # a step killed by the cgroup doesn't always come back as 137 through srun (e.g. ExitCode 0:125), but slurmstepd
+    # always logs it to the job's stderr; that's the only OOM signal a -noram run has (its peak RSS is meaningless)
+    if [[ -z "$oom" && -n "${SLURM_ARRAY_JOB_ID:-}" ]] && \
+       grep -qsiE 'oom[-_ ]kill|out of memory' logs/*_"${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID:-}".err 2>/dev/null; then
+        oom=1
+    fi
     # (not for -noram runs, whose peak RSS always reaches the limit: resident mmap'd file pages count, but the kernel
     # drops them instead of killing the job)
     [[ "$config" != *_noram ]] && (( req_kb > 0 && kb * 10 >= req_kb * 9 )) && oom=1
+    # scancel sends the same SIGTERM as the time limit (--signal=B:TERM@120 sends it 120 s before the limit). With
+    # more than 5 min left it was a cancel, not a timeout: logging it would bump the next estimate for nothing.
+    if [[ -n "$timeout" && -z "$oom" && -n "${SLURM_JOB_ID:-}" ]]; then
+        local left
+        left=$(squeue -h -j "$SLURM_JOB_ID" -o %L 2>/dev/null | head -1 | awk '
+            /^[0-9]/ { d = 0; t = $1; if (index(t, "-")) { split(t, a, "-"); d = a[1]; t = a[2] }
+                       n = split(t, p, ":"); s = 0; for (i = 1; i <= n; i++) s = s * 60 + p[i]; print d * 86400 + s }')
+        if [[ -n "$left" ]] && (( left > 300 )); then
+            echo "terminated with ${left}s of the time limit left: cancelled (scancel), not a timeout; usage not logged"
+            return 0
+        fi
+    fi
     [[ -n "$oom" || -n "$timeout" ]] || return 0
     local gb sec
     gb=$(awk -v k="$kb" -v r="$req_kb" -v o="$oom" 'BEGIN { m = (k > r ? k : r); if (o) m *= 1.5; printf "%.2f", m / 1048576 }')
+    # a tree or -noram bins run that timed out left its heap peak in peak_anon.txt (pir_app, PIR_PEAK_FILE): log that,
+    # not the request (its RSS counts mmap'd pages), so a time-limit retry doesn't also ask for 1.2x more memory
+    local pf; pf="$(dirname "$tfile")/peak_anon.txt"
+    if [[ -z "$oom" && ( $method == tree || $config == *_noram ) && -s "$pf" ]]; then
+        gb=$(awk '{ printf "%.2f", $1 / 1024 }' "$pf")
+        echo "heap peak before the time limit: ${gb} GB (after $(awk '{print $2}' "$pf") s of pir_app)"
+    elif [[ -n "$oom" && -s "$pf" ]]; then
+        echo "heap peak before the OOM kill: $(awk '{ printf "%.2f", $1 / 1024 }' "$pf") GB (after $(awk '{print $2}' "$pf") s); logging 1.5x the request"
+    fi
     if [[ -n "$timeout" ]]; then sec=$(( secs * 2 )); else sec=$secs; fi   # not $(( timeout ? .. )): bash would expand the word "timeout" recursively
     local line
-    line=$(printf '%s\t%s\t%s\t%s\t%d\t%s\t%s' "$method" "$dataset" "$config" "$gb" "$sec" "$(date +%F)" \
+    line=$(printf '%s\t%s\t%s\t%s\t%d\t%s\t%s' "$method" "$dataset" "$config" "$gb" "$sec" "$(date +%FT%T)" \
         "failed:${oom:+oom}${timeout:+timeout}")
     mkdir -p "$(dirname "$USAGE_FILE")"
     ( flock 9; echo "$line" >> "$USAGE_FILE" ) 9>>"${USAGE_FILE}.lock"
     echo "usage (failed run, next estimate is bumped): $line"
+}
+
+# The real runs' usage log, read by estimate_resources when SIMULATE=1 (the simulated runs have their own USAGE_FILE)
+REAL_USAGE_FILE="${REAL_USAGE_FILE:-/scratch/${USER:-$(id -un)}/results/resource_usage.tsv}"
+declare -A _REAL_MEM=() _REAL_SEC=() _REAL_FAIL=()
+_REAL_LOADED=""
+load_real_usage() {   # once; the latest line per (method, dataset, config) wins, like load_usage
+    [[ -n "$_REAL_LOADED" ]] && return 0
+    _REAL_LOADED=1
+    [[ -f "$REAL_USAGE_FILE" && "$REAL_USAGE_FILE" != "$USAGE_FILE" ]] || return 0
+    local m d c gb s _date st
+    while IFS=$'\t' read -r m d c gb s _date st; do
+        [[ -n "$c" && "$gb" != max_rss_gb ]] || continue
+        _REAL_MEM["$m|$d|$c"]=$gb; _REAL_SEC["$m|$d|$c"]=$s
+        case $st in   # failed:oom / failed:timeout (failed:oomtimeout counts as oom)
+            failed:oom*) _REAL_FAIL["$m|$d|$c"]=oom ;;
+            failed*)     _REAL_FAIL["$m|$d|$c"]=timeout ;;
+            *)           unset '_REAL_FAIL["$m|$d|$c"]' ;;
+        esac
+    done < "$REAL_USAGE_FILE"
 }
 
 declare -A _USAGE_MEM=() _USAGE_SEC=() _USAGE_DS=() _USAGE_FAIL=()
@@ -133,7 +218,37 @@ load_usage() {   # read $USAGE_FILE once; the latest line per (method, dataset, 
 }
 
 # estimate_resources <method> <dataset> <config> <fallback GB> <fallback minutes> -> "GB minutes source"
+# With SIMULATE=1 the fallback (the real-run model) is scaled down first; measured simulated runs are used as they are.
 estimate_resources() {
+    if [[ "${SIMULATE:-0}" == 1 ]]; then
+        local f="${SIM_MEM_BY_METHOD[$1]:-1}" g m
+        g=$(awk -v x="$4" -v f="$f" 'BEGIN { printf "%.1f", x * f }')
+        m=$(awk -v x="$5" -v f="${SIM_TIME_BY_METHOD[$1]:-0.5}" 'BEGIN { x *= f; printf "%d", (x < 30 ? 30 : x) }')
+        # tree: a simulated run only skips the (small) hints, so a real run of the same config is a safe upper bound
+        # and a much better guess than the model, whose time ignores L/q/c (real nq runs: 9 min .. >115 min at the
+        # same model estimate of 42 min). Used until the config has a simulated measurement of its own.
+        if [[ $1 == tree && -z "${_USAGE_MEM["$1|$2|$3"]:-}" ]]; then
+            load_real_usage
+            local rk="$1|$2|$3"
+            if [[ -n "${_REAL_MEM[$rk]:-}" ]]; then
+                # A failed real run tells only one thing: a timeout logs the requested memory (not a peak), so only its
+                # time is used, as a lower bound; an OOM logs 1.5x what it had, so only its memory is used.
+                awk -v g="${_REAL_MEM[$rk]}" -v s="${_REAL_SEC[$rk]}" -v hm="$MEM_HEADROOM" -v ht="$TIME_HEADROOM" \
+                    -v f="${_REAL_FAIL[$rk]:-}" -v fg="$g" -v fm="$m" '
+                    BEGIN { mg = g * hm + 1; mt = s * ht / 60 + 10
+                            if (f == "timeout") { g = fg; t = (mt > fm ? mt : fm) }
+                            else if (f == "oom") { g = (mg > fg ? mg : fg); t = fm }
+                            else { g = mg; t = mt }
+                            printf "%.1f %d real-measured%s\n", g, t, (f ? "-" f : "") }'
+                return
+            fi
+        fi
+        _estimate_resources "$1" "$2" "$3" "$g" "$m"
+    else
+        _estimate_resources "$@"
+    fi
+}
+_estimate_resources() {
     local m=$1 d=$2 c=$3 fb_gb=$4 fb_min=$5 key="$1|$2|$3"
     # A failed run (OOM / time limit) only tells us a lower bound: its elapsed time is how far it got before it was
     # killed, so it never lowers the estimate below the model (e.g. an OOM after 2 min must not ask for 13 min).
@@ -152,7 +267,7 @@ estimate_resources() {
     if [[ -n "$cands" && "$(dataset_docs "$d")" -gt 0 ]]; then
         # closest measured dataset by size, then scale by (docs ratio)^exp
         awk -v cands="$cands" -v n="$(dataset_docs "$d")" -v em="${MEM_SCALE_EXP[$m]:-1}" \
-            -v et="${TIME_SCALE_EXP[$m]:-1}" -v h="$SCALED_HEADROOM" -v fg="$fb_gb" -v fm="$fb_min" '
+            -v et="${TIME_SCALE_EXP[$m]:-1}" -v h="$SCALED_HEADROOM" -v hm="$SCALED_MEM_HEADROOM" -v fg="$fb_gb" -v fm="$fb_min" '
         BEGIN {
             k = split(cands, C, " "); best = 0
             for (i = 1; i <= k; i++) {
@@ -161,7 +276,7 @@ estimate_resources() {
                 if (!best || d < bd) { best = i; bd = d; bn = f[1]; br = r; bg = f[3]; bs = f[4]; bf = f[5] }
             }
             if (!best) { printf "%s %s model\n", fg, fm; exit }
-            g = bg * br ^ em * h + 1; t = bs * br ^ et * h / 60 + 10
+            g = bg * br ^ em * hm + 1; t = bs * br ^ et * h / 60 + 10
             if (bf + 0) { if (fg > g) g = fg; if (fm > t) t = fm }   # scaled from a failed run: a lower bound only
             printf "%.1f %d scaled-from-%s\n", g, t, bn
         }'
@@ -212,6 +327,9 @@ queued_dirs() {
     squeue -u "${USER:-$(id -un)}" -h -r -o '%F|%K|%j|%T' 2>/dev/null | while IFS='|' read -r jid task name _st; do
         m=${name%%_*}; d=${name#*_}; d=${d%%_*}
         [[ $m == bins || $m == tree || $m == pacmann ]] || continue
+        # simulated jobs (name ends in _sim, see run_all.sh) write to results_simulated: only count the same kind
+        if [[ $name == *_sim* ]]; then [[ "${SIMULATE:-0}" == 1 ]] || continue
+        else [[ "${SIMULATE:-0}" != 1 ]] || continue; fi
         [[ $task =~ ^[0-9]+$ ]] || task=0
         if [[ $m == pacmann ]]; then
             echo "P	$d	$task	${jid}_$task"; continue
@@ -362,6 +480,55 @@ bins_model() {   # dataset vec dpb [bs] [noram] -> "GB minutes"
         } else printf "%.0f %d\n", ram, m }'
 }
 
+# Simulated -noram bins (SIMULATE=1 NORAM=1): no hints, PIR DB + embeddings on disk. Refit 2026-11-10 on the 1,500
+# successful runs after the MakeUnigramDB memory fix (af0983d): trec-covid, dbpedia-entity, fever, msmarco and
+# msmarco-v2-25m (nq/scifact ran before it, so they are left out; their own measurements still size their re-runs).
+#   heap peak  0.45 GB + 1.05 KB/doc (+0.4 KB/doc for text's coded corpus) + ~18 B per distinct (word, doc) pair T
+#              (as in bins_model) + ~40 B per bin; x1.6 covers 94% of the runs (x1.3 left 1 in 9 short; the rest of
+#              the spread is per dataset, e.g. dbpedia's peaks are up to 3x the fit, fever's 1.6x)
+#   minutes    0.2 + 0.43 per million docs + 0.03 per million T + 0.047 per GB of vec1 DB (E x 768 B, written to
+#              temp_storage on NFS) + 0.075 per billion text slots; x2.5. Fitted on runs from before the parallel
+#              decode and the no-copy -noram DB (2026-11-10), which cut the slowest phases, so it errs long.
+# Only for configs never measured on any dataset: otherwise _estimate_resources scales the closest measured dataset.
+# sim_floor raises both to SIM_MIN_GB / SIM_MIN_MIN.
+bins_sim_noram_model() {   # dataset vec dpb bs -> "GB minutes"
+    awk -v n="$(dataset_docs "$1")" -v V="$(bins_vocab "$1")" -v vec="$2" -v dpb="$3" -v bs="${4:-0}" 'BEGIN {
+        dpw = (n / V) / 3.25; if (dpw < 1) dpw = 1
+        T = 1.66 * V * sqrt(dpb) * sqrt(dpw)
+        S = bs * dpb; x = (S > 0) ? T / S : 0
+        E = (S <= 0) ? 0 : (x > 700 ? S : S * (1 - exp(-x)))
+        gb = 0.45 + n * 1.05e-6 + (vec == "text" ? n * 0.4e-6 : 0) + T * 18e-9 + bs * 40e-9
+        gb *= 1.6
+        m = 0.2 + n * 0.43e-6 + T * 0.03e-6 + (vec == "true" ? E * 768e-9 * 0.047 : 0) + (vec == "text" ? S * 0.075e-9 : 0)
+        m *= 2.5
+        printf "%.0f %d\n", gb + 0.5, m + 0.5 }'
+}
+
+# Tree artifacts (datasets/tree_artifacts.slurm -> prep_tree.sh -> tree/build_tree_artifacts.py), until measured
+# (method "treedb" in the usage log: the job's summed heap peak, see tree_artifacts.slurm). Heap, not RSS: Lucene
+# mmaps the index, so RSS just fills the allocation (nq/fever/dbpedia all "peaked" at their 120 GB).
+#   postings pass  per worker ~1.5 GB (JVM + Python) + ~20 B per doc: the arrays and BM25 temporaries of the longest
+#                  postings lists, now streamed into numpy (2026-11-10; pyserini's Python objects took ~10 GB per
+#                  worker on msmarco-v2, hence the old flat 1000 GB)
+#   docmap/stage3  ~250 B per doc of id lists in the main process, after the workers are done
+#   time           ~12 min per million docs (nq 23 min, fever 65, dbpedia 60, with the single-threaded index)
+# x1.25 memory, x1.5 time (max 2 days); a build that runs out is logged and asks for 1.5x / 2x next time.
+treedb_model() {   # dataset workers -> "GB minutes"
+    awk -v n="$(dataset_docs "$1")" -v w="$2" 'BEGIN {
+        wk = w * (1.5 + 20e-9 * n) + 2; mn = 4 + 250e-9 * n; g = (wk > mn ? wk : mn); if (g < 10) g = 10
+        m = 12e-6 * n * 1.5; if (m < 60) m = 60; if (m > 2880) m = 2880
+        printf "%.0f %d\n", g * 1.25, m }'
+}
+
+# Simulated pacmann (run_all.sh, SIMULATE=1): the real runs peaked at 33 GB / 26 min on nq and 62 GB / 46 min on
+# fever (sacct); without hints a simulated run needs less, so ~9 KB/doc + 4 GB and ~8 min per million docs + 15.
+pacmann_sim_model() {   # dataset -> "GB minutes"
+    awk -v n="$(dataset_docs "$1")" -v g="${SIM_MIN_GB:-12}" -v mm="${SIM_MIN_MIN:-30}" 'BEGIN {
+        gb = 4 + n * 9e-6; m = 15 + n * 8e-6
+        if (gb < g) gb = g; if (m < mm) m = mm
+        printf "%.0f %d\n", gb, m }'
+}
+
 # stdin: "dataset k bs dpb vec" per config -> stdout: the same + "GB minutes source missing" (missing = "-" if ready)
 # results folder of a bins config: the same name run_bins_low/high.slurm use (a metadata.json there = done)
 bins_out_dir() {   # dataset k bs dpb vec
@@ -388,11 +555,20 @@ bins_plan() {
         if is_queued bins "$d" "$od"; then echo "$d $k $bs $dpb $vec 0 0 - queued"; continue; fi
         local nr=0; bins_noram "$d" "$vec" "$dpb" "$bs" && nr=1
         local mk="$d.$vec.$dpb.$bs.$nr"   # the model depends on bs for every mode
-        [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs" "$nr")
-        local fb=(${model[$mk]})
-        local est; est=$(estimate_resources bins "$d" "$(bins_config_key "$vec" "$k" "$bs" "$dpb" "$nr")" "${fb[0]}" "${fb[1]}")
+        local est key; key=$(bins_config_key "$vec" "$k" "$bs" "$dpb" "$nr")
+        if sim_noram && (( nr )); then
+            # simulated -noram: its own measured model (already simulated, so not scaled by SIM_MEM_FACTOR)
+            [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_sim_noram_model "$d" "$vec" "$dpb" "$bs")
+            local fb=(${model[$mk]})
+            est=$(_estimate_resources bins "$d" "$key" "${fb[0]}" "${fb[1]}")
+        else
+            [[ -n "${model[$mk]:-}" ]] || model[$mk]=$(bins_model "$d" "$vec" "$dpb" "$bs" "$nr")
+            local fb=(${model[$mk]})
+            est=$(estimate_resources bins "$d" "$key" "${fb[0]}" "${fb[1]}")
+        fi
         # a measured -noram run logs its heap peak only (record_usage): add back the page-cache room the model has
         (( nr )) && est=$(awk -v c="${NORAM_CACHE_GB:-8}" '{ if ($3 != "model") $1 += c; print }' <<< "$est")
+        est=$(sim_floor "$est")
         local m="-"
         if [[ "${CHECK_INPUTS:-1}" == 1 ]]; then
             local mv="$d"; [[ $vec == text ]] && mv+=".text"

@@ -84,12 +84,16 @@ if [[ -n "$missing" ]]; then
     exit 0
 fi
 tree_paths "$dataset" "$B_val" "$r_val" "$s_val"
-CACHE_ARGS=""
-if [[ -n "$CACHE_SUBDIR" ]]; then
-    CACHE_DIR="${ROOT_DIR}/cuckoo_cache/${CACHE_SUBDIR}/task_${SLURM_ARRAY_JOB_ID:-0}_${task_id}"
-    mkdir -p "$CACHE_DIR"
-    CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
-fi
+# One Cuckoo cache per dataset + shape (B r s), shared by every config of that shape (L, q, c don't change the
+# tables): the first run builds and saves them, the others mmap them instead of rebuilding them on the heap, so they
+# need far less RAM (tree_cache_ready / tree_plan in tree_sweep_grid.sh). Safe to share: a cache file is written
+# to a temp file and renamed, the build is deterministic, and a stale cache (artifacts rebuilt) is detected and
+# rebuilt. It used to be one folder per task, never reused (3.8 TB by 2026-11-10).
+CACHE_DIR=$(tree_cache_dir "$dataset" "$B_val" "$r_val" "$s_val")
+mkdir -p "$CACHE_DIR"
+CACHE_ARGS="--cuckoo-cache-dir ${CACHE_DIR}"
+CACHE_HIT=0; tree_cache_ready "$dataset" "$B_val" "$r_val" "$s_val" && CACHE_HIT=1
+tree_paths "$dataset" "$B_val" "$r_val" "$s_val"   # tree_cache_* ran it in subshells; the run below needs its paths
 mkdir -p "$OUT_DIR"
 
 echo "========================================"
@@ -103,6 +107,7 @@ echo "k_candidates:  $k_cand_val"
 echo "Query Words:   $q_words_val"
 echo "Estimate:      ${est_gb} GB, ${est_min} min (requested: ${SLURM_MEM_PER_NODE:-?} MB)"
 echo "Output Dir:    $OUT_DIR"
+echo "Cuckoo cache:  $CACHE_DIR ($( (( CACHE_HIT )) && echo "ready: tables are mmap'd" || echo "not ready: this run builds the tables"))"
 echo "========================================"
 
 LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q${q_words_val}_c${k_cand_val}_k10.log"
@@ -110,7 +115,8 @@ LOG_FILE="${OUT_DIR}/run_go_${dataset}_b${B_val}_r${r_val}_s${s_val}_L${L_val}_q
 SECONDS=0
 echo "Running tree search..."
 # peak RSS + wall time go to time_v.txt and then the usage log (slurm_common.sh record_usage)
-bash "${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
+rm -f "${OUT_DIR}/peak_anon.txt"
+PIR_PEAK_FILE="${OUT_DIR}/peak_anon.txt" bash "${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
     -t tree \
     -name "$dataset" \
     -n "$DB_SIZE" \
@@ -150,9 +156,10 @@ bash "${ROOT_DIR}/measure_run.sh" "${OUT_DIR}/time_v.txt" "$BINARY" \
     --embed-dim "$embed_val" \
     --block-permutation "$BLOCK_PERMS" \
     --pir-threads 16 \
+    $(sim_args) \
     $CACHE_ARGS > "$LOG_FILE" 2>&1 &
 run_pid=$!
-CFG_KEY=$(tree_config_key "$B_val" "$r_val" "$s_val" "$L_val" "$q_words_val" "$k_cand_val" "$dataset")
+CFG_KEY=$(tree_config_key "$B_val" "$r_val" "$s_val" "$L_val" "$q_words_val" "$k_cand_val" "$dataset")$( (( CACHE_HIT )) && echo _cached || echo _build)
 # time limit (SIGTERM 120 s before it, see --signal) or OOM: log it so the next estimate for this config is bigger
 trap 'kill -TERM "$run_pid" 2>/dev/null; record_failure tree "$dataset" "$CFG_KEY" "${OUT_DIR}/time_v.txt" 143 "$SECONDS" timeout; exit 143' TERM
 rc=0
@@ -165,6 +172,8 @@ fi
 
 elapsed_time=$SECONDS
 echo "Time elapsed: $elapsed_time seconds"
+# every table of this shape is now in the cache: later configs of the shape are sized as cache hits
+tree_mark_cache_ready "$dataset" "$B_val" "$r_val" "$s_val" || true
 record_usage tree "$dataset" "$CFG_KEY" "${OUT_DIR}/time_v.txt" "$elapsed_time" || true
 echo "Execution finished."
 

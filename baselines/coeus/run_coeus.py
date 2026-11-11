@@ -106,36 +106,84 @@ def make_tokenizer(kind):
     return (lambda s: [t for t in tok.findall(s.lower()) if t not in STOPWORDS]), "regex"
 
 
-def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir):
+def tokenize_corpus(corpus_path, tokenize, tok_path):
+    """Streams the corpus once: every doc's token ids (int32) go to tok_path. Returns (vocab, df, lens).
+    vocab maps term -> id in first-seen order, df is per id, lens is tokens per doc (uint32)."""
+    vocab, df, lens = {}, np.zeros(1 << 20, dtype=np.int64), array("I")
+    t0 = time.time()
+    with open(tok_path, "wb") as out:
+        buf = []
+        for n, (_, title, text) in enumerate(common.iter_corpus(corpus_path)):
+            ids = np.fromiter((vocab.setdefault(t, len(vocab)) for t in tokenize(f"{title} {text}")), dtype=np.int32)
+            if len(vocab) > len(df):
+                df = np.concatenate([df, np.zeros(len(df), dtype=np.int64)])
+            if len(ids):
+                df[np.unique(ids)] += 1
+            lens.append(len(ids))
+            buf.append(ids)
+            if len(buf) >= 100_000:
+                out.write(np.concatenate(buf).tobytes())
+                buf = []
+            if n % 1_000_000 == 0 and n:
+                print(f"  tokenised {n} docs ({time.time() - t0:.0f}s, {len(vocab)} terms)", flush=True)
+        if buf:
+            out.write(np.concatenate(buf).tobytes())
+    return vocab, df[:len(vocab)], np.frombuffer(lens, dtype=np.uint32).astype(np.int64)
+
+
+def token_cache_prefix(cache_dir, name, tok_name):
+    return os.path.join(cache_dir, f"{name}_{tok_name}")
+
+
+def load_or_build_tokens(corpus_path, tokenize, prefix, require=False):
+    """The tokenised corpus, cached at <prefix>.tokens.bin / .vocab.json / .stats.npz: it depends only on the corpus
+    and the tokenizer, not on F, tf or k, so every Coeus config of a dataset shares one tokenisation (the slow part:
+    hours on msmarco-v2). Built under a lock by whoever gets there first (normally the coeus_prep job, run_coeus.slurm
+    COEUS_STAGE=prep); the files appear atomically. Returns (tok_path, vocab, df, lens)."""
+    import fcntl
+    tok, voc, st = prefix + ".tokens.bin", prefix + ".vocab.json", prefix + ".stats.npz"
+    os.makedirs(os.path.dirname(prefix) or ".", exist_ok=True)
+    with open(prefix + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not (os.path.exists(tok) and os.path.exists(voc) and os.path.exists(st)):
+            if require:
+                raise SystemExit(f"ERROR: no tokenised corpus at {prefix}.*: the coeus prep job (run_coeus.slurm "
+                                 "COEUS_STAGE=prep) hasn't run. Submit Coeus through datasets/run_all.sh STAGES=coeus.")
+            print(f"tokenising the corpus into the cache {prefix}.*", flush=True)
+            tmp = f"{tok}.tmp{os.getpid()}"
+            try:
+                vocab, df, lens = tokenize_corpus(corpus_path, tokenize, tmp)
+                np.savez(st + ".tmp.npz", df=df, lens=lens)
+                with open(voc + ".tmp", "w") as f:
+                    json.dump(list(vocab), f)   # terms in id order
+                os.replace(tmp, tok); os.replace(st + ".tmp.npz", st); os.replace(voc + ".tmp", voc)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            return tok, vocab, df, lens
+    print(f"tokenised corpus loaded from the cache {prefix}.*", flush=True)
+    with open(voc) as f:
+        vocab = {t: i for i, t in enumerate(json.load(f))}
+    z = np.load(st)
+    return tok, vocab, z["df"], z["lens"]
+
+
+def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir, cache_prefix="", require_cache=False):
     """CSC-style term -> (doc rows, weights) for the top-`features` terms by document frequency.
 
-    Streams the corpus once: token ids go to a temporary int32 file, so nothing but the vocabulary and the final
-    postings (12 B each) is held in memory. That is what makes msmarco-v2 (138M docs) possible on one node.
+    Streams the corpus once: token ids go to an int32 file (cached at cache_prefix if given, else a temporary one in
+    tmp_dir), so nothing but the vocabulary and the final postings (12 B each) is held in memory. That is what makes
+    msmarco-v2 (138M docs) possible on one node.
     Returns (term_id, ptr, rows, w, n_docs); rows are in doc order within each term."""
-    vocab, df, lens = {}, np.zeros(1 << 20, dtype=np.int64), array("I")
-    os.makedirs(tmp_dir, exist_ok=True)
-    tok_path = os.path.join(tmp_dir, f"coeus_tokens_{os.getpid()}.bin")
-    t0 = time.time()
+    tok_path = None
     try:
-        with open(tok_path, "wb") as out:
-            buf = []
-            for n, (_, title, text) in enumerate(common.iter_corpus(corpus_path)):
-                ids = np.fromiter((vocab.setdefault(t, len(vocab)) for t in tokenize(f"{title} {text}")), dtype=np.int32)
-                if len(vocab) > len(df):
-                    df = np.concatenate([df, np.zeros(len(df), dtype=np.int64)])
-                if len(ids):
-                    df[np.unique(ids)] += 1
-                lens.append(len(ids))
-                buf.append(ids)
-                if len(buf) >= 100_000:
-                    out.write(np.concatenate(buf).tobytes())
-                    buf = []
-                if n % 1_000_000 == 0 and n:
-                    print(f"  tokenised {n} docs ({time.time() - t0:.0f}s, {len(vocab)} terms)", flush=True)
-            if buf:
-                out.write(np.concatenate(buf).tobytes())
+        if cache_prefix:
+            tok_path, vocab, df, lens = load_or_build_tokens(corpus_path, tokenize, cache_prefix, require_cache)
+        else:
+            os.makedirs(tmp_dir, exist_ok=True)
+            tok_path = os.path.join(tmp_dir, f"coeus_tokens_{os.getpid()}.bin")
+            vocab, df, lens = tokenize_corpus(corpus_path, tokenize, tok_path)
         n_docs = len(lens)
-        df = df[:len(vocab)]
         keep = np.argsort(-df, kind="stable")[:features]
         nkeep = len(keep)
         remap = np.full(len(vocab), -1, dtype=np.int64)
@@ -146,7 +194,6 @@ def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir):
         ptr = np.concatenate([[0], np.cumsum(df[keep])]).astype(np.int64)
         rows, w = np.empty(ptr[-1], dtype=np.int32), np.empty(ptr[-1], dtype=np.float64)
         cursor = ptr[:-1].copy()
-        lens = np.frombuffer(lens, dtype=np.uint32).astype(np.int64)
         offs = np.concatenate([[0], np.cumsum(lens)])
         tokens = np.memmap(tok_path, dtype=np.int32, mode="r") if offs[-1] else np.zeros(0, dtype=np.int32)
         step = 200_000
@@ -171,7 +218,7 @@ def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir):
             cursor += per_t
         del tokens
     finally:
-        if os.path.exists(tok_path):
+        if not cache_prefix and tok_path and os.path.exists(tok_path):   # the cache is kept for the other configs
             os.remove(tok_path)
     term_id = {t: remap[i] for t, i in vocab.items() if remap[i] >= 0}
     return term_id, ptr, rows, w, n_docs
@@ -274,6 +321,13 @@ def main():
     ap.add_argument("--tmp-dir", default="", help="where the temporary token file goes (default: --results-root); "
                     "about 4 B per token, ~25 GB for msmarco-v2")
     ap.add_argument("--results-root", default="../results")
+    ap.add_argument("--token-cache", default="",
+                    help="dir to cache the tokenised corpus in (shared by every F/tf/k of a dataset; empty = a "
+                         "temporary file per run, as before)")
+    ap.add_argument("--tokenize-only", action="store_true",
+                    help="build the --token-cache for this dataset and exit (run_coeus.slurm COEUS_STAGE=prep)")
+    ap.add_argument("--require-token-cache", action="store_true",
+                    help="fail instead of tokenising if --token-cache has no tokenised corpus (run_coeus.slurm)")
     ap.add_argument("--opt2-bin", default="", help="Coeus_artifact/matmult/bin/opt2, to measure server time")
     ap.add_argument("--opt2-cache", default="", help="JSON cache for the opt2 calibration (default next to the binary)")
     ap.add_argument("--opt2-direct-max-gb", type=float, default=48,
@@ -288,11 +342,19 @@ def main():
     if args.max_queries:
         queries = queries[:args.max_queries]
     tokenize, tok_name = make_tokenizer(args.tokenizer)
+    cache_prefix = token_cache_prefix(args.token_cache, args.name, tok_name) if args.token_cache else ""
+    if args.tokenize_only:
+        if not cache_prefix:
+            raise SystemExit("--tokenize-only needs --token-cache")
+        load_or_build_tokens(paths["corpus"], tokenize, cache_prefix)
+        print(f"token cache ready: {cache_prefix}.*", flush=True)
+        return
     print(f"{len(queries)} queries, tokenizer={tok_name}, streaming {paths['corpus']}", flush=True)
 
     t0 = time.time()
     term_id, ptr, rows, w, n_docs = build_tfidf(paths["corpus"], args.features, tokenize, args.tf,
-                                                args.tmp_dir or args.results_root)
+                                                args.tmp_dir or args.results_root, cache_prefix,
+                                                args.require_token_cache)
     pre_time = time.time() - t0
     print(f"tf-idf built over {n_docs} docs and {len(term_id)} keywords in {pre_time:.1f}s", flush=True)
     # A dictionary padded past the vocabulary only adds empty query ciphertexts: same results, more bytes.

@@ -13,11 +13,15 @@ import (
 // preprocessing. It is intentionally used only in strict benchmark runs: a
 // successful call with an incorrect response must never be mistaken for a
 // legitimate quantized zero row.
+//
+// data may stop short of the last row's end (less than one row: a zero-padded partial last row, as the Stage3 DB
+// is when it is the mmap'd embedding file); the sample is still spread over every row, so the same rows (and the
+// same number of PIR queries, which count towards the byte totals) are sampled as with a padded copy.
 func verifyPackedPIR(name string, pir *pianopir.SimpleBatchPianoPIR, data []uint64, wordsPerRow uint64) error {
-	if pir == nil || wordsPerRow == 0 || len(data)%int(wordsPerRow) != 0 {
+	if pir == nil || wordsPerRow == 0 {
 		return fmt.Errorf("%s PIR verification has invalid dimensions", name)
 	}
-	rowCount := uint64(len(data)) / wordsPerRow
+	rowCount := (uint64(len(data)) + wordsPerRow - 1) / wordsPerRow
 	if rowCount == 0 {
 		return fmt.Errorf("%s PIR verification has an empty database", name)
 	}
@@ -39,7 +43,12 @@ func verifyPackedPIR(name string, pir *pianopir.SimpleBatchPianoPIR, data []uint
 		return fmt.Errorf("%s PIR verification returned %d rows for %d requests", name, len(responses), len(indices))
 	}
 	for i, rowIndex := range indices {
-		expected := data[rowIndex*wordsPerRow : (rowIndex+1)*wordsPerRow]
+		expected := make([]uint64, wordsPerRow) // zeros past the end of data
+		end := (rowIndex + 1) * wordsPerRow
+		if end > uint64(len(data)) {
+			end = uint64(len(data))
+		}
+		copy(expected, data[rowIndex*wordsPerRow:end])
 		actual := responses[i]
 		if len(actual) != len(expected) {
 			return fmt.Errorf("%s PIR row %d returned %d words; want %d", name, rowIndex, len(actual), len(expected))

@@ -235,7 +235,9 @@ func FilterJSONLByIDs(inputPath, outputPath string, docIDs []string) error {
 	return scanner.Err()
 }
 
-func BuildBlugeIndexFromJSONL(jsonlPath, indexDir string) error {
+// buildBlugeIndexSerial is the original one-goroutine builder, kept as the reference the parallel one
+// (BuildBlugeIndexFromJSONL, index_build.go) is tested against.
+func buildBlugeIndexSerial(jsonlPath, indexDir string) error {
 	// Start fresh (important if you re-run)
 	if err := os.RemoveAll(indexDir); err != nil {
 		return err

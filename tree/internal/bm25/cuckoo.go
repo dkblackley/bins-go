@@ -279,6 +279,16 @@ func buildOrLoadCuckooTable(
 					return nil, fmt.Errorf("saving %s Cuckoo cache: %w", name, err)
 				}
 				fmt.Printf("%s Cuckoo: cached at %s\n", name, cachePath)
+				// Use the cache file (read-only mmap) from here on and let the heap copy go: otherwise every table
+				// built in this run stays on the heap for the whole run (Stage1 levels + Stage2: ~14 GB on dbpedia,
+				// hundreds of GB on msmarco-v2), while a run that finds the cache needs none of it. Same bytes.
+				if mapped, loadErr := loadCuckooTable(cachePath, name, itemCount, slotCount, entryWords, valueBytes, sourceTag, config); loadErr == nil {
+					table.Data = nil
+					runtime.GC()
+					return mapped, nil
+				} else {
+					fmt.Printf("%s Cuckoo: could not map the cache just written (%v); keeping the table in memory\n", name, loadErr)
+				}
 			}
 			return table, nil
 		}
