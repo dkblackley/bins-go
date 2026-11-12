@@ -19,20 +19,19 @@ Every Tiptoe x Coeus pair (above the MRR floor) is a hybrid candidate.
 what their MRR in the paper is (g.MRR_FROM_PRE_RERANK). --lists reranked merges results_reRank.json
 (after the local cosine rerank) and uses the reranked MRR for the Tiptoe / Coeus rows too.
 
-THE FREEZES, one set per PILLAR method (Bin, Tree), over the methods Tiptoe, Coeus, Hybrid and PILLAR-X,
-each dataset at its own values (--shared: one value for every dataset, as frozen_values.py does; with
-Tiptoe / Coeus that is rarely meaningful: DBPedia's Recall@10 is ~0.1-0.2 and Coeus' WAN is >3 s on
-FEVER / DBPedia, so a shared value drags every dataset down to that):
-  Frozen MRR@10 / Recall@10  T = the highest value (rounded down to 2 dp, matched within +/- --tol) that
-                             all four have a run at on every dataset; each takes its matching run with the
+THE FREEZES. Three groups: Tiptoe, Coeus, Hybrid + PILLAR-Bin; the same + PILLAR-Tree; and the same with
+both PILLAR methods at once. In each table ONE value is shared by every method on every dataset shown, so
+only the method changes:
+  Frozen MRR@10 / Recall@10  T = a value (rounded down to 2 dp, matched within +/- --tol) that every method
+                             has a run at on every dataset of the table; each takes its matching run with the
                              lowest WAN (--pick-by). The hybrid's pick is the cheapest PAIR whose merged list
                              hits T.
-  WAN budget                 W = the lowest budget (0.1 s steps) under which all four have a run on the
-                             dataset (--wan to choose one); each takes its best MRR@10 within W. A hybrid
-                             counts its summed WAN.
-If no value is shared by all four, the value shared by the most is used (missing picks shown) and the
-comparison is ALSO done one pair at a time: Tiptoe vs PILLAR-X, Coeus vs PILLAR-X, Hybrid vs PILLAR-X,
-each at its own value.
+  WAN budget                 W = the lowest budget (0.1 s steps) under which every method has a run on every
+                             dataset of the table (--wan to choose one); each takes its best MRR@10 within W.
+                             A hybrid counts its summed WAN.
+Datasets: the candidates are the datasets where every method of the group has runs (the hybrid needs the
+per-query lists and the qrels); each table then uses the LARGEST subset of them that has such a shared
+value (ties: the highest T / lowest W). The rest are listed as dropped, nothing is shown for them.
 Under each frozen score table: "picks merged", the hybrid of exactly the Tiptoe and Coeus configs that
 table picked (better of the two orders on MRR@10) -- it is not at T, it shows what merging those two gives.
 
@@ -64,7 +63,9 @@ import frozen_values as fv
 
 log = logging.getLogger('rebuttal_hybrid')
 
-PILLARS = ['bins', 'tree']
+GROUPS = [('PILLAR-Bin', ['bins']), ('PILLAR-Tree', ['tree']),
+          ('PILLAR-Bin and PILLAR-Tree together', ['bins', 'tree'])]
+PILLARS = sorted({m for _, ms in GROUPS for m in ms})
 BASE = ['tiptoe', 'coeus']
 HYB = 'hybrid'
 g.METHOD_LABELS.setdefault(HYB, 'Tiptoe+Coeus (RR merge)')
@@ -246,6 +247,24 @@ def run_group(by, group, datasets, args, metric, target):
     return fv.exact_freeze(by, group, datasets, metric, metric, target, args.tol, pick_by=args.pick_by)
 
 
+def pick_datasets(by, group, cands, metric, target, args):
+    """the largest subset of cands where every method of the group has a run at ONE shared value (ties: the
+    highest score / lowest WAN), and that freeze; (cands, None) if not even one dataset works"""
+    from itertools import combinations
+    for size in range(len(cands), 0, -1):
+        best = None
+        for ds in combinations(cands, size):
+            res = run_group(by, group, list(ds), args, metric, target)
+            if res['covered'] < res['pairs']:
+                continue
+            score = -res['value'] if metric == 'wan' else res['value']
+            if best is None or score > best[0]:
+                best = (score, list(ds), res)
+        if best:
+            return best[1], best[2]
+    return cands, None
+
+
 def report(nd, args):
     k = args.k
     datasets = args.datasets or g.ALL_DATASETS
@@ -280,66 +299,55 @@ def report(nd, args):
              'WAN budget cells: MRR@10 / Recall@10 (WAN), best MRR@10 within the budget.', '']
     if dropped:
         lines += [f"Runs below MRR@{k} {args.min_mrr}: " + ', '.join(f'{L(m)} {D(d)} {a}' for (m, d), (a, _) in sorted(dropped.items())), '']
-    headline = ['## Headline', '',
-                f'| PILLAR | Freeze | Dataset | Tiptoe | Coeus | {L(HYB)} | picks merged | PILLAR |',
-                '|---|---|---|---|---|---|---|---|']
-    details, js = [], {}
+    details, js, headline = [], {}, ['## Headline', '']
     targets = {'mrr': args.mrr, 'recall': args.recall, 'wan': args.wan}
-    for P in PILLARS:
-        group = BASE + [HYB, P]
-        used = [d for d in have if by[P][d]]
-        skipped = [d for d in datasets if d not in used and any(by[m][d] for m in group)]
-        details += [f'## {L(P)}: Tiptoe, Coeus, {L(HYB)}, {L(P)}', '']
-        if skipped:
-            details += ['Skipped (some method has no runs): ' + '; '.join(
-                f"{D(d)} (no {', '.join(L(m) for m in BASE + [P] if not by[m][d])})" for d in skipped), '']
-        if not used:
-            details += ['No dataset with Tiptoe, Coeus and this method.', '']
-            continue
-        details += [f"Datasets: {', '.join(D(d) for d in used)}", '']
-        js[P] = []
-        for dsets in ([used] if args.shared else [[d] for d in used]):   # one value per dataset unless --shared
-            for metric in ('mrr', 'recall', 'wan'):
-                for t in (targets[metric] or [None]):
-                    res = run_group(by, group, dsets, args, metric, t)
-                    h, note = fv._header(res)
-                    details += [h.replace('####', '###'), '', note, ''] + fv._table(res, group, dsets)
-                    merged = {}
-                    if res['kind'] == 'score':
-                        for d in dsets:
-                            mp = merged_pick(res['picks'][('tiptoe', d)], res['picks'][('coeus', d)], by[HYB][d])
-                            merged[d] = mp
-                            if mp:
-                                details.append(f"| {D(d)} | picks merged (not at the frozen value) | `{mp['config']}` | "
-                                               f"{r2(mp['mrr'])} | {r2(mp['recall'])} | {r2(mp['wan_time'])} | "
-                                               f"{r2(mp.get('lan_time'))} | {fv._f(mp.get('comm_kb'), '.1f')} | "
-                                               f"{fv._f(mp.get('client_storage_mb'), '.1f')} | {mp['source']} |")
-                    details += [''] + fv._summary(res, group, dsets) + ['']
-                    for d in dsets:
-                        pk = res['picks']
-                        headline.append(f"| {L(P)} | {freeze_title(res)} | {D(d)} | {cell(pk[('tiptoe', d)], res['kind'])} | "
-                                        f"{cell(pk[('coeus', d)], res['kind'])} | {cell(pk[(HYB, d)], res['kind'])} | "
-                                        f"{cell(merged.get(d), 'score') if res['kind'] == 'score' else ''} | "
-                                        f"{cell(pk[(P, d)], res['kind'])} |")
-                    entry = {'kind': res['kind'], 'match': res['match'], 'value': res['value'], 'tol': res['tol'],
-                             'common': res['common'], 'covered': res['covered'], 'pairs': res['pairs'],
-                             'picks': {f'{m}/{d}': (fv._row(p) if p else None) for (m, d), p in res['picks'].items()},
-                             'picks_merged': {d: (fv._row(p) if p else None) for d, p in merged.items()}}
-                    js[P].append(entry)
-                    if res['covered'] < res['pairs']:   # not shared by all four: one pair at a time
-                        details += [f'#### {freeze_title(res)} is not shared by all four: one method at a time vs {L(P)}', '']
-                        for m in BASE + [HYB]:
-                            ds2 = [d for d in dsets if by[m][d]]
-                            if not ds2:
-                                details += [f'- {L(m)}: no runs', '']
-                                continue
-                            r = run_group(by, [m, P], ds2, args, metric, t)
-                            h, note = fv._header(r)
-                            details += [h.replace('####', '#####'), '', note, ''] + fv._table(r, [m, P], ds2) + [''] + \
-                                       fv._summary(r, [m, P], ds2) + ['']
-                            entry.setdefault('pairwise', {})[m] = {
-                                'value': r['value'], 'covered': r['covered'], 'pairs': r['pairs'],
-                                'picks': {f'{mm}/{d}': (fv._row(p) if p else None) for (mm, d), p in r['picks'].items()}}
+    for gname, pillars in GROUPS:
+        group = BASE + [HYB] + pillars
+        cands = [d for d in datasets if all(by[m][d] for m in group)]
+        details += [f'## {gname}: ' + ', '.join(L(m) for m in group), '',
+                    f"Candidate datasets (every method has runs, hybrid included): {', '.join(D(d) for d in cands) or 'none'}"
+                    + (f"; not candidates: " + '; '.join(f"{D(d)} (no {', '.join(L(m) for m in group if not by[m][d])})"
+                                                         for d in datasets if d not in cands and any(by[m][d] for m in group))
+                       if len(cands) < len(datasets) else '') + '.', '']
+        cols = ['Tiptoe', 'Coeus', L(HYB), 'picks merged'] + [L(m) for m in pillars]
+        headline += [f'### {gname}', '', '| Freeze | Datasets | Dataset | ' + ' | '.join(cols) + ' |',
+                     '|' + '---|' * (3 + len(cols))]
+        js[gname] = []
+        for metric in ('mrr', 'recall', 'wan'):
+            for t in (targets[metric] or [None]):
+                name = 'WAN budget' if metric == 'wan' else fv.SCORE_LABEL[metric]
+                used, res = pick_datasets(by, group, cands, metric, t, args)
+                if res is None:
+                    details += [f'### {name}: no dataset where every method has a run at one shared value', '']
+                    headline.append(f'| {name} | none | | ' + ' | ' * len(cols))
+                    continue
+                h, note = fv._header(res)
+                dropped_ds = [d for d in cands if d not in used]
+                details += [h.replace('####', '###'), '', note +
+                            (f" Dropped (no shared value with the others): {', '.join(D(d) for d in dropped_ds)}." if dropped_ds else ''),
+                            ''] + fv._table(res, group, used)
+                merged = {}
+                if res['kind'] == 'score':
+                    for d in used:
+                        mp = merged_pick(res['picks'][('tiptoe', d)], res['picks'][('coeus', d)], by[HYB][d])
+                        merged[d] = mp
+                        if mp:
+                            details.append(f"| {D(d)} | picks merged (not at the frozen value) | `{mp['config']}` | "
+                                           f"{r2(mp['mrr'])} | {r2(mp['recall'])} | {r2(mp['wan_time'])} | "
+                                           f"{r2(mp.get('lan_time'))} | {fv._f(mp.get('comm_kb'), '.1f')} | "
+                                           f"{fv._f(mp.get('client_storage_mb'), '.1f')} | {mp['source']} |")
+                details += [''] + fv._summary(res, group, used) + ['']
+                for i, d in enumerate(used):
+                    pk = res['picks']
+                    headline.append(f"| {freeze_title(res) if i == 0 else ''} | {f'{len(used)}/{len(cands)}' if i == 0 else ''} | {D(d)} | "
+                                    + ' | '.join([cell(pk[(m, d)], res['kind']) for m in BASE + [HYB]]
+                                                 + [cell(merged.get(d), 'score') if res['kind'] == 'score' else '']
+                                                 + [cell(pk[(m, d)], res['kind']) for m in pillars]) + ' |')
+                js[gname].append({'kind': res['kind'], 'match': res['match'], 'value': res['value'], 'tol': res['tol'],
+                                  'datasets': used, 'dropped': dropped_ds,
+                                  'picks': {f'{m}/{d}': (fv._row(p) if p else None) for (m, d), p in res['picks'].items()},
+                                  'picks_merged': {d: (fv._row(p) if p else None) for d, p in merged.items()}})
+        headline.append('')
     out = lines + headline + [''] + ['## Per-query check', ''] + [f'- {c}' for c in checks] + [''] + details
     if NEEDED:
         out += ['## Per-query files to download (then run again)', '']
@@ -373,8 +381,6 @@ if __name__ == '__main__':
     ap.add_argument('--min-mrr', type=float, default=fv.MIN_MRR)
     ap.add_argument('--pick-by', choices=fv.PICK_BY_CHOICES, default=fv.PICK_BY,
                     help='frozen score: the matching run with the lowest of this')
-    ap.add_argument('--shared', action='store_true',
-                    help='one frozen value shared by every dataset (frozen_values.py style) instead of one per dataset')
     ap.add_argument('--no-write', dest='write', action='store_false')
     args = ap.parse_args()
     g.setup_logging()
