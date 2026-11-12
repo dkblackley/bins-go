@@ -70,7 +70,7 @@ STORAGE_EXCLUDE_METHODS = os.environ.get('STORAGE_EXCLUDE_METHODS', 'tiptoe coeu
 # PILLAR-Bin runs whose client storage is >= BINS_MAX_CLIENT_FRACTION of the dataset's embedding DB are dropped by
 # load_results(): at that point the client might as well download the embeddings. FILTER_BINS_CLIENT_STORAGE=0 keeps
 # every run (or pass filter_bins_client=False); BINS_MAX_CLIENT_FRACTION=0.5 etc. moves the cut.
-FILTER_BINS_CLIENT_STORAGE = os.environ.get('FILTER_BINS_CLIENT_STORAGE', '1') != '1'
+FILTER_BINS_CLIENT_STORAGE = os.environ.get('FILTER_BINS_CLIENT_STORAGE', '1') != '0'
 BINS_MAX_CLIENT_FRACTION = float(os.environ.get('BINS_MAX_CLIENT_FRACTION', 2 / 3))
 # Size (MB = 2^20 bytes, like DBSizeInBytesMB / ClientStorageMB) of ../datasets/<d>/<d>_corpus_embed_f32.npy on hopper,
 # checked 2026-11-10: docs x 192 dims x float32 (the PCA'd e5 embeddings), + the .npy header.
