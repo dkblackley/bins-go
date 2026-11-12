@@ -39,8 +39,10 @@ table picked (better of the two orders on MRR@10) -- it is not at T, it shows wh
 Runs are filtered like frozen_values.py (MRR@10 floor --min-mrr; nothing else). Tiptoe's WAN is the
 online part only (its per-query token is fetched offline), as everywhere else in the paper.
 
-Inputs: load_results() (metadata.json), results.json / results_reRank.json of every Tiptoe and Coeus
+Inputs: load_results() (metadata.json; Tiptoe / Coeus are read from g.RESULTS_DIRS if it found none of
+them, e.g. with ONLY_SIMULATED on hopper), results.json / results_reRank.json of every Tiptoe and Coeus
 run, and the qrels the baselines used (g.DATASETS_ROOT/<d>/qrels/test.tsv, qrels.dev.tsv for msmarco;
+also tried next to the results folders, e.g. /scratch/dblackle/datasets;
 fallback g.TREE_DATA_DIR/<d>_tree/qrels.trec). Each run's recomputed MRR is checked against its
 metadata.json (mismatches are reported: a sign of the wrong qrels). Missing per-query files are listed
 at the end with an rsync command.
@@ -83,8 +85,12 @@ def qrels(dataset):
     """qid -> set of relevant doc ids (score > 0), the file baselines/common.py uses."""
     if dataset not in _QRELS:
         name = 'qrels.dev.tsv' if dataset == 'msmarco' else 'test.tsv'
-        paths = [os.path.join(g.DATASETS_ROOT, dataset, 'qrels', name),
-                 os.path.join(g.TREE_DATA_DIR, f'{dataset}_tree', 'qrels.trec')]
+        # g.DATASETS_ROOT, then a datasets/ folder next to the results folders (hopper: /scratch/dblackle/datasets)
+        roots = [g.DATASETS_ROOT]
+        for rd in g.RESULTS_DIRS + g.SIMULATED_RESULTS_DIRS:
+            roots += [os.path.dirname(os.path.abspath(rd)), os.path.join(os.path.dirname(os.path.abspath(rd)), 'datasets')]
+        paths = list(dict.fromkeys(os.path.join(r, dataset, 'qrels', name) for r in roots))
+        paths.append(os.path.join(g.TREE_DATA_DIR, f'{dataset}_tree', 'qrels.trec'))
         path = next((p for p in paths if os.path.exists(p)), None)
         rel = defaultdict(set)
         if path is None:
@@ -178,7 +184,7 @@ def hybrids(by, dataset, which, k):
                 h = {'method': HYB, 'dataset': dataset, 'k': k, 'mrr': mrr, 'recall': rec, 'order': order,
                      'config': f"{order} T:{t['config']} + C:{c['config']}",
                      'folder': f"{t['folder']} + {c['folder']}",
-                     'source': 'real' if t.get('source') == c.get('source') == 'real' else 'simulated',
+                     'source': 'simulated',   # Tiptoe and Coeus are always simulated
                      'tiptoe': t, 'coeus': c}
                 for key2 in SUM_KEYS:
                     x, y = t.get(key2), c.get(key2)
@@ -195,6 +201,26 @@ def merged_pick(tp, cp, by_hyb):
         return None
     hs = [h for h in by_hyb if h['tiptoe'] is tp and h['coeus'] is cp]
     return max(hs, key=lambda h: (h['mrr'], h['recall'])) if hs else None
+
+
+def add_baselines(nd):
+    """Tiptoe / Coeus runs that load_results() didn't find (ONLY_SIMULATED reads results_simulated plus
+    g.EXTRA_RESULTS_DIRS only, and on hopper the latter don't exist) are read from g.RESULTS_DIRS, where the
+    baseline scripts write them. They are simulated runs (simulate_tiptoe.py, run_coeus.py) and marked so.
+    Nothing else is taken from there: PILLAR-Bin / Tree stay exactly what load_results() gave (simulated only
+    under ONLY_SIMULATED)."""
+    dirs = [d for d in g.RESULTS_DIRS if os.path.isdir(d)]
+    missing = [m for m in BASE if not any(r['k'] == g.K_MAIN for rs in nd.get(m, {}).values() for r in rs)]
+    if not missing or not dirs:
+        return
+    log.info("no %s runs loaded; reading them from %s", '/'.join(missing), ', '.join(dirs))
+    extra = load_results.load_results(dirs, fallback_simulated=False, only_simulated=False, filter_bins_client=False)
+    for m in missing:
+        nd[m] = extra.get(m, {})
+        for rs in nd[m].values():
+            for r in rs:
+                r['source'] = 'simulated'   # Tiptoe / Coeus runs are always simulated, wherever they are stored
+        log.info("%s: %s", m, ', '.join(f'{d} {len(rs)}' for d, rs in sorted(nd[m].items())) or 'none found')
 
 
 # ------------------------------------------------------------------------------------------------- report
@@ -235,8 +261,8 @@ def report(nd, args):
     for d in have:
         rel = qrels(d)
         if not rel:   # no qrels here: the hybrid can't be scored (Tiptoe / Coeus / PILLAR still compared)
-            checks.append(f"{D(d)}: NO QRELS ({os.path.join(g.DATASETS_ROOT, d, 'qrels')} or "
-                          f"{os.path.join(g.TREE_DATA_DIR, d + '_tree', 'qrels.trec')}), so no hybrid on this dataset")
+            checks.append(f"{D(d)}: NO QRELS (looked under DATASETS_ROOT={g.DATASETS_ROOT}, next to the results "
+                          f"folders, and in {g.TREE_DATA_DIR}; set DATASETS_ROOT), so no hybrid on this dataset")
             continue
         diffs = [x for x in (check_run(r, args.lists, rel) for m in BASE for r in by[m][d]) if x is not None]
         bad = [x for x in diffs if abs(x) > CHECK_TOL]
@@ -352,4 +378,6 @@ if __name__ == '__main__':
     ap.add_argument('--no-write', dest='write', action='store_false')
     args = ap.parse_args()
     g.setup_logging()
-    report(load_results.load_results(), args)
+    nd = load_results.load_results()
+    add_baselines(nd)
+    report(nd, args)
