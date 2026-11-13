@@ -95,13 +95,7 @@ func BasicReRank(results map[string][]string, config globals.Args) map[string][]
 	for _, q := range qs {
 
 		// simple: match Query text against both title and body
-		matchTitle := bluge.NewMatchQuery(q.Text).SetField("title")
-		matchBody := bluge.NewMatchQuery(q.Text).SetField("body")
-		boolean := bluge.NewBooleanQuery().
-			AddShould(matchTitle).
-			AddShould(matchBody)
-
-		req := bluge.NewTopNSearch(int(config.K), boolean)
+		req := bluge.NewTopNSearch(int(config.K), binsTextQuery(q.Text))
 		it, err := reader.Search(context.Background(), req)
 
 		Must(err)
@@ -283,10 +277,10 @@ func buildBlugeIndexSerial(jsonlPath, indexDir string) error {
 
 		doc := bluge.NewDocument(id)
 		if title != "" {
-			doc.AddField(bluge.NewTextField("title", title))
+			doc.AddField(binsTextField("title", title))
 		}
 		if text != "" {
-			doc.AddField(bluge.NewTextField("body", text))
+			doc.AddField(binsTextField("body", text))
 		}
 		// store _id so your VisitStoredFields logic still works
 		doc.AddField(bluge.NewKeywordField("_id", id).StoreValue())

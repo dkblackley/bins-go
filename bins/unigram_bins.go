@@ -193,10 +193,30 @@ func MakeUnigramDB(reader *bluge.Reader, dataset globals.DatasetMetadata, config
 
 }
 
+// binsAnalyzer is the analyzer of the bins' Bluge index (title and body, see index_build.go) and of raw query text
+// searched in it: the same strictEnglishAnalyzer the vocabulary and the query words are made with. It used to be
+// Bluge's standard analyzer (lowercase only), so a vocabulary stem that isn't itself a word ("studi", "dog" from
+// "dogs") found no documents and its bin stayed empty. Its tokenizer and filters keep no state, so one is shared.
+var binsAnalyzer = strictEnglishAnalyzer()
+
+// binsTextField is a title / body field of the bins index
+func binsTextField(name, value string) *bluge.TermField {
+	return bluge.NewTextField(name, value).WithAnalyzer(binsAnalyzer)
+}
+
+// binsTextQuery matches raw text (a query) against title and body, analyzed like the index
+func binsTextQuery(text string) bluge.Query {
+	return bluge.NewBooleanQuery().
+		AddShould(bluge.NewMatchQuery(text).SetField("title").SetAnalyzer(binsAnalyzer)).
+		AddShould(bluge.NewMatchQuery(text).SetField("body").SetAnalyzer(binsAnalyzer))
+}
+
+// searchTopDocs is the top n docs of one vocabulary word. The word is already an analyzed term (a stem), so it is
+// looked up as is: analyzing it again would stem the stem.
 func searchTopDocs(reader *bluge.Reader, word string, n int) []string {
-	matchTitle := bluge.NewMatchQuery(word).SetField("title")
-	matchBody := bluge.NewMatchQuery(word).SetField("body")
-	boolean := bluge.NewBooleanQuery().AddShould(matchTitle).AddShould(matchBody)
+	boolean := bluge.NewBooleanQuery().
+		AddShould(bluge.NewTermQuery(word).SetField("title")).
+		AddShould(bluge.NewTermQuery(word).SetField("body"))
 
 	it, err := reader.Search(context.Background(), bluge.NewTopNSearch(n, boolean))
 	Must(err)

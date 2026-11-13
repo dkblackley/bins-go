@@ -44,10 +44,10 @@ func beirLineToDoc(line []byte) *bluge.Document {
 	}
 	doc := bluge.NewDocument(d.ID)
 	if d.Title != "" {
-		doc.AddField(&preAnalyzedField{TermField: bluge.NewTextField("title", d.Title)})
+		doc.AddField(&preAnalyzedField{TermField: binsTextField("title", d.Title)})
 	}
 	if d.Text != "" {
-		doc.AddField(&preAnalyzedField{TermField: bluge.NewTextField("body", d.Text)})
+		doc.AddField(&preAnalyzedField{TermField: binsTextField("body", d.Text)})
 	}
 	doc.AddField(bluge.NewKeywordField("_id", d.ID).StoreValue())
 	return doc
