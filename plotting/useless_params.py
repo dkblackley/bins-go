@@ -86,7 +86,7 @@ def main():
 
     g.INCLUDE_VEC0_SWEEP = False
     g.setup_logging()
-    nd = load_results.load_results(filter_bins_client=False)
+    nd = load_results.load_results(filter_client=False)
     per_ds = {d: [r for r in rs if r['k'] == g.K_MAIN] for d, rs in nd.get(args.method, {}).items()}
     per_ds = {d: rs for d, rs in per_ds.items() if (not args.datasets or d in args.datasets) and len(rs) >= args.min_runs}
     print(f"{args.method}: datasets {', '.join(f'{d} ({len(rs)})' for d, rs in sorted(per_ds.items()))}; tolerance {args.tol:.1%}\n")

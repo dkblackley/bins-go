@@ -21,13 +21,15 @@ quality, bytes, LAN/WAN and client storage are the same as a real run's. Sub-fol
 named like h3_lf0.88/ (msmarco-v2's tree runs with other Cuckoo settings) are read too;
 their runs' folder is 'h3_lf0.88/<name>'.
 
-BINS CLIENT STORAGE FILTER
---------------------------
-With g.FILTER_BINS_CLIENT_STORAGE (default on; FILTER_BINS_CLIENT_STORAGE=0, or pass
-filter_bins_client=False), PILLAR-Bin runs ('bins', every vec) whose client_storage_mb is
->= g.BINS_MAX_CLIENT_FRACTION (2/3) x g.EMBED_DB_MB[dataset] (the dataset's embedding file)
-are dropped after loading; the count per dataset is logged. Datasets missing from
-EMBED_DB_MB keep all their runs (with a warning).
+CLIENT STORAGE FILTER
+---------------------
+With g.FILTER_CLIENT_STORAGE (default on; FILTER_CLIENT_STORAGE=0, or pass
+filter_client=False), runs of every method whose client_storage_mb is
+>= g.MAX_CLIENT_FRACTION (1.0) x g.EMBED_DB_MB[dataset] (the dataset's embedding file)
+are dropped after loading, unless that would drop every run of a method on a dataset (then
+that method keeps all its runs there). The count per method/dataset is logged and the dropped runs
+are kept in DROPPED[method][dataset]. Datasets missing from EMBED_DB_MB keep all their
+runs (with a warning).
 
 FOLDERS
 -------
@@ -493,7 +495,7 @@ def _list_folders(results_dir):
 
 
 def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallback_simulated=None,
-                 filter_bins_client=None, only_simulated=None):
+                 filter_client=None, only_simulated=None):
     """
     Reads every folder's metadata.json in `results_dirs` (one path, a list of
     paths, or None for g.RESULTS_DIRS) with a thread pool. With fallback_simulated
@@ -502,8 +504,8 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
     says which. Loading is I/O-bound (many small file reads, often over a network
     filesystem), so threads give a big speedup despite the GIL: it's released during
     file I/O, and json.load / the parsers only hold it for the small compute part.
-    filter_bins_client (default g.FILTER_BINS_CLIENT_STORAGE) drops the bins runs whose
-    client storage is too close to the embedding DB, see filter_bins_client_storage().
+    filter_client (default g.FILTER_CLIENT_STORAGE) drops the runs (every method) whose
+    client storage reaches the embedding DB size, see filter_client_storage().
     only_simulated (default g.ONLY_SIMULATED) reads `simulated_dirs` and nothing else:
     results_dirs is ignored (the Tiptoe/Coeus EXTRA_RESULTS_DIRS are still read), and a config with no simulated
     run is simply missing (it never falls back to a real run).
@@ -544,7 +546,11 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
         if not os.path.isdir(results_dir):
             (log.warning if source == 'simulated' else log.error)("results directory does not exist: %s", results_dir)
             continue
+        is_extra = (results_dir, source) in extra_sources
         for folder in _list_folders(results_dir):
+            # a mixed extra folder (datasets/results) only gives its baselines, see g.EXTRA_METHODS
+            if is_extra and g.EXTRA_METHODS and os.path.basename(folder).split('_', 1)[0] not in g.EXTRA_METHODS:
+                continue
             candidates.setdefault(folder, []).append((results_dir, source))
     jobs = sorted(candidates.items())
     no_metadata, bad_json, skipped = [], [], []
@@ -579,8 +585,8 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
     if bad_json or skipped:
         log.warning("%d corrupted, %d skipped: %s", len(bad_json), len(skipped),
                     ', '.join(bad_json + skipped))
-    if g.FILTER_BINS_CLIENT_STORAGE if filter_bins_client is None else filter_bins_client:
-        filter_bins_client_storage(nested_data)
+    if g.FILTER_CLIENT_STORAGE if filter_client is None else filter_client:
+        filter_client_storage(nested_data)
     exclude_client_storage(nested_data)
     print_summary(nested_data)
     return nested_data
@@ -602,26 +608,36 @@ def exclude_client_storage(nested_data, methods=None):
                      method, n)
 
 
-DROPPED_BINS = {}   # dataset -> bins runs the client storage filter took out (so reports can say what it hid)
+DROPPED = {}   # method -> dataset -> runs the client storage filter took out (so reports can say what it hid)
+DROPPED_BINS = DROPPED.setdefault('bins', {})   # same dict as DROPPED['bins'], for the older reports
 
 
-def filter_bins_client_storage(nested_data, fraction=None):
-    """Drops bins runs with client_storage_mb >= fraction x the dataset's embedding DB (g.EMBED_DB_MB), in place.
-    The dropped runs are kept in DROPPED_BINS[dataset]."""
-    fraction = g.BINS_MAX_CLIENT_FRACTION if fraction is None else fraction
-    for dataset, runs in nested_data.get('bins', {}).items():
-        limit = g.EMBED_DB_MB.get(dataset)
-        if limit is None:
-            log.warning("bins/%s: no embedding DB size in g.EMBED_DB_MB, client storage filter not applied", dataset)
-            continue
-        limit *= fraction
-        # NaN client storage compares False, so those runs are kept
-        keep = [r for r in runs if not r['client_storage_mb'] >= limit]
-        DROPPED_BINS[dataset] = [r for r in runs if r['client_storage_mb'] >= limit]
-        if len(keep) < len(runs):
-            log.info("bins/%s: dropped %d of %d runs with client storage >= %.0f MB (%.2f x the %.0f MB embedding DB)",
-                     dataset, len(runs) - len(keep), len(runs), limit, fraction, g.EMBED_DB_MB[dataset])
-        runs[:] = keep
+def filter_client_storage(nested_data, fraction=None):
+    """Drops runs of every method with client_storage_mb >= fraction x the dataset's embedding DB (g.EMBED_DB_MB),
+    in place. Runs before exclude_client_storage(), so the reported value is what is compared. The dropped runs are
+    kept in DROPPED[method][dataset]."""
+    fraction = g.MAX_CLIENT_FRACTION if fraction is None else fraction
+    for method, per_dataset in nested_data.items():
+        for dataset, runs in per_dataset.items():
+            limit = g.EMBED_DB_MB.get(dataset)
+            if limit is None:
+                log.warning("%s/%s: no embedding DB size in g.EMBED_DB_MB, client storage filter not applied",
+                            method, dataset)
+                continue
+            limit *= fraction
+            # NaN client storage compares False, so those runs are kept
+            keep = [r for r in runs if not r.get('client_storage_mb', math.nan) >= limit]
+            if runs and not keep:   # the filter would wipe out this method on this dataset: keep all of its runs
+                log.info("%s/%s: all %d runs have client storage >= %.1f MB (%.2f x the %.1f MB embedding DB), "
+                         "filter not applied so the method stays in", method, dataset, len(runs), limit, fraction,
+                         g.EMBED_DB_MB[dataset])
+                DROPPED.setdefault(method, {})[dataset] = []
+                continue
+            DROPPED.setdefault(method, {})[dataset] = [r for r in runs if r.get('client_storage_mb', math.nan) >= limit]
+            if len(keep) < len(runs):
+                log.info("%s/%s: dropped %d of %d runs with client storage >= %.1f MB (%.2f x the %.1f MB embedding DB)",
+                         method, dataset, len(runs) - len(keep), len(runs), limit, fraction, g.EMBED_DB_MB[dataset])
+            runs[:] = keep
 
 
 def print_summary(nested_data):

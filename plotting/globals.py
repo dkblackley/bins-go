@@ -10,6 +10,7 @@ LaTeX the fonts shrink with it, so change FIG_SIZE here instead.
 
 import logging
 import os
+import re
 
 import matplotlib
 matplotlib.use('Agg')
@@ -36,11 +37,15 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 EXTRA_RESULTS_DIR = os.environ.get('EXTRA_RESULTS_DIRS', os.pathsep.join([
     '../../../../datasets/tiptoe',
     '../../../../datasets/coeus',
+    '../../../../datasets/results',   # this machine: the tiptoe_* / coeus_* runs live here
 ]))
 EXTRA_RESULTS_DIRS = [os.path.normpath(os.path.join(_HERE, d))
                       for d in EXTRA_RESULTS_DIR.split(os.pathsep) if d]
 
 RESULTS_DIRS = [d for d in RESULTS_DIR.split(os.pathsep) if d]
+# Only these methods' folders are read from EXTRA_RESULTS_DIRS, so a mixed folder like datasets/results (old real bins /
+# tree runs next to the baselines) only contributes its baselines. EXTRA_METHODS="" reads every method there.
+EXTRA_METHODS = os.environ.get('EXTRA_METHODS', 'tiptoe coeus').split()
 
 # Simulated runs (SIMULATE=1, run_me.sh's default): same quality, bytes, LAN/WAN and client storage as a real run, but
 # every server timing (TotalAnswerTime, PreprocessingTime, ...) is -1, loaded as NaN. With FALLBACK_TO_SIMULATED on,
@@ -67,11 +72,12 @@ INCLUDE_VEC0_SWEEP = os.environ.get('INCLUDE_VEC0_SWEEP', '1') != '0'
 # PILLAR vs PACMANN comparison. STORAGE_EXCLUDE_METHODS="" puts them back.
 STORAGE_EXCLUDE_METHODS = os.environ.get('STORAGE_EXCLUDE_METHODS', 'tiptoe coeus').split()
 
-# PILLAR-Bin runs whose client storage is >= BINS_MAX_CLIENT_FRACTION of the dataset's embedding DB are dropped by
-# load_results(): at that point the client might as well download the embeddings. FILTER_BINS_CLIENT_STORAGE=0 keeps
-# every run (or pass filter_bins_client=False); BINS_MAX_CLIENT_FRACTION=0.5 etc. moves the cut.
-FILTER_BINS_CLIENT_STORAGE = os.environ.get('FILTER_BINS_CLIENT_STORAGE', '1') != '0'
-BINS_MAX_CLIENT_FRACTION = float(os.environ.get('BINS_MAX_CLIENT_FRACTION', 2 / 3))
+# Runs of ANY method whose client storage is >= MAX_CLIENT_FRACTION x the dataset's embedding DB (EMBED_DB_MB) are
+# dropped by load_results(): at that point the client might as well download the embeddings. The default (1.0) drops
+# every run whose client keeps more than the whole embedding DB. FILTER_CLIENT_STORAGE=0 keeps every run (or pass
+# filter_client=False); MAX_CLIENT_FRACTION=2/3 etc. moves the cut. Dropped runs are in load_results.DROPPED.
+FILTER_CLIENT_STORAGE = os.environ.get('FILTER_CLIENT_STORAGE', '1') != '0'
+MAX_CLIENT_FRACTION = float(os.environ.get('MAX_CLIENT_FRACTION', 1.0))
 # Size (MB = 2^20 bytes, like DBSizeInBytesMB / ClientStorageMB) of ../datasets/<d>/<d>_corpus_embed_f32.npy on hopper,
 # checked 2026-11-10: docs x 192 dims x float32 (the PCA'd e5 embeddings), + the .npy header.
 EMBED_DB_MB = {
@@ -107,7 +113,8 @@ K_MAIN = 10      # k for the method comparison plots
 K_ABLATION = 10    # k for the bins ablations (the dpb=1500 sweep only exists at k10 right now)
 
 BINS_FIXED_DPB = 1500                                  # docs per bin when sweeping bin size
-BINS_FIXED_BS = {'msmarco': 1000000, 'scifact': 5000}  # bin size when sweeping docs per bin
+BINS_FIXED_BS = {'msmarco': 1000000, 'scifact': 5000}  # bin size when sweeping docs per bin; a dataset not
+                        # listed uses the bin size with the most dpb values (pu.fixed_bs)
 
 # ==========================================
 # ORDER, NAMES, COLOURS (Okabe-Ito)
@@ -141,15 +148,38 @@ METHOD_HATCHES = {'bins': '///', 'bins-text': '++', 'tree': 'xxx', 'pacmann': ''
 # reranked number is still loaded as 'mrr_reranked' (see load_results.py)
 MRR_FROM_PRE_RERANK = {'coeus', 'tiptoe'}
 
-DATASETS = ['msmarco', 'scifact']
 # every dataset run_me.sh / check_runs.sh cover (the rebuttal tables use these)
 ALL_DATASETS = ['scifact', 'msmarco', 'nq', 'fever', 'dbpedia-entity', 'msmarco-v2-25m', 'msmarco-v2-50m', 'msmarco-v2']
+NEW_DATASETS = ['nq', 'fever', 'msmarco-v2-25m', 'msmarco-v2-50m', 'msmarco-v2']
+# Named groups for DATASETS below
+DATASET_GROUPS = {'paper': ['msmarco', 'scifact'], 'new': NEW_DATASETS, 'all': ALL_DATASETS,
+                  'v2': ['msmarco-v2-25m', 'msmarco-v2-50m', 'msmarco-v2']}
+
+
+def _parse_datasets(text):
+    """'nq,fever' / 'nq fever' / 'new' / 'paper,nq' -> a list of dataset names, groups expanded, duplicates dropped."""
+    out = []
+    for item in re.split(r'[\s,]+', text.strip()):
+        out += DATASET_GROUPS.get(item, [item] if item else [])
+    return list(dict.fromkeys(out))
+
+
+# The datasets every plot loops over (one figure per dataset, or one column per dataset in the client storage
+# figure), and the ones best_configs.py prints. Pick them without editing anything:
+#   DATASETS=paper python main.py            MS MARCO + SciFact only (the old default)
+#   DATASETS=new python main.py              nq, fever and the three MS MARCO v2 sizes
+#   DATASETS=nq,msmarco-v2-25m python main.py
+#   DATASETS=all python main.py              (groups: paper, new, v2, all; mix them with names)
+DATASETS = _parse_datasets(os.environ.get('DATASETS', 'all'))
 
 DATASET_LABELS = {'msmarco': 'MS MARCO', 'scifact': 'SciFact', 'nq': 'NQ', 'fever': 'FEVER',
                   'dbpedia-entity': 'DBPedia', 'msmarco-v2-25m': 'MS MARCO v2 (25M)',
                   'msmarco-v2-50m': 'MS MARCO v2 (50M)', 'msmarco-v2': 'MS MARCO v2'}
-DATASET_COLORS = {'msmarco': '#CC79A7', 'scifact': '#F0E442'}   # kept distinct from the method colours
-DATASET_MARKERS = {'msmarco': 'o', 'scifact': 's'}
+DATASET_COLORS = {'msmarco': '#CC79A7', 'scifact': '#F0E442', 'nq': '#56B4E9', 'fever': '#999999',
+                  'msmarco-v2-25m': '#882255', 'msmarco-v2-50m': '#AA4499', 'msmarco-v2': '#332288',
+                  'dbpedia-entity': '#44AA99'}   # kept distinct from the method colours
+DATASET_MARKERS = {'msmarco': 'o', 'scifact': 's', 'nq': 'D', 'fever': 'v', 'msmarco-v2-25m': 'P',
+                   'msmarco-v2-50m': 'X', 'msmarco-v2': '*', 'dbpedia-entity': 'h'}
 
 BASELINE_LINESTYLE = ':'   # dotted reference lines (e.g. PACMANN DB size)
 

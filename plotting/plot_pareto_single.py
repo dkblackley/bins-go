@@ -40,9 +40,16 @@ import select_configs as sc
 # WHAT IS PLOTTED
 # ==========================================
 
-DATASET = 'msmarco'             # one of g.DATASETS: the only dataset in the panel
-X_KEY = 'wan_time'      # run keys, see load_results.py for the full list
-Y_KEY = 'answer_relevancy'
+DATASETS = g.DATASETS   # one figure per dataset per entry of PAIRS (DATASETS=new python main.py, see globals)
+DATASET = DATASETS[0] if DATASETS else 'msmarco'   # default for plot_pareto_single() called by hand
+PAIRS = [               # (x key, y key): one figure each, run keys from load_results.py
+    ('wan_time', 'answer_relevancy'),   # the paper figure (only runs with RAGAS scores have it)
+    ('wan_time', 'mrr'),
+    ('wan_time', 'recall'),
+    ('client_storage_mb', 'mrr'),
+    ('comm_kb', 'mrr'),
+]
+X_KEY, Y_KEY = PAIRS[0]  # the pair used when one isn't passed
 K = g.K_MAIN
 
 BEST_N = 5              # configs per method, picked by select_configs.py exactly as
@@ -53,18 +60,33 @@ FIG_NAME = 'pareto_{dataset}_{y}_vs_{x}'   # figures/<this>.pdf, so one dataset 
                                            # metrics at a time doesn't overwrite the last figure
 
 # ==========================================
+# PER-KEY / PER-DATASET AXES
+# ==========================================
+# AXES[key] sets up a run key wherever it is plotted (x or y), AXES[(dataset, key)] for one dataset only,
+# winning over the plain key. Options: lim, step, fmt, log, units, base, label (as the X_* / Y_* globals
+# below, which are the fallbacks). A key / dataset not listed fits the data, so new datasets need nothing here.
+AXES = {
+    'client_storage_mb': dict(log=True, units='bytes', base='MB', label='Client Storage'),
+    'comm_kb':           dict(log=True, units='bytes', base='KB', label='Data Sent'),
+    'db_size_mb':        dict(log=True, units='bytes', base='MB'),
+    'lan_time':          dict(log=True, units='seconds', base='s'),
+    ('msmarco', 'wan_time'):         dict(lim=(0.0, 2.0), step=0.5),
+    ('msmarco', 'answer_relevancy'): dict(lim=(0.54, 0.78), step=0.06),
+}
+
+# ==========================================
 # THE AXES (two globals per axis, x then y)
 # ==========================================
 
 AUTO = 'auto'           # a format left at AUTO is trim_tick on a plain axis and
                         # matplotlib's own on a log or rescaled-unit axis
 
-X_LIM = (0.0, 2.0)      # (lo, hi) in the units shown on the axis, or None to fit the data. Both ends
-Y_LIM = (0.54, 0.78)     # are whole multiples of the step below, so each one lands on a labelled tick
-                        # rather than sitting between two of them
+X_LIM = None            # (lo, hi) in the units shown on the axis, or None to fit the data. Both ends
+Y_LIM = None            # are whole multiples of the step below, so each one lands on a labelled tick
+                        # rather than sitting between two of them. Per dataset: AXES above
 
-X_STEP = 0.5            # gap between ticks, or None for about N_TICKS auto-placed ticks
-Y_STEP = 0.06
+X_STEP = None           # gap between ticks, or None for about N_TICKS auto-placed ticks
+Y_STEP = None
 
 X_FMT = AUTO            # tick label format: AUTO, a format string ('%.1f'), a function
 Y_FMT = AUTO            # (value, pos) -> str, or None for matplotlib's default
@@ -145,7 +167,7 @@ TICK_SIZE = 16          # tick labels (the numbers)
 SHOW_ARROWS = True      # add the better-direction arrow to each axis label, as in the grids
 
 LEGEND = True
-LEGEND_ROWS = [['bins', 'tree'], ['pacmann', 'global']]
+LEGEND_ROWS = [['bins', 'tree'], ['pacmann', 'coeus', 'tiptoe'], ['global']]
 # one centred legend line per row, under the figure, in place of pu.method_legend's
 # g.METHOD_LEGEND_ROWS. An entry is a method (labelled from g.METHOD_LEGEND_LABELS) or
 # 'global' (the GLOBAL_FRONTIER line). An entry nothing was drawn for is skipped and an
@@ -281,12 +303,21 @@ def axis_spec(key, lim, step, fmt, log, units, base, label):
                 units=units, base=base, label=label)
 
 
-def x_spec():
-    return axis_spec(X_KEY, X_LIM, X_STEP, X_FMT, X_LOG, X_UNITS, X_BASE, X_LABEL)
+def _spec(key, dataset, fallback):
+    """One axis: the X_* / Y_* fallbacks, then AXES[key], then AXES[(dataset, key)]."""
+    opts = dict(zip(('lim', 'step', 'fmt', 'log', 'units', 'base', 'label'), fallback))
+    opts.update(AXES.get(key, {}))
+    opts.update(AXES.get((dataset, key), {}))
+    return axis_spec(key, opts['lim'], opts['step'], opts['fmt'], opts['log'],
+                     opts['units'], opts['base'], opts['label'])
 
 
-def y_spec():
-    return axis_spec(Y_KEY, Y_LIM, Y_STEP, Y_FMT, Y_LOG, Y_UNITS, Y_BASE, Y_LABEL)
+def x_spec(key=None, dataset=DATASET):
+    return _spec(key or X_KEY, dataset, (X_LIM, X_STEP, X_FMT, X_LOG, X_UNITS, X_BASE, X_LABEL))
+
+
+def y_spec(key=None, dataset=DATASET):
+    return _spec(key or Y_KEY, dataset, (Y_LIM, Y_STEP, Y_FMT, Y_LOG, Y_UNITS, Y_BASE, Y_LABEL))
 
 
 def pick_unit(values, units, base):
@@ -374,14 +405,14 @@ def marker_style(method, size=MARKER_SIZE):
                 markeredgewidth=MARKER_EDGE, zorder=2)
 
 
-def draw_panel(ax, per_method, dataset=DATASET):
+def draw_panel(ax, per_method, dataset=DATASET, x_key=None, y_key=None):
     """
     The one panel: a marker per config in its method's colour (POINTS), the
     frontier over all methods pooled as one black line (GLOBAL_FRONTIER) and,
     if METHOD_LINES is on, each method's own frontier as a line of its own. The
     legend is set by the caller.
     """
-    xspec, yspec = x_spec(), y_spec()
+    xspec, yspec = x_spec(x_key, dataset), y_spec(y_key, dataset)
     x_key, y_key = xspec['key'], yspec['key']
 
     def usable(runs):
@@ -452,15 +483,16 @@ def draw_panel(ax, per_method, dataset=DATASET):
     if SHOW_ARROWS:
         g.add_arrow(x_text, x_key, 'x')
         g.add_arrow(y_text, y_key, 'y')
+    return set(shown)   # the methods with a point, for the legend
 
 
-def legend_handle(entry):
+def legend_handle(entry, drawn=None):
     """
     The legend line for one LEGEND_ROWS entry, or None when that entry was not
     drawn. A method is its colour as a line when METHOD_LINES draws lines, and
     as a plain marker otherwise.
     """
-    if entry in g.METHOD_ORDER:
+    if entry in g.METHOD_ORDER and (drawn is None or entry in drawn):
         color = g.METHOD_COLORS[entry]
         shape = dict(marker='') if METHOD_LINES else dict(
             marker=marker_for(entry), markersize=LEGEND_MARKER_SIZE,
@@ -470,11 +502,11 @@ def legend_handle(entry):
     if entry == 'global' and GLOBAL_FRONTIER:
         return Line2D([], [], color=GLOBAL_COLOR, linewidth=GLOBAL_WIDTH,
                       linestyle=GLOBAL_LINESTYLE, marker='', label=GLOBAL_LABEL)
-    pu.warn_once("pareto_single: legend entry %r was not drawn, left out", entry)
+    pu.log.debug("pareto_single: legend entry %r was not drawn, left out", entry)
     return None
 
 
-def combined_legend(fig):
+def combined_legend(fig, drawn=None):
     """
     LEGEND_ROWS centred under the figure, one line per row ('Bin  Tree', then
     'PACMANN  Pareto Frontier'). Same layout as pu.method_legend, which can't
@@ -490,7 +522,7 @@ def combined_legend(fig):
     top = fig.get_tightbbox().y0 / fig.get_figheight()   # bottom of the axes, labels, ...
     legends = []
     for row in LEGEND_ROWS:
-        handles = [h for h in (legend_handle(entry) for entry in row) if h is not None]
+        handles = [h for h in (legend_handle(entry, drawn) for entry in row) if h is not None]
         if not handles:
             continue
         legend = fig.legend(handles, [h.get_label() for h in handles],
@@ -502,20 +534,28 @@ def combined_legend(fig):
     return legends
 
 
-def plot_pareto_single(nested_data, dataset=DATASET):
+def plot_pareto_single(nested_data, dataset=DATASET, x_key=None, y_key=None):
+    x_key, y_key = x_key or X_KEY, y_key or Y_KEY
+    per_method = method_runs(nested_data, dataset)
+    if not any(pu.is_number(r.get(x_key)) and pu.is_number(r.get(y_key))
+               for runs in per_method.values() for r in runs):
+        pu.log.warning("pareto_single: no %s run has both %s and %s, no figure", dataset, x_key, y_key)
+        return None
     fig, ax = plt.subplots(figsize=FIG_SIZE, layout='constrained')
 
-    draw_panel(ax, method_runs(nested_data, dataset), dataset)
+    drawn = draw_panel(ax, per_method, dataset, x_key, y_key)
     if TITLE:
-        ax.set_title("MS MARCO Pareto Frontier", fontsize=TITLE_SIZE, y=1.16, x=0.365)
+        ax.set_title(f"{g.DATASET_LABELS.get(dataset, dataset)} Pareto Frontier", fontsize=TITLE_SIZE)
     if LEGEND:
-        combined_legend(fig)   # the methods and the global frontier (LEGEND_ROWS)
+        combined_legend(fig, drawn)   # the methods drawn and the global frontier (LEGEND_ROWS)
 
-    return pu.save_figure(fig, FIG_NAME.format(dataset=dataset, x=X_KEY, y=Y_KEY))
+    return pu.save_figure(fig, FIG_NAME.format(dataset=dataset, x=x_key, y=y_key))
 
 
-def make_plots(nested_data):
-    plot_pareto_single(nested_data)
+def make_plots(nested_data, datasets=None, pairs=None):
+    """One figure per dataset (default DATASETS) per (x, y) pair (default PAIRS)."""
+    return [plot_pareto_single(nested_data, d, x, y)
+            for d in (datasets or DATASETS) for x, y in (pairs or PAIRS)]
 
 
 if __name__ == '__main__':

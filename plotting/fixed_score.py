@@ -23,7 +23,7 @@ best method's best score).
 
 Bins runs dropped by the client storage filter (load_results, 2/3 of the
 embedding DB) are not used; when they reach higher scores than the kept ones
-the report says so (FILTER_BINS_CLIENT_STORAGE=0 to include them).
+the report says so (FILTER_CLIENT_STORAGE=0 to include them).
 
 Writes figures/fixed_score_k<K>.json and .md.
 """
@@ -140,7 +140,7 @@ def report_dataset(res, cost_key):
         if n:
             lines.append(f"NOTE: {n['n']} PILLAR-Bin runs dropped by the client storage filter reach up to "
                          f"{n['best_hidden']:.4f} ({n['config']}, {n['client_storage_mb']:.0f} MB client storage) vs "
-                         f"{n['kept_best']:.4f} kept. FILTER_BINS_CLIENT_STORAGE=0 to include them.")
+                         f"{n['kept_best']:.4f} kept. FILTER_CLIENT_STORAGE=0 to include them.")
         for t in b['targets']:
             lines.append(f"\n{t['name']}: {SCORE_LABEL[score_key]} >= {t['target']:.2f}")
             hdr = f"  {'method':<13}{'config':<34}{'Recall@10':>10}{'MRR@10':>9}{'WAN s':>9}{'LAN s':>8}" \

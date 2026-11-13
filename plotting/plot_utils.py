@@ -43,6 +43,23 @@ def get_runs(nested_data, method, dataset, k=None, **fixed):
     return runs
 
 
+def fixed_bs(nested_data, dataset, k=None):
+    """g.BINS_FIXED_BS[dataset], or for a dataset not listed there the bin size with the most dpb values
+    (ties: the larger bin size), so the dpb sweeps work on a new dataset without picking one by hand."""
+    if dataset in g.BINS_FIXED_BS:
+        return g.BINS_FIXED_BS[dataset]
+    runs = [r for r in nested_data.get('bins', {}).get(dataset, [])
+            if (k is None or r['k'] == k) and not r.get('vec_sweep')]
+    counts = {}
+    for r in runs:
+        counts.setdefault(r['bs'], set()).add(r['dpb'])
+    if not counts:
+        return None
+    bs = max(counts, key=lambda b: (len(counts[b]), b))
+    warn_once("bins/%s: not in g.BINS_FIXED_BS, using bs=%d (%d dpb values)", dataset, bs, len(counts[bs]))
+    return bs
+
+
 def bins_sweep(nested_data, dataset, x_key, k, vec=None, bs=None, dpb=None):
     """
     Bins runs where only x_key ('bs' or 'dpb') changes. The other one is
@@ -51,7 +68,7 @@ def bins_sweep(nested_data, dataset, x_key, k, vec=None, bs=None, dpb=None):
     if x_key == 'bs':
         fixed = {'dpb': dpb if dpb is not None else g.BINS_FIXED_DPB}
     else:
-        fixed = {'bs': bs if bs is not None else g.BINS_FIXED_BS.get(dataset)}
+        fixed = {'bs': bs if bs is not None else fixed_bs(nested_data, dataset, k)}
     if vec is not None:
         fixed['vec'] = vec
     fixed['vec_sweep'] = False   # the vec0 batch/rounds sweep shares bs/dpb with the grid: not part of these sweeps
@@ -94,6 +111,26 @@ def xy(runs, x_key, y_key, only_improving=False, name=''):
         good = keep_improving(good, y_key)
         log.debug("%s: kept %d of %d improving runs", name, len(good), before)
     return [r[x_key] for r in good], [r[y_key] for r in good]
+
+
+def metrics_with_data(runs_by_method, x_key, y_keys, name=''):
+    """The y_keys that at least one run in {method: runs} has together with x_key. The simulated runs and the new
+    datasets have no faithfulness / answer_relevancy, so a 2x2 grid of them would be half empty panels."""
+    kept = [y for y in y_keys
+            if any(is_number(r.get(x_key)) and is_number(r.get(y)) for runs in runs_by_method.values() for r in runs)]
+    if len(kept) < len(y_keys):
+        warn_once("%s: no run has %s, panel(s) left out", name, ', '.join(y for y in y_keys if y not in kept))
+    return kept
+
+
+def fit_range(values, pad=0.08):
+    """(lo, hi) around `values` with `pad` of the spread either side, for an axis with no range set by hand."""
+    values = [v for v in values if is_number(v)]
+    if not values:
+        return 0.0, 1.0
+    lo, hi = min(values), max(values)
+    margin = (hi - lo) * pad or abs(hi) * pad or 0.05
+    return lo - margin, hi + margin
 
 
 # ==========================================

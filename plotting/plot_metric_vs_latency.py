@@ -27,7 +27,8 @@ BEST_N = 5              # keep only this many configs per method (None = every c
 LOG_X = True
 BINS_FILTER = {}        # e.g. {'vec': 1} to only use single-DB bins runs
 
-Y_LIM = (0.0, 1.0)      # fallback for any (dataset, metric) not listed in Y_LIMS
+Y_LIM = None            # fallback for any (dataset, metric) not listed in Y_LIMS: None fits the data
+                        # (what the new datasets get), or a (lo, hi) for every unlisted panel
 Y_LIMS = {              # per-(dataset, metric) ranges, so each plot fills its axes
     ('msmarco', 'mrr'): (0.0, 0.4),
     ('scifact', 'mrr'): (0.4, 0.8),
@@ -38,7 +39,7 @@ Y_LIMS = {              # per-(dataset, metric) ranges, so each plot fills its a
     ('msmarco', 'faithfulness'): (0.5, 0.9),
     ('scifact', 'faithfulness'): (0.35, 0.75),
 }
-Y_TICK_STEP = 0.1       # one gridline and one label every 0.1
+Y_TICK_STEP = 0.1       # one gridline and one label every 0.1 (a fitted range gets ~5 ticks instead)
 
 EVEN_LOG_X_TICKS = {    # x keys on a log axis with exactly this many ticks, evenly spaced
     'total_time': 4,    # from the smallest to the largest value plotted
@@ -175,16 +176,28 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
         even_log_ticks(ax, x_key, plotted)
     elif LOG_X:
         ax.set_xscale('log')
-        ax.xaxis.set_major_locator(ticker.LogLocator(base=10, subs=X_TICK_SUBS))
+        ax.autoscale_view()
+        lo, hi = ax.get_xlim()
+        # over ~2 decades the 1/2/5 ticks crowd (and LogLocator's auto numticks then drops every tick), so
+        # label the powers of ten only
+        subs = X_TICK_SUBS if lo > 0 and hi / lo < 150 else (1.0,)
+        ax.xaxis.set_major_locator(ticker.LogLocator(base=10, subs=subs, numticks=20))
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(decimal_tick))
         ax.xaxis.set_minor_locator(ticker.NullLocator())
         # set_xscale resets the tick locators, so the minor ticks new_figure()
         # switched off come back (labelled 2x10^-2, 3x10^-2, ... on top of each
         # other on a narrow range) unless they are switched off again here
 
-    ax.set_ylim(*Y_LIMS.get((dataset, y_key), Y_LIM))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(Y_TICK_STEP))
-    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
+    lim = Y_LIMS.get((dataset, y_key), Y_LIM)
+    if lim:
+        ax.set_ylim(*lim)
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(Y_TICK_STEP))
+        ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
+    else:   # no range picked for this dataset yet: fit what is drawn
+        ax.set_ylim(*pu.fit_range([r.get(y_key) for runs in runs_by_method.values() for r in runs
+                                   if pu.is_number(r.get(x_key))]))
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=5))
+        ax.yaxis.set_major_formatter(ticker.FuncFormatter(decimal_tick))
 
 
 def plot_dataset(nested_data, dataset, x_key=X_KEY):
@@ -193,21 +206,30 @@ def plot_dataset(nested_data, dataset, x_key=X_KEY):
     latency axis, labelled once per column under the bottom row. One legend
     below everything.
     """
-    fig = plt.figure(figsize=GRID_FIG_SIZE, layout='constrained')
-    fig.get_layout_engine().set(wspace=PANEL_GAP, hspace=ROW_GAP)
-    axes = fig.subplots(2, 2, sharex=True)   # sharex: only the bottom row labels its latency ticks
-
     picked = method_runs(nested_data, dataset)
-    for i, (ax, y_key) in enumerate(zip(axes.flat, Y_KEYS)):
+    y_keys = pu.metrics_with_data(picked, x_key, Y_KEYS, name=f'comparison/{dataset}')
+    if not y_keys:
+        pu.log.warning("comparison/%s: no run has %s and any of %s, no figure", dataset, x_key, Y_KEYS)
+        return None
+    n_rows = -(-len(y_keys) // 2)
+    fig = plt.figure(figsize=(GRID_FIG_SIZE[0], GRID_FIG_SIZE[1] * (0.85 if n_rows < 2 else 1)),
+                     layout='constrained')
+    fig.get_layout_engine().set(wspace=PANEL_GAP, hspace=ROW_GAP)
+    axes = fig.subplots(n_rows, 2, sharex=True, squeeze=False)   # sharex: only the bottom row labels its ticks
+    for ax in axes.flat[len(y_keys):]:
+        ax.set_axis_off()
+
+    for i, (ax, y_key) in enumerate(zip(axes.flat, y_keys)):
         draw_panel(ax, picked, dataset, y_key, x_key)
         row = i // axes.shape[1]   # the top row's labels sit higher than the bottom row's
-        g.add_arrow(ax.set_ylabel(g.label(y_key, K), y=Y_LABEL_Y[row], labelpad=Y_LABEL_PAD), y_key, 'y')
+        label_y = Y_LABEL_Y[min(row, len(Y_LABEL_Y) - 1)] if n_rows > 1 else Y_LABEL_Y[0]
+        g.add_arrow(ax.set_ylabel(g.label(y_key, K), y=label_y, labelpad=Y_LABEL_PAD), y_key, 'y')
     for ax in axes[-1]:   # one latency label per column, under the bottom row, not one per panel
         g.add_arrow(ax.set_xlabel(x_label(x_key), fontsize=X_LABEL_SIZE,
                                   labelpad=X_LABEL_PAD, x=0.4), x_key, 'x')
 
     if TITLE:
-        fig.suptitle(TITLE.format(dataset=g.DATASET_LABELS[dataset]), fontsize=20)
+        fig.suptitle(TITLE.format(dataset=g.DATASET_LABELS.get(dataset, dataset)), fontsize=20)
 
     pu.method_legend(fig)   # under everything; styled and placed in globals (METHOD_LEGEND_*)
 

@@ -220,8 +220,8 @@ AXIS_DEFAULTS = {
     ('scifact', 'wan_time'): dict(lim=(0, 0.25), log=False),
     ('msmarco', 'lan_time'): dict(lim=(0, 0.32), log=False),
     ('scifact', 'lan_time'): dict(lim=(0, 0.035), log=False),
-    ('msmarco', 'total_time'): dict(lim=(0, 0.9), log=False),
-    ('scifact', 'total_time'): dict(lim=(0, 0.025), log=False),
+    # ('msmarco', 'total_time'): dict(lim=(0, 0.9), log=False),
+    # ('scifact', 'total_time'): dict(lim=(0, 0.025), log=False),
 
     # data sent (stored in KB) and preprocessing (stored in seconds), per
     # dataset. lim=None fits the data; set a (lo, hi) to pin the range, e.g.
@@ -230,8 +230,8 @@ AXIS_DEFAULTS = {
 
     ('msmarco', 'comm_kb'):          dict(lim=(0, 35000), step=None, log=False),
     ('scifact', 'comm_kb'):          dict(lim=(0, 1500), step=None, log=False),
-    ('msmarco', 'maintenance_time'): dict(lim=(0, 3000), step=None, log=False),
-    ('scifact', 'maintenance_time'): dict(lim=(0, 20), step=None, log=False),
+    # ('msmarco', 'maintenance_time'): dict(lim=(0, 3000), step=None, log=False),
+    # ('scifact', 'maintenance_time'): dict(lim=(0, 20), step=None, log=False),
 
     # the quality metrics keep the plain axis and the trimmed decimals of the
     # fallbacks; pin a range per dataset here when the auto fit is too generous
@@ -816,7 +816,7 @@ def draw_panel(ax, panel, nested_data, figure_dataset):
             draw(outlined, linestyle='none', **marker_style(method, on_global=True))
 
     if panel.get('title'):
-        ax.set_title(panel['title'].format(dataset=g.DATASET_LABELS[dataset]),
+        ax.set_title(panel['title'].format(dataset=g.DATASET_LABELS.get(dataset, dataset)),
                      fontsize=TITLE_SIZE)
 
     return dict(xspec=xspec, yspec=yspec, xlabel=xlabel, ylabel=ylabel,
@@ -933,7 +933,7 @@ def plot_pareto_grid(nested_data, dataset, name=FIG_NAME):
     finish_axes(axes[:len(chosen)], drawn, rows, cols)
 
     if SUPTITLE:
-        fig.suptitle(SUPTITLE.format(dataset=g.DATASET_LABELS[dataset]), fontsize=SUPTITLE_SIZE)
+        fig.suptitle(SUPTITLE.format(dataset=g.DATASET_LABELS.get(dataset, dataset)), fontsize=SUPTITLE_SIZE)
     if LEGEND:
         combined_legend(fig)   # the methods and the global frontier (LEGEND_ROWS)
 
@@ -981,40 +981,76 @@ def make_plots(nested_data):
 
 
 # ==========================================
-# CLIENT STORAGE ONLY (one figure, both datasets)
+# ONE COST ONLY (one figure, every dataset side by side)
 # ==========================================
 
-STORAGE_DATASETS = ['msmarco', 'scifact']   # the columns
+# The cost on the x axis of make_comparison_plot. Uncomment exactly one; the
+# last uncommented line wins. Its axis range / format per dataset comes from
+# AXIS_DEFAULTS, e.g. ('msmarco', 'wan_time').
+COMPARE_X = 'client_storage_mb'     # client storage
+# COMPARE_X = 'wan_time'            # WAN latency
+# COMPARE_X = 'lan_time'            # LAN latency
+# COMPARE_X = 'total_time'          # computation
+# COMPARE_X = 'maintenance_time'    # preprocessing
+# COMPARE_X = 'comm_kb'             # data sent
+# COMPARE_X = 'rerank_time'         # rerank time
+# COMPARE_X = 'db_size_mb'          # server DB size
+# COMPARE_X = 'preproc_rounds'      # preprocessing rounds
+# COMPARE_X = 'pir_rounds'          # PIR rounds
+
+STORAGE_DATASETS = None                     # the columns; None = g.DATASETS (DATASETS=new python main.py)
+STORAGE_MAX_COLS = 4                        # more datasets than this continue in another figure,
+                                            # pareto_<x>_2.pdf, ... (GRID_MAX is 8 panels)
 STORAGE_QUALITY = ['mrr', 'recall']         # the rows
-STORAGE_FIG_NAME = 'pareto_client_storage'  # figures/<this>.pdf
-STORAGE_SUPTITLE = 'Client Storage vs Effectiveness'   # None for no title
+STORAGE_FIG_NAME = 'pareto_{x}'             # figures/<this>.pdf, '{x}' becoming COMPARE_X, so
+                                            # each cost gets its own file
+STORAGE_SUPTITLE = '{label} vs Effectiveness'   # '{label}' becoming COMPARE_X's axis name
+                                            # ('Client Storage', 'Latency'); None for no title
+STORAGE_TITLE_SIZE = 11                     # the dataset over each column ('MS MARCO v2 (25M)' is long)
 
 
-def make_client_storage_plot(nested_data):
+def make_client_storage_plot(nested_data, datasets=None):
+    """figures/pareto_client_storage_mb.pdf, whatever COMPARE_X is set to."""
+    return make_comparison_plot(nested_data, datasets, x_key='client_storage_mb')
+
+
+def make_comparison_plot(nested_data, datasets=None, x_key=None):
     """
-    figures/pareto_client_storage.pdf: client storage (x) against MRR@10 / Recall@10
-    (rows), MS MARCO and SciFact side by side (columns), every panel drawn by the
-    same machinery as the grid above. The axis ranges come from AXIS_DEFAULTS, so
-    ('msmarco', 'client_storage_mb') etc. set this figure's ranges too. Each panel
-    keeps its own y range (the datasets' MRR scales differ), so SHARE_Y_ROW is off here.
+    figures/pareto_<x>.pdf: one cost (x_key, default COMPARE_X) against
+    MRR@10 / Recall@10 (rows), every dataset side by side (columns), every panel
+    drawn by the same machinery as the grid above. The axis ranges come from
+    AXIS_DEFAULTS, so ('msmarco', <x_key>) etc. set this figure's ranges too.
+    Each panel keeps its own y range (the datasets' MRR scales differ), so
+    SHARE_Y_ROW is off here.
     """
-    global PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS
-    saved = PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS
+    global PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE
+    saved = PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE
+    x_key = x_key or COMPARE_X
+    TITLE_SIZE = STORAGE_TITLE_SIZE
+    datasets = list(datasets or STORAGE_DATASETS or g.DATASETS)
+    chunks = [datasets[i:i + STORAGE_MAX_COLS] for i in range(0, len(datasets), STORAGE_MAX_COLS)]
     LEGEND_ROWS = [row + (['global'] if i == len(g.METHOD_LEGEND_ROWS) - 1 else [])   # every method,
                    for i, row in enumerate(g.METHOD_LEGEND_ROWS)]                    # incl. text bins / baselines
-    PANELS = [dict(x='client_storage_mb', y=y, dataset=d,
-                   title=g.DATASET_LABELS.get(d, d) if row == 0 else None)
-              for row, y in enumerate(STORAGE_QUALITY) for d in STORAGE_DATASETS]
-    COLS, SHARE_Y_ROW, Y_LABEL_ROW = len(STORAGE_DATASETS), False, True
-    SUPTITLE = STORAGE_SUPTITLE.replace('{', '{{').replace('}', '}}') if STORAGE_SUPTITLE else None
+    x_label = (AXIS_DEFAULTS.get(x_key, {}).get('label')
+               or re.sub(r'\s*\([^)]*\)$', '', g.label(x_key, K)))   # 'Latency (s)' -> 'Latency'
+    suptitle = STORAGE_SUPTITLE.format(label=x_label) if STORAGE_SUPTITLE else None
+    SUPTITLE = suptitle.replace('{', '{{').replace('}', '}}') if suptitle else None
+    SHARE_Y_ROW, Y_LABEL_ROW = False, True
+    figures = []
     try:
         _frontier_counts.clear()
-        figure = plot_pareto_grid(nested_data, STORAGE_DATASETS[0], name=STORAGE_FIG_NAME)
+        for n, chunk in enumerate(chunks):
+            PANELS = [dict(x=x_key, y=y, dataset=d,
+                           title=g.DATASET_LABELS.get(d, d) if row == 0 else None)
+                      for row, y in enumerate(STORAGE_QUALITY) for d in chunk]
+            COLS, GRID_MAX = len(chunk), max(GRID_MAX, len(PANELS))
+            name = STORAGE_FIG_NAME.format(x=x_key) + (f'_{n + 1}' if n else '')
+            figures.append(plot_pareto_grid(nested_data, chunk[0], name=name))
         if FRONTIER_SUMMARY:
             print_frontier_summary()
-        return figure
+        return figures[0] if len(figures) == 1 else figures
     finally:
-        PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS = saved
+        PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE = saved
 
 
 if __name__ == '__main__':
@@ -1022,4 +1058,4 @@ if __name__ == '__main__':
     g.setup_style()
     nested = load_results.load_results()
     make_plots(nested)
-    make_client_storage_plot(nested)   # figures/pareto_client_storage.pdf
+    make_comparison_plot(nested)   # figures/pareto_<COMPARE_X>.pdf

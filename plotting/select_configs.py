@@ -225,7 +225,7 @@ if __name__ == '__main__':
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-m', '--method', choices=g.METHOD_ORDER,
                         help='only this method (default: all of %(choices)s)')
-    parser.add_argument('-d', '--dataset', choices=g.DATASETS,
+    parser.add_argument('-d', '--dataset', choices=g.ALL_DATASETS,
                         help='only this dataset (default: all of %(choices)s)')
     parser.add_argument('-k', type=int, help=f'only this k (default: {g.K_ABLATION} and {g.K_MAIN})')
     parser.add_argument('-n', type=int, default=N_BEST, help=f'how many picks to print (default {N_BEST})')

@@ -46,7 +46,8 @@ BEST_N = 5              # configs per method, picked by select_configs.py exactl
 METHOD_FILTERS = {}     # method -> fixed run keys, e.g. {'bins': {'vec': 1}} to only use single-DB bins runs
 LOG_X = True
 
-Y_LIM = (0.0, 1.0)      # fallback for any (dataset, metric) not listed in Y_LIMS
+Y_LIM = None            # fallback for any (dataset, metric) not listed in Y_LIMS: None fits the data
+                        # (what the new datasets get), or a (lo, hi) for every unlisted panel
 Y_LIMS = {              # per-(dataset, metric) ranges, so each plot fills its axes
     ('msmarco', 'mrr'): (0.12, 0.36),
     ('scifact', 'mrr'): (0.52, 0.68),
@@ -425,7 +426,12 @@ def draw_panel(ax, runs_by_method, dataset, y_key, x_key=X_KEY):
         even_log_ticks(ax, x_key, plotted)
     elif LOG_X:
         ax.set_xscale('log')
-        ax.xaxis.set_major_locator(ticker.LogLocator(base=10, subs=X_TICK_SUBS))
+        ax.autoscale_view()
+        lo, hi = ax.get_xlim()
+        # over ~2 decades the 1/2/5 ticks crowd (and LogLocator's auto numticks then drops every tick), so
+        # label the powers of ten only
+        subs = X_TICK_SUBS if lo > 0 and hi / lo < 150 else (1.0,)
+        ax.xaxis.set_major_locator(ticker.LogLocator(base=10, subs=subs, numticks=20))
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(decimal_tick))
         ax.xaxis.set_minor_locator(ticker.NullLocator())
         # set_xscale resets the tick locators, so the minor ticks new_figure()
@@ -446,7 +452,12 @@ def y_range(dataset, y_key, ys, step):
     value falls outside, in which case the range is widened to the next tick past
     it and the step doubled until there are no more ticks than Y_LIMS gave.
     """
-    lo, hi = Y_LIMS.get((dataset, y_key), Y_LIM)
+    lim = Y_LIMS.get((dataset, y_key), Y_LIM)
+    if lim is None:   # nothing picked for this dataset: about 5 round ticks around the data
+        lo, hi = pu.fit_range(ys)
+        step = nice_step((hi - lo) / 3)
+        return math.floor(lo / step) * step, math.ceil(hi / step) * step, step
+    lo, hi = lim
     if not Y_GROW or not ys:
         return lo, hi, step
     max_ticks = round((hi - lo) / step) + 1
@@ -462,6 +473,14 @@ def y_range(dataset, y_key, ys, step):
                      "every %g, to fit every point; set Y_LIMS/Y_TICK_STEPS to choose it yourself",
                      dataset, y_key, lo, hi, round(new_lo, 6), round(new_hi, 6), round(step, 6))
     return new_lo, new_hi, step
+
+
+def nice_step(size):
+    """The 1 / 2 / 2.5 / 5 x 10^n at or above `size`."""
+    if not size > 0:
+        return 0.1
+    power = 10 ** math.floor(math.log10(size))
+    return next(m * power for m in (1, 2, 2.5, 5, 10) if m * power >= size * (1 - 1e-9))
 
 
 def legend_rows(drawn):
@@ -532,25 +551,34 @@ def plot_dataset(nested_data, dataset, x_key=X_KEY):
     latency axis, labelled once per column under the bottom row. One legend
     below everything.
     """
-    fig = plt.figure(figsize=GRID_FIG_SIZE, layout='constrained')
-    fig.get_layout_engine().set(wspace=PANEL_GAP, hspace=ROW_GAP)
-    axes = fig.subplots(2, 2, sharex=True)   # sharex: only the bottom row labels its latency ticks
-
     picked = method_runs(nested_data, dataset)
+    y_keys = pu.metrics_with_data(picked, x_key, Y_KEYS, name=f'pareto_comparison/{dataset}')
+    if not y_keys:
+        pu.log.warning("pareto_comparison/%s: no run has %s and any of %s, no figure", dataset, x_key, Y_KEYS)
+        return None
+    n_rows = -(-len(y_keys) // 2)
+    fig = plt.figure(figsize=(GRID_FIG_SIZE[0], GRID_FIG_SIZE[1] * (0.85 if n_rows < 2 else 1)),
+                     layout='constrained')
+    fig.get_layout_engine().set(wspace=PANEL_GAP, hspace=ROW_GAP)
+    axes = fig.subplots(n_rows, 2, sharex=True, squeeze=False)   # sharex: only the bottom row labels its ticks
+    for ax in axes.flat[len(y_keys):]:
+        ax.set_axis_off()
+
     drawn = set()
-    for i, (ax, y_key) in enumerate(zip(axes.flat, Y_KEYS)):
+    for i, (ax, y_key) in enumerate(zip(axes.flat, y_keys)):
         drawn |= draw_panel(ax, picked, dataset, y_key, x_key)
         row = i // axes.shape[1]   # the top row's labels sit higher than the bottom row's
-        text = ax.set_ylabel(g.label(y_key, K), y=Y_LABEL_Y[row], labelpad=Y_LABEL_PAD)
+        label_y = Y_LABEL_Y[min(row, len(Y_LABEL_Y) - 1)] if n_rows > 1 else 0.3
+        text = ax.set_ylabel(g.label(y_key, K), y=label_y, labelpad=Y_LABEL_PAD)
         if Y_LABEL_X is not None:   # same x in every panel, whatever its tick labels are
-            ax.yaxis.set_label_coords(Y_LABEL_X, Y_LABEL_Y[row])
+            ax.yaxis.set_label_coords(Y_LABEL_X, label_y)
         g.add_arrow(text, y_key, 'y')
     for ax in axes[-1]:   # one latency label per column, under the bottom row, not one per panel
         g.add_arrow(ax.set_xlabel(x_label(x_key), fontsize=X_LABEL_SIZE,
                                   labelpad=X_LABEL_PAD, x=0.4), x_key, 'x')
 
     if TITLE:
-        fig.suptitle(TITLE.format(dataset=g.DATASET_LABELS[dataset]), fontsize=20)
+        fig.suptitle(TITLE.format(dataset=g.DATASET_LABELS.get(dataset, dataset)), fontsize=20)
 
     combined_legend(fig, drawn)   # the methods drawn and the global frontier
 

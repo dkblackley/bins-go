@@ -1,0 +1,10 @@
+========================================
+Run:           9 / 10
+Method:        test
+Dataset:       scifact
+DB Size:       5183
+K Value:       500
+Output Dir:    ~/Nextcloud/10TB-STHDD/datasets/results/test_scifact_k500
+Started:       2026-09-22 13:48:53
+========================================
+Finished:      2026-09-22 13:48:53 (rc=0)

@@ -32,7 +32,7 @@ def plot_bins_client_storage(nested_data, dataset, y_key=Y_KEY):
     xs = sorted({x for runs in per_vec.values() for x in runs})
     if not xs:
         pu.log.warning("bins/%s: no runs at bs=%s, nothing to plot",
-                       dataset, g.BINS_FIXED_BS.get(dataset))
+                       dataset, pu.fixed_bs(nested_data, dataset, K))
 
     slots = np.arange(len(xs), dtype=float)
     bar_width = GROUP_WIDTH / len(VECS)
@@ -58,7 +58,9 @@ def plot_bins_client_storage(nested_data, dataset, y_key=Y_KEY):
     ax.grid(False, axis='x')
     ax.set_xlabel(g.label(X_KEY))
     ax.set_ylabel(g.label(y_key))
-    ax.set_title(f"{g.DATASET_LABELS[dataset]} (bin size {g.BINS_FIXED_BS.get(dataset):,})", pad=18)
+    bs = pu.fixed_bs(nested_data, dataset, K)
+    ax.set_title(f"{g.DATASET_LABELS.get(dataset, dataset)} (bin size {bs:,})" if bs else
+                 g.DATASET_LABELS.get(dataset, dataset), pad=18)
     # pad pushes the title up to leave room for the legend
 
     handles = [Patch(facecolor=g.VEC_COLORS[v], hatch=g.VEC_HATCHES[v],
