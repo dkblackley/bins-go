@@ -576,6 +576,21 @@ python fixed_recall.py --k 10 --methods bins tree pacmann --datasets msmarco nq
 `plotting/globals.py` holds the dataset/method lists (and **[PR #8]** `TEXT_BINS = []` hides the text runs).
 Each `plot_*.py` also runs on its own.
 
+Scale and rerun tables (usage and workflow in each file's docstring, `python <file> --help`):
+
+```bash
+python scale_v2.py              # MS MARCO 8.8M -> v2 25M/50M/138M at a fixed MRR@10 (T=0.05), lowest client storage
+python scale_v2.py --fixed      # same sizes at one fixed config per method, chosen at MRR@10 >= 0.10 on MS MARCO v1
+python compare_bins_rerun.py    # PILLAR-Bin before/after the 2026-11-13 stemmed-index fix:
+                                # datasets/results_simulated_old (pre-fix, kept only locally) vs datasets/results_simulated
+```
+
+**Bins index fix (2026-11-13).** The Bluge index used to be analyzed with Bluge's standard analyzer (lowercase only)
+while the bins vocabulary is Porter-stemmed, so a stem like `studi` or `dog` (from "dogs") found no documents and its
+bin stayed empty. The index now uses the same `strictEnglishAnalyzer` (`bins/unigram_bins.go`, `binsAnalyzer`;
+regression test `bins/stem_index_test.go`). Every bins result and `index_*` built before that is stale; the pre-fix
+copies are kept locally in `datasets/results_simulated_old` and `datasets/index_*`.
+
 ### 7.3 Non-private baselines
 
 ```bash
