@@ -75,7 +75,6 @@ tier_of() {
         echo "high"
     elif [[ "$vec" == "text" && "$bs" -ge 1000000 && "$dpb" -ge 1000 ]]; then
         echo "high"   # >= 1e9 (bin, doc) slots of ~75 B
-        echo "high"
     else
         echo "low"
     fi

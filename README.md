@@ -695,8 +695,11 @@ tools/anon/                 anonymous-review snapshot: make_snapshot.sh + the RE
 bash tools/anon/make_snapshot.sh ../pillar-anon     # commit first: only HEAD is exported
 ```
 
-Exports HEAD with `git archive` (no history), drops the cluster-ops helpers, legacy scripts and debug tools listed in
-`EXCLUDE`, swaps in `tools/anon/README.md`, renames the Go module to `pillar`, rewrites the cluster/account/user
+Exports HEAD with `git archive` (no history), drops every `.slurm` script, the cluster helpers, legacy scripts and
+debug tools listed in `EXCLUDE`, ships `tools/anon/local_run.sh` as `local_run.sh` (the same pipeline and sweeps,
+run back to back on one machine; `bash local_run.sh --count` should match the slurm grids), swaps in the READMEs
+in `tools/anon/`, renames `slurm_common.sh` to `sweep_common.sh`, renames the Go module to `pillar`, rewrites the cluster/account/user
 names and paths, then fails if any identifying string is left and checks the Go code builds. Upload that folder (or a
-zip of it) to anonymous.4open.science; never a git remote, since every commit carries the author's name. Keep
-`tools/anon/README.md` in sync when the workflow changes.
+zip of it) to anonymous.4open.science; never a git remote, since every commit carries the author's name. When a slurm grid changes, change
+the same loop in `tools/anon/local_run.sh` (bins, pacmann, tiptoe, coeus; the tree grid is shared via
+`tree_sweep_grid.sh`), and keep the READMEs in `tools/anon/` in sync.

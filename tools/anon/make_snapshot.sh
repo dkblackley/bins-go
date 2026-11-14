@@ -34,24 +34,33 @@ cd "$OUT"
 # ---------------------------------------------------------------- 2. files left out of the anonymous copy
 # They stay in the real repo. Nothing the experiments need is listed here.
 EXCLUDE=(
+    # every cluster script: the copy runs everything through local_run.sh (one config after another, same grids)
+    run_all_simulated.sh run_sim_noram.sh run_plain_baselines.sh run_scifact_local.sh local_run_go_simulated.sh
+    run_vec0_sweep_local.sh prune_vec0_sweep.sh build.sh noram_cleanup.sh
+    datasets/run_all.sh datasets/build_all.sh datasets/run_local.sh datasets/embed_big.sh datasets/embed_local.sh
+    datasets/import_local_embeds.sh datasets/import_local_embeds.py datasets/env.sh
     # author's cluster-operations helpers (queue status, holds, resubmission, cache cleaning)
-    hold_jobs.sh shrink_time.sh check_estimates.sh clean_logs.sh
-    datasets/gpu_free.sh datasets/check_treedb.slurm datasets/link_tree_originals.sh
-    datasets/colab_msmarco_v2.ipynb
-    # legacy pipeline, superseded by run_tree_pir_old.slurm / datasets/*
-    run_tree.slurm big_bins.slurm pre_proc_vec.slurm run_test.sh
-    run_convert.sh filter_queries.py do_tree_MRR_Recall.py plotting/do_post.sh json_to_tsv.py re_rank.py
+    check_runs.sh run_me.sh hold_jobs.sh shrink_time.sh check_estimates.sh clean_logs.sh clean_caches.sh
+    clean_cuckoo_cache.sh datasets/gpu_free.sh datasets/link_tree_originals.sh datasets/colab_msmarco_v2.ipynb
+    # legacy pipeline
+    run_test.sh run_convert.sh filter_queries.py do_tree_MRR_Recall.py plotting/do_post.sh json_to_tsv.py re_rank.py
     # collaborator's original tree scripts with their own machine paths, and one-off debugging tools
-    tree/README.md tree/run_python.sh tree/run_go.sh tree/SLURM_go.slurm
+    tree/README.md tree/run_python.sh tree/run_go.sh
     tree/preprocess_msmarco.py tree/preprocess_queries.py
     tree/tools/align_embedding.py tree/tools/check_gold_subblock.py tree/tools/check_zero.py
     tree/tools/diag_stage2_recall.py tree/tools/find_block_score.py tree/tools/root_cause_analysis.py
     tree/tools/shuffle_block.py tree/tools/stage1_block_score.py tree/tools/stage2_row_inspect.py
 )
 rm -rf -- "${EXCLUDE[@]}"
+find . -name '*.slurm' -not -path './third_party/*' -delete
+# the grid/estimate helpers the tree grid and prep_tree.sh source, under a scheduler-neutral name
+mv slurm_common.sh sweep_common.sh
+cp tools/anon/local_run.sh local_run.sh && chmod +x local_run.sh
 
 # ---------------------------------------------------------------- 3. README
 cp tools/anon/README.md README.md
+cp tools/anon/datasets_README.md datasets/README.md
+cp tools/anon/baselines_README.md baselines/README.md
 rm -rf tools
 
 # ---------------------------------------------------------------- 4. rewrite identifying strings
@@ -61,6 +70,9 @@ mapfile -t GOMODS < <(find . -name go.mod -not -path './third_party/*')
 export MODULE_NEW
 perl -0pi -e '
     s{https://github\.com/dkblackley/bins-go(\.git)?}{<anonymous repository URL>}g;
+    s{\bslurm_common\.sh\b}{sweep_common.sh}g;
+    s{\brun_tree_pir_old\.slurm\b}{local_run.sh}g;
+    s{\b(?:datasets/)?run_all\.sh\b}{local_run.sh}g;
     s{github\.com/dkblackley/bins-go}{$ENV{MODULE_NEW}}g;
     s{^#SBATCH --account=evgenios[^\n]*\n}{}mg;
     s{/projects/evgenios/dblackle/miniforge}{\$HOME/miniforge}g;
@@ -91,6 +103,9 @@ if leaks="$(grep -rInEi --exclude-dir=third_party "$LEAK_RE" . | cut -c1-200)" &
     echo "$leaks" >&2
     exit 2
 fi
+# references to scripts that are not in the copy (comments mostly; worth a look)
+refs="$(grep -rnoIE --exclude-dir=third_party '[A-Za-z0-9_./-]+\.slurm\b|\b(run_me|check_runs|hold_jobs|run_local|build_all|embed_big|run_scifact_local|local_run_go_simulated)\.sh\b' . | sort -u | head -40)"
+[[ -n "$refs" ]] && { echo "note: mentions of scripts left out of the copy:"; echo "$refs"; }
 # binaries / data that should not be uploaded
 big="$(find . -type f -size +1M -not -name '*.faiss' -not -path './third_party/*' -print)"
 [[ -n "$big" ]] && { echo "warning: files over 1 MB:"; echo "$big"; }

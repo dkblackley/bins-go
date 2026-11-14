@@ -32,56 +32,48 @@ bash setup_pacmann.sh
 source go_env.sh && go build -o pir_app ./main.go
 ```
 
-## Quick start
+## Running the experiments: `local_run.sh`
 
-The local scripts expect the datasets in `../../../datasets` (set `DATASETS_ROOT` to change it).
+One script runs the whole pipeline and every parameter sweep of the paper, one configuration after another:
 
 ```bash
-bash datasets/run_local.sh nq        # download, convert, embed, build indexes, then one config per method
-bash run_scifact_local.sh            # SciFact (fits on a laptop): the Tiptoe/Coeus sweeps; the bins, PACMANN and
-                                     # tree commands are in the file, commented, to enable as needed
+DATASETS=scifact bash local_run.sh     # everything on SciFact: minutes, a few GB of RAM
+bash local_run.sh --count              # how many configurations each sweep has, per dataset
+DRY_RUN=1 bash local_run.sh tree       # print the commands of one sweep instead of running them
+bash local_run.sh                      # every dataset and sweep (the largest configs need TBs of RAM)
 ```
 
-A single run by hand on SciFact (BEIR files from `bash datasets/download.sh scifact <raw dir>`, embedded with
-`collection_preproc.py` / `query_preproc.py`):
+Stages, in order: `prep` (download + convert), `embed` (e5-base-v2 + PCA to 192 dims), `index` (PILLAR-Bin's keyword
+index), `treedb` (PILLAR-Tree's artifacts), then the sweeps `bins`, `pacmann`, `tree`, `tiptoe`, `coeus`, `docfetch`
+(cost of privately downloading the returned documents) and `plain` (non-private BM25 / dense / hybrid). Name stages
+to run only those, e.g. `bash local_run.sh bins tree`. Finished configurations are skipped, so the script can be
+stopped and restarted. Options (`DATASETS_ROOT`, `RESULTS_DIR`, `SIMULATE=1`, `NORAM=1`, `ONLY=<regex>`, ...) are
+listed at the top of the file; the grids are written out in it, except the tree's, which is in `tree_sweep_grid.sh`
+(see [`tree/SWEEP.md`](tree/SWEEP.md)). Each configuration is an independent command, so the loops translate
+directly into job arrays for a cluster scheduler.
+
+`SIMULATE=1` runs the PIR protocols without the hint and XOR work: answers, quality, bytes sent, LAN/WAN time and
+client storage are those of a real run, server timings are -1, and far less RAM is needed.
+
+A single run by hand:
 
 ```bash
-./pir_app -t index -name scifact -dataset ../datasets
 ./pir_app -t bins -name scifact -n 5183 -k 10 -binSize 1000 -docsPerBin 100 -vectors=true -dim 192 \
   -dataset ../datasets -outDir out/bins -outFile results
 ./pir_app -t pacmann -name scifact -n 5183 -k 10 -steps 15 -neighb 32 -dim 192 \
   -dataset ../datasets -outDir out/pacmann -outFile results
 ```
 
-The tree needs its artifacts first (`bash datasets/prep_tree.sh scifact`); the full command is in
-`datasets/run_local.sh`.
-
 ## Datasets
 
-`datasets/` downloads, converts and embeds SciFact, MS MARCO (v1, v2 and 25M/50M/100M subsamples of v2), NQ,
-DBPedia-Entity, FEVER and MIRACL-en. Embeddings are e5-base-v2 reduced to 192 dimensions with a per-dataset PCA. See
-[`datasets/README.md`](datasets/README.md).
-
-## Full experiments (slurm)
-
-```bash
-bash datasets/run_all.sh nq dbpedia-entity fever     # download -> embed -> indexes/artifacts -> bins/pacmann/tree grids
-STAGES="tiptoe coeus" bash datasets/run_all.sh nq    # the baselines (quality + communication)
-```
-
-`run_all.sh` chains the jobs with dependencies and sizes each configuration's memory/time request from earlier runs
-(`slurm_common.sh`). The per-method arrays are `run_bins_low.slurm`, `run_bins_high.slurm`, `run_pacmann.slurm`,
-`run_tree_pir_old.slurm`, `run_tiptoe.slurm` and `run_coeus.slurm`; each takes `--count` to print its array size.
-The tree's parameter grid is defined once in `tree_sweep_grid.sh` (see [`tree/SWEEP.md`](tree/SWEEP.md)).
-Add your cluster's `#SBATCH --account=` / partition and `module load` lines where your site needs them.
-
-To run every configuration on one machine with simulated PIR: `bash local_run_go_simulated.sh plan|run`.
+SciFact, NQ, DBPedia-Entity, FEVER, MS MARCO v1 and v2 (with 25M/50M/100M subsamples of v2) and MIRACL-en, from 5K
+to 138M documents. See [`datasets/README.md`](datasets/README.md).
 
 ## Baselines
 
 * Tiptoe and Coeus: [`baselines/README.md`](baselines/README.md). Both report exact retrieval quality and exact
   communication (and the LAN/WAN times derived from it).
-* Non-private BM25 / dense / hybrid: `python baselines.py --dataset-root ../datasets --datasets scifact nq --k 10 100`.
+* Non-private BM25 / dense / hybrid: the `plain` stage (`cmd/plain_baselines`), or `python baselines.py --dataset-root ../datasets --datasets scifact nq --k 10 100`.
 
 ## Results and plots
 
