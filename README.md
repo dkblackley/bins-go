@@ -282,6 +282,10 @@ Two modes, same output folder and keys. **Use sim** (see the note at the top):
 
 * **sim** (the default): `baselines/tiptoe/simulate_tiptoe.py`. Exact quality and DB shapes, payload-only bytes (a
   lower bound) and the LAN/WAN times from them. No server time (the `simplepir_bench` option is not used).
+  `--precision fp16|fp8|fp4|fp2|fp1` casts every embedding (docs, query, centroids, rerank) to that float format
+  after loading, before Tiptoe's 5-bit quantisation; bytes per query are unchanged (LWE ciphertext sizes don't
+  depend on it). Results go to `..._k<K>_<prec>`; `run_tiptoe.slurm` runs fp32 (no suffix), fp8 and fp1;
+  `TIPTOE_PRECISIONS` picks others. Details in the script's docstring.
 * **real**: `./pir_app_tiptoe -t tiptoe` runs the upstream code (`setup_baselines.sh tiptoe`). Compile-checked only,
   so run one small config (scifact, task 0) first and compare `MRRPreReRank` with the sim run.
 
@@ -431,7 +435,7 @@ script's own grid at the script's `#SBATCH` resources.
 | `run_bins_low.slurm` / `run_bins_high.slurm` | vec x k{10,100} x 8 binSize x 8 docsPerBin = 256 (v2/miracl: binSize ≥ 100k only, 160), split into low/high tiers. **[PR #8]** + text = 384 | `BINS_DATASETS` (`msmarco scifact`) | 120G / 1500G bigmem, 7.5 h |
 | `run_pacmann.slurm` | k{10,100} x steps{5..30} x neighb{8..48} = 72 | `PACMANN_DATASETS` (`msmarco scifact`) | 120G normal, 5 h |
 | `run_tree_pir_old.slurm` | `tree_sweep_grid.sh` (278 / 522 on scifact) | `DATASET` (one), `SWEEP` | 100G normal, 6 h |
-| `run_tiptoe.slurm` | DPC(3) x MA(2) x bundle(2) x hint(2) x k(2) = 48 | `TIPTOE_DATASETS` (`scifact nq fever msmarco`), `MODE=sim|real` | 32G, 2.5 h (real on msmarco: `--mem=64G`) |
+| `run_tiptoe.slurm` | DPC(3) x MA(2) x bundle(2) x hint(2) x k(2) x precision(3: fp32 fp8 fp1) = 144 | `TIPTOE_DATASETS` (`scifact nq fever msmarco`), `MODE=sim|real` | 32G, 2.5 h (real on msmarco: `--mem=64G`) |
 | `run_tiptoe_msmarco_v2.slurm` | **simulation only, don't use** (see the note at the top): one task per preprocessed DB, runs its 4 (hint, k) sims | `TIPTOE_V2_DATASETS` (`msmarco-v2-50m msmarco-v2`) | 32G, 12 h (64 tasks by default) |
 | `run_coeus.slurm` | F(3) x tf{raw,log} x k(2) = 12 | `COEUS_DATASETS` (`scifact msmarco`) | 120G, 2 days |
 
@@ -544,7 +548,7 @@ or `run_scifact_local.sh`.
 | bins | `bins_vec1_<ds>_k<K>_bs<binSize>_dpb<docsPerBin>`, `bins_vec0_...`, **[PR #8]** `bins_text_...` |
 | pacmann | `pacmann_<ds>_k<K>_steps<S>_neighb<M>` |
 | tree | `tree_grid_<ds>_b<B>_r<r>_s<s>_L<L>_q<q>_c<k_candidates>_k10` (non-default Cuckoo: under `h3_lf0.88/`) |
-| tiptoe | `tiptoe_<ds>_c<clusters>_m<multi-assign>_b<bundle>_h<hint MB>_k<K>` |
+| tiptoe | `tiptoe_<ds>_c<clusters>_m<multi-assign>_b<bundle>_h<hint MB>_k<K>[_fp8\|_fp1]` |
 | coeus | `coeus_<ds>_k<K>_f<features>_tf<raw\|log>` |
 
 Results roots:

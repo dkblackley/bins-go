@@ -25,7 +25,12 @@
 #   BUNDLE docs per URL bundle (Tiptoe: 160): bigger = more docs returned, bigger round-2 download
 #   HINT   embedding hint size in MB (Tiptoe: 500): moves bytes between upload (DB width) and download (DB height)
 #   k      10, 100
-#   per dataset: 3 DPC x 2 MA x 2 BUNDLE x 2 HINT x 2 k = 48 tasks; 4 datasets = 192.
+#   PREC   embedding precision, cast after loading (simulate_tiptoe.py --precision): fp32 fp8 fp1 by default
+#          (fp16 fp4 fp2 also exist: TIPTOE_PRECISIONS="fp32 fp16 fp8 fp4 fp2 fp1" for all of them).
+#          Same DBs for all of them, so it only multiplies the run stage. fp32 folders keep their old names, the
+#          others get a _<prec> suffix. MODE=real only does fp32.
+#   per dataset: 3 DPC x 2 MA x 2 BUNDLE x 2 HINT x 2 k x 3 PREC = 144 run tasks (the 48 fp32 ones skip at once
+#   if they already have results); 4 datasets = 576.
 # msmarco-v2 and its subsamples have their own script, run_tiptoe_msmarco_v2.slurm (longer preprocessing, one task
 # per preprocessed DB instead of per config).
 #
@@ -52,7 +57,9 @@ case $TIPTOE_STAGE in kmeans|db|run) ;; *) echo "TIPTOE_STAGE must be kmeans, db
 DPC_LIST=(250 2500 40000)    # 2026-11-09, was 250 500 1000 2500 5000 10000 40000
 MA_LIST=(1 2)
 BUNDLE_LIST=(40 320)         # was 40 80 160 320
-DATA_ARR=(); DPC_ARR=(); MA_ARR=(); B_ARR=(); H_ARR=(); K_ARR=()
+read -ra PREC_LIST <<< "${TIPTOE_PRECISIONS:-fp32 fp8 fp1}"   # 2026-11-14
+[[ "${MODE:-sim}" == real ]] && PREC_LIST=(fp32)
+DATA_ARR=(); DPC_ARR=(); MA_ARR=(); B_ARR=(); H_ARR=(); K_ARR=(); P_ARR=()
 KM_D=(); KM_DPC=(); DB_D=(); DB_DPC=(); DB_MA=(); DB_B=()
 for d in $TIPTOE_DATASETS; do
   for dpc in "${DPC_LIST[@]}"; do
@@ -62,7 +69,10 @@ for d in $TIPTOE_DATASETS; do
         DB_D+=("$d"); DB_DPC+=("$dpc"); DB_MA+=("$ma"); DB_B+=("$bundle")
         for hint in 125 500; do
           for k in 10 100; do
-            DATA_ARR+=("$d"); DPC_ARR+=("$dpc"); MA_ARR+=("$ma"); B_ARR+=("$bundle"); H_ARR+=("$hint"); K_ARR+=("$k")
+            for prec in "${PREC_LIST[@]}"; do
+              DATA_ARR+=("$d"); DPC_ARR+=("$dpc"); MA_ARR+=("$ma"); B_ARR+=("$bundle"); H_ARR+=("$hint"); K_ARR+=("$k")
+              P_ARR+=("$prec")
+            done
           done
         done
       done
@@ -108,6 +118,7 @@ else
     bundle=${B_ARR[$task_id]}
     hint=${H_ARR[$task_id]}
     k_val=${K_ARR[$task_id]}
+    prec=${P_ARR[$task_id]}
 fi
 method="tiptoe"
 
@@ -164,7 +175,8 @@ need "${TT_DIR}/tiptoe_meta.json" db
 # multi-assign as applied (capped at the number of clusters): the simulator names its folder with it, so on a
 # 1-cluster scifact config ma=2 lands in the m1 folder and is skipped here instead of racing the ma=1 task
 read -r C MA_USED < <(python -c "import json;m=json.load(open('${TT_DIR}/tiptoe_meta.json'));print(m['num_clusters'],m['multi_assign'])")
-OUT_DIR="${RESULTS_ROOT}/${method}_${dataset}_c${C}_m${MA_USED}_b${bundle}_h${hint}_k${k_val}"
+PSFX=""; [[ "$prec" == fp32 ]] || PSFX="_$prec"     # same naming as simulate_tiptoe.py
+OUT_DIR="${RESULTS_ROOT}/${method}_${dataset}_c${C}_m${MA_USED}_b${bundle}_h${hint}_k${k_val}${PSFX}"
 # Several DPC values can give the same cluster count (scifact: 2500 and 40000 are both 1 cluster), so two tasks can
 # share OUT_DIR; without this lock both simulated at once and interleaved metadata.json ("}}", the "bad json" in
 # check_runs.sh). The second one now waits here (seconds) and then skips.
@@ -187,6 +199,7 @@ Docs per cluster:  $dpc  (clusters: $C)
 Multi-assign:      $ma
 Bundle size:       $bundle
 Emb hint MB:       $hint
+Precision:         $prec
 Mode:              $MODE
 Tiptoe dir:        $TT_DIR
 Output Dir:        $OUT_DIR
@@ -198,7 +211,7 @@ EOF
 if [[ "$MODE" == "sim" ]]; then
     srun python baselines/tiptoe/simulate_tiptoe.py \
         --dataset "$DATASET_DIR" --name "$dataset" --tiptoe-dir "$TT_DIR" --k "$k_val" \
-        --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" \
+        --emb-hint-mb "$hint" --results-root "$RESULTS_ROOT" --precision "$prec" \
         --parallelism "${SLURM_CPUS_PER_TASK:-1}" &
     srun_pid=$!
     wait "$srun_pid"

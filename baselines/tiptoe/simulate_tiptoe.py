@@ -44,6 +44,25 @@ CLIENT STORAGE (lower bound): centroids (C x 192 float32), plus 8 B per
 cluster and 16 B per bundle for the index maps. With underhood the client
 keeps no SimplePIR hint.
 
+REDUCED PRECISION (--precision fp16|fp8|fp4|fp2|fp1, default fp32 = the DB as built).
+Every embedding is cast to a lower-precision float after it is loaded, and
+everything after that uses the cast values: the doc vectors in the ranking DB
+(re-read from the float corpus .npy for each cluster, cast, then Tiptoe's
+5-bit quantisation with the DB's own scale), the query, the client's
+centroids, and the cosine rerank. The clustering and bundling stay those of
+the preprocessed DB (server side, done once), so all precisions share one DB.
+  fp16  IEEE half, plain cast
+  fp8   OCP E4M3 (max 448), per-vector absmax scale
+  fp4   OCP E2M1 (0, .5, 1, 1.5, 2, 3, 4, 6), per-vector absmax scale
+  fp2   E1M0 = ternary {-1, 0, +1}, per-vector absmean scale (as in BitNet b1.58;
+        absmax would round almost every coordinate to 0)
+  fp1   sign only = binary {-1, +1}, per-vector absmean scale (1-bit, as in BitNet)
+Rounding is round-to-nearest-even, saturating. Bytes per query do not change:
+the ranking DB entries are mod-p plaintexts in 64-bit LWE (and the URL DB has no
+embeddings), so the up/down sizes depend on L and M only. Client storage counts
+the centroids at the reduced width (+ a 4 B scale per centroid for fp8/4/2/1).
+Output folders get a _<precision> suffix: tiptoe_..._k10_fp4.
+
 SERVER TIME (only with --bench-bin): Tiptoe's online answers are exactly
 SimplePIR's Server.Answer = MulVecPacked(squished DB, query), so
 cmd/simplepir_bench times that at the real (L, M) for both services. The
@@ -80,6 +99,48 @@ LWE_N64 = 2048                     # lwe secretDimension64
 RLWE_CT = 2 * RLWE_N * 8           # full ciphertext payload
 RLWE_SEEDED_CT = RLWE_N * 8 + 64   # seeded (symmetric, compressed) ciphertext payload
 LIMBS64, LIMBS32 = 8, 5            # underhood NumLimbs64 / NumLimbs32
+
+# precision -> (mantissa bits, min exponent, max finite, per-vector scale rule)
+MINIFLOATS = {
+    "fp8": (3, -6, 448.0, "absmax"),   # OCP E4M3, bias 7
+    "fp4": (1, 0, 6.0, "absmax"),      # OCP E2M1, bias 1
+    "fp2": (0, 0, 1.0, "absmean"),     # E1M0, bias 1: {0, 1}, i.e. ternary with the sign
+}
+PRECISION_BITS = {"fp32": 32, "fp16": 16, "fp8": 8, "fp4": 4, "fp2": 2, "fp1": 1}
+
+
+def minifloat_round(x, mant, emin, maxv):
+    """Round to the nearest value of a sign + exponent + mantissa float (subnormals below 2^emin), saturating."""
+    a = np.abs(x)
+    e = np.maximum(np.floor(np.log2(np.maximum(a, 1e-30))), emin)
+    step = np.exp2(e - mant)
+    return np.sign(x) * np.minimum(np.round(a / step) * step, maxv)   # np.round = half to even
+
+
+def reduce_precision(x, prec):
+    """x (1-D vector or rows of vectors) cast to `prec` and back to float32 (see REDUCED PRECISION above)."""
+    x = np.asarray(x, dtype=np.float32)
+    if prec == "fp32":
+        return x
+    if prec == "fp16":
+        return x.astype(np.float16).astype(np.float32)
+    if prec == "fp1":   # sign bit only, scaled by the vector's mean |x|
+        s = np.abs(x).mean(axis=-1, keepdims=True)
+        return (np.where(x >= 0, 1.0, -1.0) * s).astype(np.float32)
+    mant, emin, maxv, rule = MINIFLOATS[prec]
+    a = np.abs(x)
+    s = (a.max(axis=-1, keepdims=True) / maxv) if rule == "absmax" else a.mean(axis=-1, keepdims=True)
+    s = np.where(s > 0, s, 1.0)
+    return (minifloat_round(x / s, mant, emin, maxv) * s).astype(np.float32)
+
+
+class ReducedRows:
+    """doc_vecs for cosine_rerank: rows of a (memmapped) array, cast to `prec` on read."""
+    def __init__(self, base, prec):
+        self.base, self.prec = base, prec
+
+    def __getitem__(self, rows):
+        return reduce_precision(self.base[rows], self.prec)
 
 
 def read_cluster_full(path):
@@ -155,11 +216,14 @@ def main():
     ap.add_argument("--bench-bin", default="", help="cmd/simplepir_bench binary, to measure online server time")
     ap.add_argument("--bench-max-gb", type=float, default=8)
     ap.add_argument("--parallelism", type=int, default=1, help="divide server time by this (Tiptoe shards freely)")
+    ap.add_argument("--precision", choices=list(PRECISION_BITS), default="fp32",
+                    help="cast every embedding to this float format after loading (REDUCED PRECISION above)")
     args = ap.parse_args()
 
     meta = json.load(open(os.path.join(args.tiptoe_dir, "tiptoe_meta.json")))
     C = meta["num_clusters"]
-    cents = np.load(os.path.join(args.tiptoe_dir, "centroids.npy"))
+    prec = args.precision
+    cents = reduce_precision(np.load(os.path.join(args.tiptoe_dir, "centroids.npy")), prec)
     cdir = os.path.join(args.tiptoe_dir, "clusters")
 
     # ---------- database shapes ----------
@@ -194,7 +258,8 @@ def main():
     tok_up = LWE_N64 * RLWE_SEEDED_CT
     tok_down = (LIMBS64 * math.ceil(L_emb / RLWE_N) + LIMBS32 * math.ceil(L_url / RLWE_N)) * RLWE_CT
     online = emb_up + emb_down + url_up + url_down
-    client_bytes = cents.size * 4 + 8 * C + 16 * n_bundles
+    cent_bytes = cents.size * PRECISION_BITS[prec] / 8 + (4 * len(cents) if prec in MINIFLOATS or prec == "fp1" else 0)
+    client_bytes = cent_bytes + 8 * C + 16 * n_bundles
     server_bytes = L_emb * math.ceil(M_emb / SQUISH) * 8 + L_url * math.ceil(M_url / SQUISH) * 4
 
     # ---------- quality ----------
@@ -204,10 +269,21 @@ def main():
     qvecs = np.load(paths["query_vec"], mmap_mode="r")
     qrels = common.load_qrels(paths["qrels"])
     lo, hi = -(1 << (meta["slot_bits"] - 1)), (1 << (meta["slot_bits"] - 1)) - 1
+    doc_vecs = np.load(paths["corpus_vec"], mmap_mode="r")
+
+    def requantise(rows):
+        """The DB's 5-bit doc embeddings, rebuilt from the float corpus at `prec` (same rule as preprocess_tiptoe.py)."""
+        srt = np.argsort(rows, kind="stable")       # sorted = sequential reads from the memmap
+        out = np.empty((len(rows), doc_vecs.shape[1]), dtype=np.int8)
+        for s_ in range(0, len(rows), 65536):
+            part = srt[s_:s_ + 65536]
+            v = reduce_precision(doc_vecs[rows[part]], prec)
+            out[part] = np.clip(np.round(v * meta["scale"]), lo, hi).astype(np.int8)
+        return out
 
     cache, results, returned = {}, {}, []
     for i, (qid, _) in enumerate(queries):
-        v = np.asarray(qvecs[i], dtype=np.float32)
+        v = reduce_precision(qvecs[i], prec)
         c = int(np.argmin(((cents - v) ** 2).sum(1)))                                         # nearestCluster
         q = np.clip(np.round(v.astype(np.float64) * meta["scale"]), lo, hi).astype(np.int64)  # quantise
         if c not in cache:
@@ -221,6 +297,8 @@ def main():
                 cl = read_cluster_full(os.path.join(cdir, f"cluster_{c}.txt"))
                 cache[c] = (np.stack([e for _, e, _ in cl]).astype(np.int8), np.array([r for r, _, _ in cl]),
                             np.array([b for _, _, b in cl]))
+            if prec != "fp32":
+                cache[c] = (requantise(cache[c][1]),) + cache[c][1:]
         embs, crow, cbun = cache[c]
         # exact integer inner products, as decrypted (|score| <= 192*16*16, so int32 is exact); clusters are cached
         # as int8 to keep memory at ~200 B per doc even with 40k-doc clusters
@@ -239,9 +317,8 @@ def main():
         results[qid] = ids
         returned.append(len(ids))
 
-    qvec_by_id = {qid: np.asarray(qvecs[i], dtype=np.float32) for i, (qid, _) in enumerate(all_queries) if i < len(qvecs)}
-    doc_vecs = np.load(paths["corpus_vec"], mmap_mode="r")
-    reranked = common.cosine_rerank(results, args.k, common.AllRows(), doc_vecs, qvec_by_id)
+    qvec_by_id = {qid: reduce_precision(qvecs[i], prec) for i, (qid, _) in enumerate(all_queries) if i < len(qvecs)}
+    reranked = common.cosine_rerank(results, args.k, common.AllRows(), ReducedRows(doc_vecs, prec), qvec_by_id)
     # Only the returned rows' IDs are looked up, so the corpus is never held in memory (msmarco-v2 is 138M docs)
     idmap = common.ids_for_rows(paths["corpus"], {r for rows in results.values() for r in rows})
     results, reranked = common.rows_to_ids(results, idmap), common.rows_to_ids(reranked, idmap)
@@ -273,6 +350,7 @@ def main():
         "TiptoeEmbL": L_emb, "TiptoeEmbM": M_emb, "TiptoeURLL": L_url, "TiptoeURLM": M_url,
         "TiptoeMeanDocsReturned": f"{np.mean(returned):.2f}",
         "TiptoeDir": args.tiptoe_dir,
+        "TiptoePrecision": prec,
         "TiptoeCostNote": "lower bounds: payload only, no serialisation headers; token server time not included",
     }
     if args.bench_bin:
@@ -286,7 +364,7 @@ def main():
     print(json.dumps(out, indent=2))
     if args.results_root:
         tag = f"c{C}_m{meta.get('multi_assign', 2)}_b{meta.get('bundle_size', 160)}_h{args.emb_hint_mb}"
-        d = os.path.join(args.results_root, f"tiptoe_{args.name}_{tag}_k{args.k}")
+        d = os.path.join(args.results_root, f"tiptoe_{args.name}_{tag}_k{args.k}" + ("" if prec == "fp32" else f"_{prec}"))
         common.write_run(d, out, results, reranked)
         print(f"wrote {d}")
 

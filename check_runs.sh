@@ -148,9 +148,10 @@ for dpc in (250, 2500, 40000):
         for b in (40, 320):
             for h in (125, 500):
                 for k in (10, 100):
-                    name = f"{root}/tiptoe_{d}_c{c}_m{min(ma, c)}_b{b}_h{h}_k{k}"
-                    if name not in seen:
-                        seen.add(name); print(f"tiptoe {d} {name} dpc={dpc} ma={ma} bundle={b} hint={h} k={k}")
+                    for p in ("fp32", "fp8", "fp1"):   # run_tiptoe.slurm PREC_LIST
+                        name = f"{root}/tiptoe_{d}_c{c}_m{min(ma, c)}_b{b}_h{h}_k{k}" + ("" if p == "fp32" else f"_{p}")
+                        if name not in seen:
+                            seen.add(name); print(f"tiptoe {d} {name} dpc={dpc} ma={ma} bundle={b} hint={h} k={k} prec={p}")
 EOF
     fi
     if has coeus; then

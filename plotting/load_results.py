@@ -60,11 +60,12 @@ finishes, so a folder without metadata.json is skipped (counted in the log).
     tree_{dataset}_..._k{K}
         Layout not fixed yet, see parse_tree().
 
-    tiptoe_{dataset}_c{C}[_m{M}][_b{B}][_h{H}]_k{K}
+    tiptoe_{dataset}_c{C}[_m{M}][_b{B}][_h{H}]_k{K}[_{P}]
         C        number of k-means clusters (baselines/tiptoe/preprocess_tiptoe.py)
         M        clusters each doc is assigned to (default 2)
         B        bundle size (default 160)
         H        embedding hint MB (default 500)
+        P        embedding precision fp16|fp8|fp4|fp2|fp1 (default fp32; simulate_tiptoe.py --precision)
 
     coeus_{dataset}_k{K}_f{F}[_tf{raw|log}]
         F        keyword dictionary size (baselines/coeus/run_coeus.py)
@@ -407,7 +408,7 @@ def tree_pir_rounds(folder, meta, n):
 
 
 # m = multi-assign, b = bundle size, h = embedding hint MB (optional, older runs don't have them)
-TIPTOE_NAME = re.compile(r'^tiptoe_(?P<dataset>[a-z0-9-]+)_c(?P<c>\d+)(?:_m(?P<m>\d+))?(?:_b(?P<b>\d+))?(?:_h(?P<h>\d+))?_k(?P<k>10)$')
+TIPTOE_NAME = re.compile(r'^tiptoe_(?P<dataset>[a-z0-9-]+)_c(?P<c>\d+)(?:_m(?P<m>\d+))?(?:_b(?P<b>\d+))?(?:_h(?P<h>\d+))?_k(?P<k>10)(?:_(?P<prec>fp16|fp8|fp4|fp2|fp1))?$')
 COEUS_NAME = re.compile(r'^coeus_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_f(?P<f>\d+)(?:_tf(?P<tf>raw|log))?$')
 
 
@@ -422,8 +423,10 @@ def parse_tiptoe(folder, meta):
         return None
     c = int(name['c'])
     m, b, h = int(name['m'] or 2), int(name['b'] or 160), int(name['h'] or 500)
+    prec = name['prec'] or 'fp32'
     run.update(method='tiptoe', dataset=name['dataset'], k=int(name['k']), c=c, multi_assign=m, bundle=b,
-               emb_hint_mb=h, config=f'c{c}_m{m}_b{b}_h{h}',
+               emb_hint_mb=h, precision=prec,
+               config=f'c{c}_m{m}_b{b}_h{h}' + ('' if prec == 'fp32' else f'_{prec}'),
                pir_rounds=2,   # ranking round + URL round (the token is fetched offline)
                token_kb=read_float(meta, 'TiptoeTokenKBPerQuery'),
                offline_wan_time=read_seconds(meta, 'TiptoeOfflineWANTime') / run['num_queries'])
