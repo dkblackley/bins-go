@@ -43,7 +43,7 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
 DATASET_DIR="${DATASET_DIR:-../../datasets}"
-RESULTS_ROOT="${RESULTS_ROOT:-/scratch/dblackle/results}"
+RESULTS_ROOT="${RESULTS_ROOT:-/scratch/$USER/results}"
 TIPTOE_V2_DATASETS="${TIPTOE_V2_DATASETS:-msmarco-v2-25m msmarco-v2-50m msmarco-v2}"
 
 # One line per task: dataset N clusters dpc ma bundle (clusters = preprocess_tiptoe.py's own rule, deduplicated)

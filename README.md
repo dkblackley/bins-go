@@ -462,9 +462,9 @@ COEUS_DATASETS="scifact msmarco nq" sbatch --array=0-<N-1> run_coeus.slurm
 
 | Script | What | Results root |
 |---|---|---|
-| `run_bins_batch_sweep.slurm` | vec0 `-vecBatch` x `-vecRounds` x `-idBatch` | `RESULTS_ROOT` (default `/scratch/dblackle/results_vecbatch`)`/<tag>/` |
-| `run_tree_grid_sweep.slurm` | tree Piano/Cuckoo knobs, 4^5 = 1024 per dataset | `/scratch/dblackle/results_tree_grid/<tag>/` |
-| `run_tree_hint_ablation.slurm` | one tree config under each knob (14 tasks) | `/scratch/dblackle/results_hint/<knob>/` |
+| `run_bins_batch_sweep.slurm` | vec0 `-vecBatch` x `-vecRounds` x `-idBatch` | `RESULTS_ROOT` (default `/scratch/$USER/results_vecbatch`)`/<tag>/` |
+| `run_tree_grid_sweep.slurm` | tree Piano/Cuckoo knobs, 4^5 = 1024 per dataset | `/scratch/$USER/results_tree_grid/<tag>/` |
+| `run_tree_hint_ablation.slurm` | one tree config under each knob (14 tasks) | `/scratch/$USER/results_hint/<knob>/` |
 
 Load one tag with `RESULTS_DIR=<root>/<tag> python plotting/main.py`.
 
@@ -554,7 +554,7 @@ or `run_scifact_local.sh`.
 Results roots:
 
 * slurm: `RESULTS_DIR`, default `/scratch/$USER/results` (bins, pacmann, tree); `RESULTS_ROOT`, default
-  `/scratch/dblackle/results` (tiptoe, coeus)
+  `/scratch/$USER/results` (tiptoe, coeus)
 * `datasets/run_local.sh`: `<DATASETS_ROOT>/results` (same folder names)
 * `run_scifact_local.sh`: `../../../datasets/{bins,pacmann,tree,tiptoe,coeus}`
 
@@ -650,7 +650,7 @@ Other sizes worth knowing:
   `bash measure_run.sh`, and `run_me.sh` restores the bits, so this can't break runs again).
 * Three different default dataset roots: `../datasets` (run_all + dataset slurms), `../../datasets` (run slurms on
   their own), `../../../datasets` (local scripts). Set `DATASETS_ROOT` / `DATASET_DIR` if in doubt.
-* The sweep scripts default to `/scratch/dblackle/...`; tiptoe/coeus use `RESULTS_ROOT`, the rest `RESULTS_DIR`.
+* The sweep scripts default to `/scratch/$USER/...`; tiptoe/coeus use `RESULTS_ROOT`, the rest `RESULTS_DIR`.
 * A new dataset name must be added to `GetDatasets` (`main.go`, only if it doesn't follow the generic layout),
   `baselines/common.py` `DATASETS`, `DATASET_EMBEDS` in `baselines/tiptoe/preprocess_tiptoe.py`, and
   `DATASET_SIZES` in `slurm_common.sh` (for the resource model before `num_docs.txt` exists).
@@ -684,4 +684,19 @@ tree_sweep_grid.sh          the tree grid (shared by artifacts and runs)
 run_*.slurm                 per-method slurm arrays (section 5.3)
 setup_pacmann.sh, go_env.sh, build.sh, build_go.slurm   build
 collection_preproc.py, query_preproc.py                 e5 + PCA embedding
+tools/anon/                 anonymous-review snapshot: make_snapshot.sh + the README it ships (section 11)
 ```
+
+---
+
+## 11. Anonymous snapshot for double-blind review
+
+```bash
+bash tools/anon/make_snapshot.sh ../pillar-anon     # commit first: only HEAD is exported
+```
+
+Exports HEAD with `git archive` (no history), drops the cluster-ops helpers, legacy scripts and debug tools listed in
+`EXCLUDE`, swaps in `tools/anon/README.md`, renames the Go module to `pillar`, rewrites the cluster/account/user
+names and paths, then fails if any identifying string is left and checks the Go code builds. Upload that folder (or a
+zip of it) to anonymous.4open.science; never a git remote, since every commit carries the author's name. Keep
+`tools/anon/README.md` in sync when the workflow changes.

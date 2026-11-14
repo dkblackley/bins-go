@@ -1,7 +1,7 @@
 #!/bin/bash
 # shrink_time.sh: lower the --time of queued (pending or held) arrays whose estimate is known to be too long.
 # Shorter limits get backfilled sooner. Only pending tasks change; running tasks keep their limit.
-# Measured on 2026-11-09 (temp_claude.sh): bins runs on nq / fever / msmarco took 6-32% of the time they asked for.
+# Measured on 2026-11-09 (a one-off sacct check): bins runs on nq / fever / msmarco took 6-32% of the time they asked for.
 #
 #   bash shrink_time.sh --dry-run      # show old -> new limits, change nothing
 #   bash shrink_time.sh                # new limit = old x 0.5, rounded up to TIME_BUCKETS, at least 60 min

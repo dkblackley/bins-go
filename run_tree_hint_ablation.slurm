@@ -30,7 +30,7 @@ ROOT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 cd "$ROOT_DIR"
 export PATH=$PATH:/usr/local/go/bin
 
-RESULTS_ROOT="${RESULTS_ROOT:-/scratch/dblackle/results_hint}"
+RESULTS_ROOT="${RESULTS_ROOT:-/scratch/$USER/results_hint}"
 DATASET="${DATASET:?set DATASET to msmarco or scifact}"
 
 # The tree config every knob is applied to (edit to match a frontier config).

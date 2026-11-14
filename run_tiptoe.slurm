@@ -123,7 +123,7 @@ fi
 method="tiptoe"
 
 DATASET_DIR="${DATASET_DIR:-../../datasets}"
-RESULTS_ROOT="${RESULTS_ROOT:-/scratch/dblackle/results}"
+RESULTS_ROOT="${RESULTS_ROOT:-/scratch/$USER/results}"
 
 # -n and the real-mode query cap: hardcoded for the originals, num_docs.txt (datasets/prepare_dataset.py) otherwise
 case "$dataset" in

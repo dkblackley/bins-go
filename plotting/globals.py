@@ -23,7 +23,8 @@ from matplotlib.patches import Circle, Polygon
 # PATHS
 # ==========================================
 
-RESULTS_DIR = os.environ.get('RESULTS_DIR', '/scratch/dblackle/results')
+_SCRATCH = os.path.join('/scratch', os.environ.get('USER', ''))   # the cluster's per-user scratch
+RESULTS_DIR = os.environ.get('RESULTS_DIR', os.path.join(_SCRATCH, 'results'))
 # Several directories can be given separated by ':' (os.pathsep), e.g. when the
 # baselines write their runs somewhere else:
 #   RESULTS_DIR=/data/results:/data/tiptoe:/data/coeus python main.py
@@ -51,8 +52,8 @@ EXTRA_METHODS = os.environ.get('EXTRA_METHODS', 'tiptoe coeus').split()
 # every server timing (TotalAnswerTime, PreprocessingTime, ...) is -1, loaded as NaN. With FALLBACK_TO_SIMULATED on,
 # load_results() takes each config from RESULTS_DIRS when it has a metadata.json there, else from these folders, and
 # marks every run with run['source'] = 'real' / 'simulated'. FALLBACK_TO_SIMULATED=0 reads RESULTS_DIRS only.
-# default: hopper's folder there, else ../datasets/results_simulated next to this repo (this machine)
-_SIM_DEFAULT = '/scratch/dblackle/results_simulated'
+# default: the cluster's folder there, else ../datasets/results_simulated next to this repo (this machine)
+_SIM_DEFAULT = os.path.join(_SCRATCH, 'results_simulated')
 if not os.path.isdir(_SIM_DEFAULT):
     _SIM_DEFAULT = os.path.normpath(os.path.join(_HERE, '../../../../datasets/results_simulated'))
 SIMULATED_RESULTS_DIR = os.environ.get('SIMULATED_RESULTS_DIR', _SIM_DEFAULT)

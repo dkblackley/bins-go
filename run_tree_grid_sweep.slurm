@@ -38,7 +38,7 @@ ROOT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 cd "$ROOT_DIR"
 export PATH=$PATH:/usr/local/go/bin
 
-RESULTS_ROOT="${RESULTS_ROOT:-/scratch/dblackle/results_tree_grid}"
+RESULTS_ROOT="${RESULTS_ROOT:-/scratch/$USER/results_tree_grid}"
 DATASET="${DATASET:?set DATASET to msmarco or scifact}"
 
 PIR_BATCHES=(128 64 32 16)

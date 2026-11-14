@@ -77,7 +77,7 @@ features=${F_ARR[$task_id]}
 tf=${TF_ARR[$task_id]}
 k_val=${K_ARR[$task_id]}
 
-OUT="${RESULTS_ROOT:-/scratch/dblackle/results}/coeus_${dataset}_k${k_val}_f${features}_tf${tf}"
+OUT="${RESULTS_ROOT:-/scratch/$USER/results}/coeus_${dataset}_k${k_val}_f${features}_tf${tf}"
 if [[ -s "$OUT/metadata.json" && -z "${FORCE:-}" ]]; then echo "Already done: $OUT (FORCE=1 reruns)"; exit 0; fi
 echo "Coeus: dataset=$dataset F=$features tf=$tf k=$k_val"
 python baselines/coeus/run_coeus.py \
@@ -86,6 +86,6 @@ python baselines/coeus/run_coeus.py \
     --k "$k_val" \
     --features "$features" \
     --tf "$tf" \
-    --results-root "${RESULTS_ROOT:-/scratch/dblackle/results}" \
+    --results-root "${RESULTS_ROOT:-/scratch/$USER/results}" \
     --token-cache "$COEUS_TOKEN_CACHE" --require-token-cache \
     --parallelism "${SLURM_CPUS_PER_TASK:-1}"

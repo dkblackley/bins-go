@@ -28,10 +28,8 @@ go.work.sum
 .env
 
 # Editor/IDE
- .idea/
- .vscode/
-
- figures/
+.idea/
+.vscode/
 
 
 /index_*
@@ -62,3 +60,17 @@ pir_app
 
 # -noram scratch files (pir_app -noram, one folder per run, deleted at the end)
 temp_storage/
+
+# run logs, failed-task lists and one-off files
+logs/*
+!logs/.gitkeep
+*_fails
+test_local_fails
+temp_*.sh
+go.err
+*.bak
+
+# bins/pacmann temporary Bluge index (bins_util.go: <SearchType>temp_doc)
+*temp_doc/
+*temp_doc_delete/
+*temp_doc.jsonl

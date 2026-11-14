@@ -25,7 +25,7 @@
 # The full lists of crashed / not started configs (with each crash's last error line) go to logs/check/<timestamp>/.
 #
 # Env: DATASETS_ROOT/DATASET_DIR (../datasets), RESULTS_DIR (/scratch/$USER/results: bins, pacmann, tree),
-#      RESULTS_ROOT (/scratch/dblackle/results: tiptoe, coeus), SWEEP (tree grid, default all), SINCE, METHODS,
+#      RESULTS_ROOT (/scratch/$USER/results: tiptoe, coeus), SWEEP (tree grid, default all), SINCE, METHODS,
 #      TREE_CUCKOO_HASHES/TREE_CUCKOO_LF (only if the tree runs used them), TIPTOE_DPC etc. are not needed.
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -35,7 +35,7 @@ export DATASET_DIR="${DATASET_DIR:-$DATASETS_ROOT}"
 if [[ "${REAL:-0}" == 1 ]]; then export SIMULATE=0; else export SIMULATE=1; fi
 [[ "$SIMULATE" == 1 ]] && RESULTS_DIR="${RESULTS_DIR:-/scratch/$USER/results_simulated}"   # simulated runs
 RES="${RESULTS_DIR:-/scratch/$USER/results}"
-BRES="${RESULTS_ROOT:-/scratch/dblackle/results}"
+BRES="${RESULTS_ROOT:-/scratch/$USER/results}"
 SINCE_FILE="${SINCE_FILE:-logs/check/since}"
 if [[ "${1:-}" == "--mark" ]]; then
     mkdir -p "$(dirname "$SINCE_FILE")"; date +%FT%T > "$SINCE_FILE"
