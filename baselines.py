@@ -4,7 +4,7 @@ at all, so the paper can show how close the private methods come.
 
     python baselines.py                                   # msmarco + scifact, k=10
     python baselines.py --datasets scifact --k 10 100
-    python baselines.py --dataset-root /scratch/dblackle/datasets --out baselines
+    python baselines.py --dataset-root /scratch/$USER/datasets --out baselines
 
 For every dataset and k it writes <out>/<dataset>_k<k>.json holding MRR@k and
 Recall@k for:

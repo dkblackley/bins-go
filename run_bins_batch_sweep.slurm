@@ -51,7 +51,7 @@ export HNSW_PREFIX="$HOME/opt/hnsw"
 export CGO_LDFLAGS="-L${NGT_PREFIX}/lib -Wl,-rpath,${NGT_PREFIX}/lib -lngt -L${HNSW_PREFIX}/lib -Wl,-rpath,${HNSW_PREFIX}/lib -lhnsw"
 export GOMAXPROCS="${SLURM_CPUS_PER_TASK:-1}"
 
-RESULTS_ROOT="${RESULTS_ROOT:-/scratch/dblackle/results_vecbatch}"
+RESULTS_ROOT="${RESULTS_ROOT:-/scratch/$USER/results_vecbatch}"
 K_VAL=10
 
 VEC_DIVS=(1 2 4 8)     # vec batch = max / this

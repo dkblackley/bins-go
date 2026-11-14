@@ -103,7 +103,11 @@ func PacmannMain(args *globals.Args) *PIRGraphInfo {
 	// q = queryNum
 	nonPrivateMode = false
 	// workingDir := filepath.Dir(inputFile)
-	workingDir := filepath.Dir("/scratch/dblackle/pac/")
+	// Graph cache folder: $PACMANN_GRAPH_DIR, default /scratch/$USER/pac (the cluster's scratch).
+	workingDir := os.Getenv("PACMANN_GRAPH_DIR")
+	if workingDir == "" {
+		workingDir = filepath.Join("/scratch", os.Getenv("USER"), "pac")
+	}
 	fmt.Println("Working directory: ", workingDir)
 	dataName := filepath.Base(inputFile)
 	dataName = strings.TrimSuffix(dataName, filepath.Ext(dataName))
