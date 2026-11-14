@@ -1,7 +1,6 @@
 package bins
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"sort"
@@ -80,6 +79,7 @@ func (v VecBins) GetMetaData() map[string]string {
 	meta["VecBatchSize"] = strconv.FormatUint(v.vecPIR.Config().BatchSize, 10)
 	meta["VecRounds"] = strconv.Itoa(v.maxQueryTerms)
 	meta["VecOrder"] = map[bool]string{true: "rr", false: "bin"}[v.roundRobin]
+	addQueryTermMeta(meta, v.config.MaxTerms)
 	if q := v.stats.queries.Load(); q > 0 {
 		c, d := v.stats.candidates.Load(), v.stats.dropped.Load()
 		meta["VecCandidatesPerQuery"] = strconv.FormatFloat(float64(c)/float64(q), 'f', 2, 64)
@@ -243,19 +243,7 @@ func collectDocIdx(results [][]uint64, T int, roundRobin bool) []uint64 {
 }
 
 func (v VecBins) MakeIndices(QID string) []uint64 {
-
-	query := v.Queries[QID]
-
-	tokeniser := strictEnglishAnalyzer()
-	tokens := tokeniser.Analyze([]byte(query.Text))
-
-	indices := make([]uint64, len(tokens))
-	for i, t := range tokens {
-		indices[i] = hashTokenChoice(fmt.Sprintf("%s", t.Term), v.config.DChoice) % uint64(v.N)
-	}
-
-	return indices
-
+	return queryBinIndices(v.Queries[QID].Text, v.config.DChoice, v.N, v.config.MaxTerms)
 }
 
 // MakeVecDb Takes in args from command line and then outputs a 'VecBins' object that implements the functions required for

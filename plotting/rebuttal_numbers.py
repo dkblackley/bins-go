@@ -273,7 +273,9 @@ def item_E(nd):
                    ', '.join(f'q{q} {byq[q]["recall"]:.4f}' for q in sorted(byq)))
     if not rich:
         out.append('  none: no tree msmarco family has 3+ q* values')
-    out.append('q*=16: not in the sweep (max q* run is 8). PILLAR-Bin has no q* setting (it uses every query term).')
+    qmax = max((q for byq in fam.values() for q in byq), default=None)
+    out.append(f'Largest q* run: {qmax}. PILLAR-Bin has no q* setting (it uses every query term). '
+               'All datasets: query_terms_table.py.')
     out.append('Highest-IDF vs first q* terms: MISSING, the tree keeps the first q* terms (normalizeQueryTerms); '
                'needs a run with IDF ordering.')
     return '\n'.join(out)

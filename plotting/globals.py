@@ -65,6 +65,9 @@ ONLY_SIMULATED = os.environ.get('ONLY_SIMULATED', '1') != '0'
 # the vec0 client-storage sweep (bins_vec0_..._vb<B>_vr<R>_ib<I>: embedding-DB batch / rounds, ID-DB batch) loads as more
 # PILLAR-Bin configs, so the method comparisons can pick them; INCLUDE_VEC0_SWEEP=0 leaves them out everywhere
 INCLUDE_VEC0_SWEEP = os.environ.get('INCLUDE_VEC0_SWEEP', '1') != '0'
+# the query-term sweep (bins_vec0_..._ib<I>_mt<N>: -maxTerms N, run_bins_*.slurm add_maxterms_sweep) is an ablation, not
+# more PILLAR-Bin configs: skipped unless INCLUDE_MAXTERMS=1 (query_terms_table.py turns it on for itself)
+INCLUDE_MAXTERMS = os.environ.get('INCLUDE_MAXTERMS', '0') == '1'
 # Methods left out of every client-storage comparison: their client_storage_mb is set to NaN at load time (the reported
 # value stays in client_storage_mb_reported), so any plot or table with client storage on an axis skips them and every
 # other metric keeps them. Tiptoe (centroids only: 0.001-17 MB; it downloads a 35-42 MB token per query instead) and
@@ -77,6 +80,10 @@ STORAGE_EXCLUDE_METHODS = os.environ.get('STORAGE_EXCLUDE_METHODS', 'tiptoe coeu
 # every run whose client keeps more than the whole embedding DB. FILTER_CLIENT_STORAGE=0 keeps every run (or pass
 # filter_client=False); MAX_CLIENT_FRACTION=2/3 etc. moves the cut. Dropped runs are in load_results.DROPPED.
 FILTER_CLIENT_STORAGE = os.environ.get('FILTER_CLIENT_STORAGE', '1') != '0'
+# Datasets the filter never applies to (space-separated). SciFact by default: its embedding DB is 3.8 MB, so the
+# filter dropped all but 6 of PILLAR-Bin's 2114 runs there while Tree / PACMANN (every run above it) were exempt.
+# CLIENT_FILTER_EXEMPT="" applies the filter to SciFact too.
+CLIENT_FILTER_EXEMPT = os.environ.get('CLIENT_FILTER_EXEMPT', 'scifact').split()
 MAX_CLIENT_FRACTION = float(os.environ.get('MAX_CLIENT_FRACTION', 1.0))
 # Size (MB = 2^20 bytes, like DBSizeInBytesMB / ClientStorageMB) of ../datasets/<d>/<d>_corpus_embed_f32.npy on hopper,
 # checked 2026-11-10: docs x 192 dims x float32 (the PCA'd e5 embeddings), + the .npy header.

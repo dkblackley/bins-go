@@ -14,8 +14,8 @@ res=${res%/}
 module() { :; }; export -f module   # a cluster command the slurm scripts call; harmless to skip for --list-raw
 keep=$(for t in low high; do
     BINS_DATASETS="$d" BINS_VECS=false SLURM_SUBMIT_DIR="$PWD" bash "run_bins_$t.slurm" --list-raw 2>/dev/null
-done | awk '$5 ~ /^vb[0-9]+r[0-9]+i[0-9]+$/ { v = substr($5, 3); split(v, a, /[ri]/)
-            printf "bins_vec0_%s_k%s_bs%s_dpb%s_vb%s_vr%s_ib%s\n", $1, $2, $3, $4, a[1], a[2], a[3] }' | sort -u)
+done | awk '$5 ~ /^vb[0-9]+r[0-9]+i[0-9]+(m[0-9]+)?$/ { v = substr($5, 3); m = split(v, a, /[rim]/)
+            printf "bins_vec0_%s_k%s_bs%s_dpb%s_vb%s_vr%s_ib%s%s\n", $1, $2, $3, $4, a[1], a[2], a[3], (m > 3 ? "_mt" a[4] : "") }' | sort -u)
 [[ -n "$keep" ]] || { echo "the grid has no sweep configs for $d: refusing to move everything" >&2; exit 1; }
 old="${res}_vec0_sweep_old"
 n=0

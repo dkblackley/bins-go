@@ -184,6 +184,44 @@ if [[ " $BINS_VECS " == *" false "* ]]; then
     done
 fi
 
+# Query-term sweep (2026-11-13), IN ADDITION to the above: PILLAR-Bin's answer to the tree's q* ablation. -maxTerms N
+# keeps the first N analysed query terms (one ID-DB lookup each), as the tree's -q keeps the first q*. Three vec0
+# configs per dataset, embedding batch 100 x 1 / 10 / 30 rounds (2 / 11 / 31 PIR rounds) on the dataset's best
+# (bs, dpb) family of the sweep above, each at N = MAXTERMS_LIST. m0 (every term, the same as no -maxTerms) is run
+# again next to them so the baseline comes from the same code. Vec value vb<B>r<R>i<I>m<N>, results folder
+# bins_vec0_<dataset>_k10_bs<BS>_dpb<DPB>_vb<B>_vr<R>_ib<I>_mt<N> (plotting skips _mt runs unless INCLUDE_MAXTERMS=1;
+# plotting/query_terms_table.py reads them). MAXTERMS_DATASETS="" turns it off; MAXTERMS_BASE_<dataset>="bs dpb"
+# (dataset with - as _), MAXTERMS_LIST, MAXTERMS_VB, MAXTERMS_VR, MAXTERMS_IB override.
+MAXTERMS_DATASETS="${MAXTERMS_DATASETS-all}"
+MAXTERMS_LIST="${MAXTERMS_LIST:-0 1 2 3 4 6 8}"
+maxterms_base() {   # dataset -> "bs dpb" (the family with the best vec0-sweep MRR in results_simulated, 2026-11-13)
+    local v="MAXTERMS_BASE_${1//-/_}"
+    [[ -n "${!v:-}" ]] && { echo "${!v}"; return; }
+    case $1 in
+        scifact)        echo "1000 1000" ;;
+        msmarco)        echo "1000000 2500" ;;
+        nq)             echo "1000000 500" ;;
+        fever)          echo "10000000 500" ;;
+        dbpedia-entity) echo "1000000 1000" ;;
+        msmarco-v2-25m) echo "1000000 2500" ;;
+        msmarco-v2-50m|msmarco-v2) echo "10000000 2500" ;;
+    esac
+}
+add_maxterms_sweep() {
+    local d=$1 bs dpb vb vr mt base
+    base=$(maxterms_base "$d"); [[ -n "$base" ]] || return 0
+    read -r bs dpb <<< "$base"
+    [[ "$(tier_of "$d" 10 "$bs" "$dpb" false)" == "$TIER" ]] || return 0
+    for vb in ${MAXTERMS_VB:-100}; do for vr in ${MAXTERMS_VR:-1 10 30}; do for mt in $MAXTERMS_LIST; do
+        DATA_ARR+=("$d"); K_ARR+=(10); BS_ARR+=("$bs"); DPB_ARR+=("$dpb"); VEC_ARR+=("vb${vb}r${vr}i${MAXTERMS_IB:-24}m${mt}")
+    done; done; done
+}
+if [[ " $BINS_VECS " == *" false "* ]]; then
+    for d in $BINS_DATASETS; do
+        [[ "$MAXTERMS_DATASETS" == all || " $MAXTERMS_DATASETS " == *" $d "* ]] && add_maxterms_sweep "$d"
+    done
+fi
+
 # One "dataset k bs dpb vec" line per config of this tier (datasets/run_all.sh reads it to build CONFIG_LISTs)
 if [[ "${1:-}" == "--list-raw" ]]; then
     for i in "${!DATA_ARR[@]}"; do echo "${DATA_ARR[$i]} ${K_ARR[$i]} ${BS_ARR[$i]} ${DPB_ARR[$i]} ${VEC_ARR[$i]}"; done
@@ -248,10 +286,11 @@ if [[ "$vec_val" == "text" ]]; then
     [[ "$TEXT_FORMAT" != bow || "$TEXT_ORDER" != 3 ]] && TAG_SUFFIX="_${TEXT_FORMAT}o${TEXT_ORDER}"
 elif [[ "$vec_val" == "true" ]]; then
     VEC_TAG="_vec1"
-elif [[ "$vec_val" =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)$ ]]; then   # vec0 client-storage sweep (add_vec0_sweep)
+elif [[ "$vec_val" =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)(m([0-9]+))?$ ]]; then   # vec0 sweep (add_vec0_sweep / add_maxterms_sweep)
     VEC_TAG="_vec0"
     LAYOUT_ARGS=(-vectors=false -vecBatch "${BASH_REMATCH[1]}" -vecRounds "${BASH_REMATCH[2]}"
                  -idBatch "${BASH_REMATCH[3]}" -vecOrder rr)
+    [[ -n "${BASH_REMATCH[4]}" ]] && LAYOUT_ARGS+=(-maxTerms "${BASH_REMATCH[5]}")   # m0 = every term, as without it
     TAG_SUFFIX="$(vec0_sweep_suffix "$vec_val")"
 else
     VEC_TAG="_vec0"

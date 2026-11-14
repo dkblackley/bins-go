@@ -29,7 +29,8 @@ filter_client=False), runs of every method whose client_storage_mb is
 are dropped after loading, unless that would drop every run of a method on a dataset (then
 that method keeps all its runs there). The count per method/dataset is logged and the dropped runs
 are kept in DROPPED[method][dataset]. Datasets missing from EMBED_DB_MB keep all their
-runs (with a warning).
+runs (with a warning), and so do the datasets in g.CLIENT_FILTER_EXEMPT (default scifact;
+CLIENT_FILTER_EXEMPT="" filters it too).
 
 FOLDERS
 -------
@@ -157,7 +158,7 @@ log = logging.getLogger('load')
 # optional _vb<B>_vr<R>_ib<I>: the vec0 client-storage sweep (run_bins_*.slurm add_vec0_sweep: embedding-DB batch,
 # rounds, ID-DB batch, round-robin candidates)
 BINS_NAME = re.compile(r'^bins_(?:vec(?P<vec>\d)|(?P<text>text))_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_bs(?P<bs>\d+)_dpb(?P<dpb>\d+)'
-                       r'(?:_vb(?P<vb>\d+)_vr(?P<vr>\d+)_ib(?P<ib>\d+))?$')
+                       r'(?:_vb(?P<vb>\d+)_vr(?P<vr>\d+)_ib(?P<ib>\d+)(?:_mt(?P<mt>\d+))?)?$')
 PACMANN_NAME = re.compile(r'^pacmann_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_steps(?P<steps>\d+)_neighb(?P<neighb>\d+)$')
 TREE_NAME = re.compile(r'^tree_(?:(?P<grid>grid)_)?(?P<dataset>[a-z0-9-]+)_b(?P<b>\d+)_r(?P<r>\d+)_s(?P<s>\d+)_L(?P<L>\d+)(?:_q(?P<q>\d+))?(?:_c(?P<c>\d+))?_k(?P<k>10)$')
 
@@ -276,13 +277,19 @@ def parse_bins(folder, meta):
     sweep = name['vb'] is not None
     if sweep and not g.INCLUDE_VEC0_SWEEP:
         return None
+    if name['mt'] is not None and not g.INCLUDE_MAXTERMS:
+        return None   # query-term sweep (-maxTerms): only query_terms_table.py reads it
     sweep_tag = f"_vb{name['vb']}_vr{name['vr']}_ib{name['ib']}" if sweep else ''
+    if name['mt'] is not None:
+        sweep_tag += f"_mt{name['mt']}"
     # text runs (vec=2) are PILLAR-Bin configs like the others (config 'text_bs.._dpb..'); the bs/dpb ablations
     # still keep them apart, since they always ask for vec=0 or vec=1
     run.update(method='bins', dataset=name['dataset'], k=int(name['k']),
                vec=vec, bs=bs, dpb=dpb, config=f'{tag}_bs{bs}_dpb{dpb}{sweep_tag}',
                # vec0 sweep: the batching asked for (VecBatchSize in metadata is what was used: pir_app cuts a batch
                # too big for the embedding DB) and how many candidates per query batch x rounds had no room for
+               max_terms=int(name['mt']) if name['mt'] is not None else None,
+               queries_truncated=read_float(meta, 'QueriesTruncatedFrac'), query_terms_mean=read_float(meta, 'QueryTermsMean'),
                vec_sweep=sweep, vec_batch=read_float(meta, 'VecBatchSize'), vec_rounds=read_float(meta, 'VecRounds'),
                id_batch=read_float(meta, 'IDBatchSize'), vec_dropped=read_float(meta, 'VecDroppedPerQuery'),
                vec_candidates=read_float(meta, 'VecCandidatesPerQuery'),
@@ -619,6 +626,8 @@ def filter_client_storage(nested_data, fraction=None):
     fraction = g.MAX_CLIENT_FRACTION if fraction is None else fraction
     for method, per_dataset in nested_data.items():
         for dataset, runs in per_dataset.items():
+            if dataset in g.CLIENT_FILTER_EXEMPT:
+                continue
             limit = g.EMBED_DB_MB.get(dataset)
             if limit is None:
                 log.warning("%s/%s: no embedding DB size in g.EMBED_DB_MB, client storage filter not applied",

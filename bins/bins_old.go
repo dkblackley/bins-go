@@ -15,7 +15,6 @@ package bins
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math"
 	"strconv"
 	"time"
@@ -63,7 +62,7 @@ func (v VecBinsOld) GetBatchNums() (uint64, uint64, uint64) {
 }
 
 func (v VecBinsOld) GetMetaData() map[string]string {
-	return v.PIR.PrintInfo()
+	return addQueryTermMeta(v.PIR.PrintInfo(), v.config.MaxTerms)
 }
 
 type DBentryOld struct {
@@ -124,19 +123,7 @@ func (v VecBinsOld) DoSearch(QID string, _ int) (globals.Decodable, error) {
 }
 
 func (v VecBinsOld) MakeIndices(QID string) []uint64 {
-
-	query := v.Queries[QID]
-
-	tokeniser := strictEnglishAnalyzer()
-	tokens := tokeniser.Analyze([]byte(query.Text))
-
-	indices := make([]uint64, len(tokens))
-	for i, t := range tokens {
-		indices[i] = hashTokenChoice(fmt.Sprintf("%s", t.Term), v.config.DChoice) % uint64(v.N)
-	}
-
-	return indices
-
+	return queryBinIndices(v.Queries[QID].Text, v.config.DChoice, v.N, v.config.MaxTerms)
 }
 
 // MakeVecDbOld Takes in args from command line and then outputs a 'VecBinsOld' object that implements the functions

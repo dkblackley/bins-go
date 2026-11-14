@@ -293,6 +293,36 @@ func mergeIntoBin(binsOrder map[uint][]string, binHits map[uint]uint, bin uint, 
 //	sets[bin][word] = struct{}{}
 //}
 
+// queryTermStats counts, over every query searched, the analysed terms and how many queries -maxTerms cut.
+var queryTermStats struct{ queries, terms, truncated atomic.Int64 }
+
+// queryBinIndices hashes a query's analysed terms to bins (one ID-DB lookup each), keeping only the first maxTerms
+// terms when maxTerms > 0 (the tree's -q keeps the first q* the same way).
+func queryBinIndices(text string, dChoice uint, nBins int, maxTerms uint) []uint64 {
+	tokens := strictEnglishAnalyzer().Analyze([]byte(text))
+	queryTermStats.queries.Add(1)
+	queryTermStats.terms.Add(int64(len(tokens)))
+	if maxTerms > 0 && len(tokens) > int(maxTerms) {
+		tokens = tokens[:maxTerms]
+		queryTermStats.truncated.Add(1)
+	}
+	indices := make([]uint64, len(tokens))
+	for i, t := range tokens {
+		indices[i] = hashTokenChoice(string(t.Term), dChoice) % uint64(nBins)
+	}
+	return indices
+}
+
+// addQueryTermMeta adds -maxTerms and the query-term counts to a metadata map.
+func addQueryTermMeta(meta map[string]string, maxTerms uint) map[string]string {
+	meta["MaxTerms"] = strconv.FormatUint(uint64(maxTerms), 10)
+	if q := queryTermStats.queries.Load(); q > 0 {
+		meta["QueryTermsMean"] = strconv.FormatFloat(float64(queryTermStats.terms.Load())/float64(q), 'f', 3, 64)
+		meta["QueriesTruncatedFrac"] = strconv.FormatFloat(float64(queryTermStats.truncated.Load())/float64(q), 'f', 4, 64)
+	}
+	return meta
+}
+
 func hashTokenChoice(tokens string, i uint) uint64 {
 	// Join all strings into a single byte sequence
 	// joined := strings.Join(tokens, "|")

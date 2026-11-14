@@ -116,7 +116,8 @@ for d in $DATASETS; do
         while read -r ds k bs dpb vec; do
             case $vec in true) t=_vec1;; false|vb*) t=_vec0;; text) t=_text;; esac
             sfx=""; [[ $vec == text && ( "${TEXT_FORMAT:-bow}" != bow || "${TEXT_ORDER:-3}" != 3 ) ]] && sfx="_${TEXT_FORMAT:-bow}o${TEXT_ORDER:-3}"
-            [[ $vec =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)$ ]] && sfx="_vb${BASH_REMATCH[1]}_vr${BASH_REMATCH[2]}_ib${BASH_REMATCH[3]}"   # vec0 sweep
+            [[ $vec =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)(m([0-9]+))?$ ]] &&   # vec0 sweep (+ m<N>: query-term sweep)
+                sfx="_vb${BASH_REMATCH[1]}_vr${BASH_REMATCH[2]}_ib${BASH_REMATCH[3]}${BASH_REMATCH[4]:+_mt${BASH_REMATCH[5]}}"
             echo "bins $ds $RES/bins${t}_${ds}_k${k}_bs${bs}_dpb${dpb}${sfx} vec=$vec k=$k bs=$bs dpb=$dpb"
         done
     fi

@@ -375,7 +375,8 @@ queued_dirs() {
         if ($2 == "bins") {
             t = (f[5] == "true") ? "_vec1" : (f[5] == "text") ? "_text" : "_vec0"
             sfx = (f[5] == "text" && (tf != "bow" || to != 3)) ? "_" tf "o" to : ""
-            if (f[5] ~ /^vb[0-9]+r[0-9]+i[0-9]+$/) { v = substr(f[5], 3); split(v, a, /[ri]/); sfx = "_vb" a[1] "_vr" a[2] "_ib" a[3] }
+            if (f[5] ~ /^vb[0-9]+r[0-9]+i[0-9]+(m[0-9]+)?$/) { v = substr(f[5], 3); m = split(v, a, /[rim]/)
+                sfx = "_vb" a[1] "_vr" a[2] "_ib" a[3] (m > 3 ? "_mt" a[4] : "") }
             printf "%s/bins%s_%s_k%s_bs%s_dpb%s%s\t%s\n", res, t, f[1], f[2], f[3], f[4], sfx, $5
         } else
             printf "%s/%stree_grid_%s_b%s_r%s_s%s_L%s_q%s_c%s_k10\t%s\n", res, ttag(f[1]), f[1], f[2], f[3], f[4], f[5], f[6], f[7], $5
@@ -412,9 +413,11 @@ bins_config_key() {   # vec k bs dpb [noram: 1 = -noram run]
     esac
 }
 # vec0 client-storage sweep (run_bins_low/high.slurm add_vec0_sweep): vec value vb<B>r<R>i<I> -> "_vb<B>_vr<R>_ib<I>",
-# the results-folder / usage-key suffix; nothing for the plain layouts (true / false / text)
+# the results-folder / usage-key suffix; nothing for the plain layouts (true / false / text). The query-term sweep
+# (add_maxterms_sweep) appends m<N> (-maxTerms N; m0 = every term) -> "..._mt<N>".
 vec0_sweep_suffix() {
-    [[ "$1" =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)$ ]] && echo "_vb${BASH_REMATCH[1]}_vr${BASH_REMATCH[2]}_ib${BASH_REMATCH[3]}"
+    [[ "$1" =~ ^vb([0-9]+)r([0-9]+)i([0-9]+)(m([0-9]+))?$ ]] &&
+        echo "_vb${BASH_REMATCH[1]}_vr${BASH_REMATCH[2]}_ib${BASH_REMATCH[3]}${BASH_REMATCH[4]:+_mt${BASH_REMATCH[5]}}"
     return 0
 }
 
@@ -572,7 +575,7 @@ bins_out_dir() {   # dataset k bs dpb vec
 # is cheap next to building the DBs, so this errs long. NORAM_CACHE_GB is added like for a measurement.
 vec0_sweep_base() {
     local d=$1 key=$2 vec=$3 k=$4 bs=$5 dpb=$6 nr=$7
-    [[ "$vec" =~ ^vb([0-9]+)r([0-9]+)i[0-9]+$ && -z "${_USAGE_MEM["bins|$d|$key"]:-}" ]] || return 0
+    [[ "$vec" =~ ^vb([0-9]+)r([0-9]+)i[0-9]+(m[0-9]+)?$ && -z "${_USAGE_MEM["bins|$d|$key"]:-}" ]] || return 0
     local b=${BASH_REMATCH[1]} r=${BASH_REMATCH[2]} bk
     bk=$(bins_config_key false "$k" "$bs" "$dpb" "$nr")
     [[ -n "${_USAGE_MEM["bins|$d|$bk"]:-}" ]] || return 0
