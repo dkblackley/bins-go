@@ -155,7 +155,7 @@ for dpc in (250, 2500, 40000):
 EOF
     fi
     if has coeus; then
-        for f in 8192 32768 262144; do for tf in raw log; do for k in 10 100; do
+        for f in 8192 32768 262144; do for tf in raw log lognorm bm25; do for k in 10 100; do
             echo "coeus $d $BRES/coeus_${d}_k${k}_f${f}_tf${tf} F=$f tf=$tf k=$k"
         done; done; done
     fi

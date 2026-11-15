@@ -57,6 +57,9 @@ METHOD_LABELS = {'bins': 'PILLAR-Bin', 'tree': 'PILLAR-Tree', 'pacmann': 'PACMAN
                  'coeus': 'Coeus', 'hybrid': 'Tiptoe+Coeus (merged)'}
 PILLAR = {'bin': 'bins', 'tree': 'tree'}          # protocol name -> method key
 BASELINES = ['pacmann', 'tiptoe', 'coeus', 'hybrid']
+# Tables 1 / 8: for these methods, when no config reaches the target ('*', highest MRR shown), also add a row with
+# their LOWEST-MRR@10 config ('†'; cheapest by PICK_COST among ties). [] turns it off.
+LOWEST_FALLBACK = ['tiptoe', 'coeus']
 
 # Table 1: per-dataset targets {dataset: (Bin target, Tree target)}. None = auto: the highest MRR@10 that the PILLAR
 # method and every baseline (hybrid excluded) reaches on that dataset. --mrr-bin / --mrr-tree override every dataset.
@@ -72,6 +75,10 @@ PICK_COST = 'wan_time'     # "lowest WAN"; e.g. 'client_storage_mb' to pick the 
 #   'off'  every run is kept (default)     'on'  the paper's filter (STORAGE_EXEMPT datasets still keep theirs)
 #   'both' every table twice, filter off then on
 STORAGE_FILTER = 'off'
+# Tiptoe's single-use per-query token (34-51 MB, fetched before the query): True adds its WAN / LAN time
+# (TiptoeOfflineWANTime / LANTime per query) to Tiptoe's WAN / LAN, and so to the merged Tiptoe+Coeus runs, in every
+# table and in the picks. Not like-for-like the other way: PILLAR / PACMANN's offline hint refreshes stay excluded.
+TIPTOE_TOKEN = True
 STORAGE_EXEMPT = []
 
 # Table 2: baselines.py output. Either one combined file {dataset: {"BM25": {...}, "Dense": ..., "Hybrid": ...,
@@ -112,6 +119,7 @@ RAGAS_METHODS = ['tree', 'bins', 'pacmann']        # each PILLAR method is paire
 # The RAGAS runs are older REAL runs (one per select_configs pick) with ragas_output_<method>_k10.csv in their folder.
 RAGAS_DIRS = [os.path.join(g.DATASETS_ROOT, 'results'), g.SIMULATED_RESULTS_DIRS[0]] + g.RESULTS_DIRS
 RAGAS_SKIP = 'local'       # ragas_output_local_* = the 15-query local test, left out
+RAGAS_METRICS = {'answer_relevancy': 'answer relevancy', 'faithfulness': 'faithfulness'}   # CSV column -> label
 RAGAS_PAIR = 'best_mrr'    # which config of each method is paired in the headline: 'best_mrr' (of those with a CSV)
 BOOTSTRAP_N, BOOTSTRAP_SEED = 1000, 0
 E2E_DATASETS = T1_DATASETS  # Table 8: the Table 1 picks (same targets) + the measured doc-text fetch of the dataset
@@ -196,10 +204,12 @@ class Table:
 
 # --------------------------------------------------------------------------------------------------- loading
 
-def load(modes, storage_exempt):
+def load(modes, storage_exempt, tiptoe_token=None):
     """{'off': nested data with every run, 'on': the paper's client-storage filter (+ exempt datasets)}"""
     nd = load_results.load_results()   # filtered; what it dropped is in load_results.DROPPED
     rh.add_baselines(nd)
+    if TIPTOE_TOKEN if tiptoe_token is None else tiptoe_token:
+        rh.add_tiptoe_token(nd)   # before the hybrids are built, so they sum the token too
     for m in nd:   # Tiptoe / Coeus storage is NaN'd for the paper's plots; the tables show what they report
         for rs in list(nd[m].values()) + list(load_results.DROPPED.get(m, {}).values()):
             for r in rs:
@@ -336,6 +346,21 @@ def pick(runs, target, mode=None, tol=None, cost=None):
     return max(runs, key=lambda r: (r['mrr'], r['recall'], -r['wan_time'])), '*'
 
 
+def lowest_mrr(runs, cost=None):
+    cost = cost or PICK_COST
+    c = lambda r: r.get(cost) if pu.is_number(r.get(cost)) else math.inf
+    return min(runs, key=lambda r: (rkey(r['mrr']), c(r), r['wan_time'])) if runs else None
+
+
+def pick_rows(pk, proto):
+    """(method, run, flag) rows of one Table 1 / 8 block: the protocol's method, the baselines, and the '†'
+    lowest-MRR extra row after a LOWEST_FALLBACK method that has one"""
+    for m in [PILLAR[proto]] + BASELINES:
+        yield (m,) + tuple(pk[m])
+        if m + '_low' in pk:
+            yield (m,) + tuple(pk[m + '_low'])
+
+
 def best_mrr(runs):
     return max(runs, key=lambda r: (r['mrr'], r['recall'], -r['wan_time'])) if runs else None
 
@@ -361,6 +386,7 @@ def run_row(run, flag, **extra):
     for _, k, _ in RUN_COLS:
         row[k] = run.get(k)
     row['config'] = run['config'] + (f" {flag} (reaches {fv.r2(run['mrr'])})" if flag == '*' else
+                                     f" {flag} (lowest MRR, {fv.r2(run['mrr'])})" if flag == '†' else
                                      f' {flag}' if flag else '')
     row['flag'] = flag
     row['source'] = run.get('source', 'real')
@@ -372,11 +398,13 @@ def note_pick(table, where, m, flag, target, R, d):
         why = R.hyb_status.get(d, 'no runs') if m == 'hybrid' else 'no runs'
         MISSING.append(f'Table {table}, {where}, {L(m)}: pending ({why})')
     elif flag == '*':
-        MISSING.append(f'Table {table}, {where}, {L(m)}: no config reaches MRR@10 {target:.2f}; highest-MRR config shown (*)')
+        MISSING.append(f'Table {table}, {where}, {L(m)}: no config reaches MRR@10 {target:.2f}; highest-MRR config shown (*)'
+                       + (', plus its lowest-MRR config (†)' if m in LOWEST_FALLBACK else ''))
 
 
 FLAG_NOTE = ('`~` = no config reaches T, this one is within the tolerance below it (TOL {tol:.2f}); `*` = no config '
-             'reaches T (even within TOL), the highest-MRR@10 config is shown with the MRR@10 it reaches; "pending" '
+             'reaches T (even within TOL), the highest-MRR@10 config is shown with the MRR@10 it reaches; `†` = (Tiptoe / Coeus '
+             'only, under a `*` row) their lowest-MRR@10 config, to show the cost does not drop with quality; "pending" '
              '= no results yet. MRR@10 / Recall@10 rounded down to 2 dp (the value that was matched).')
 
 
@@ -430,7 +458,11 @@ def table1_picks(R, ctx):
         for proto, tv in t1_targets(R, ctx, d).items():
             if tv is None:
                 continue
-            picks[(d, proto)] = (tv, {m: pick(R.get(m, d), tv) for m in [PILLAR[proto]] + BASELINES})
+            pk = {m: pick(R.get(m, d), tv) for m in [PILLAR[proto]] + BASELINES}
+            for m in LOWEST_FALLBACK:
+                if m in pk and pk[m][1] == '*':
+                    pk[m + '_low'] = (lowest_mrr(R.get(m, d)), '†')
+            picks[(d, proto)] = (tv, pk)
     ctx['picks'] = picks
     return picks
 
@@ -445,8 +477,7 @@ def table1(R, ctx):
     summary = defaultdict(lambda: defaultdict(list))
     for (d, proto), (tv, picks) in table1_picks(R, ctx).items():
         pac = picks['pacmann'][0]
-        for m in [PILLAR[proto]] + BASELINES:
-            run, flag = picks[m]
+        for m, run, flag in pick_rows(picks, proto):
             note_pick(1, f'{D(d)} {proto} target {tv:.2f}', m, flag, tv, R, d)
             sp = pac['wan_time'] / run['wan_time'] if run and pac and run['wan_time'] > 0 else None
             t.add(**run_row(run, flag, dataset=D(d), target=f'{proto.capitalize()} {tv:.2f}', method=L(m),
@@ -754,18 +785,39 @@ def unpaired_bootstrap(a, b, n=None, seed=None):
     return statistics.mean(a) - statistics.mean(b), ds[int(0.025 * n)], ds[int(0.975 * n)]
 
 
-def _per_q(path):
-    return {row['qid']: float(row['answer_relevancy']) for row in csv.DictReader(open(path))
-            if row.get('answer_relevancy') not in (None, '', 'nan')}
+def mean_ci(vals):
+    """'[lo, hi]' bootstrap 95% CI of the mean of vals (BOOTSTRAP_N resamples, BOOTSTRAP_SEED)"""
+    vals = list(vals)
+    if not vals:
+        return 'n/a'
+    _, lo, hi = rn.bootstrap(vals, n=BOOTSTRAP_N, seed=BOOTSTRAP_SEED)
+    return f'[{lo:.3f}, {hi:.3f}]'
+
+
+def _per_q(path, metric='answer_relevancy'):
+    out = {}
+    for row in csv.DictReader(open(path)):
+        try:
+            v = float(row.get(metric))
+        except (TypeError, ValueError):
+            continue
+        if not math.isnan(v):
+            out[row['qid']] = v
+    return out
 
 
 def table7(R, ctx):
-    t = Table(7, 'RAGAS answer relevancy (PILLAR vs PACMANN)',
-              [('Dataset', 'dataset', f_str), ('PILLAR method', 'method', f_str), ('Config', 'config', f_str),
-               ('PACMANN config', 'pconfig', f_str), ('N queries', 'n', lambda v: v if isinstance(v, str) else f_int(v)), ('PILLAR', 'a', f_score),
-               ('PACMANN', 'b', f_score), ('PILLAR − PACMANN', 'diff', lambda v: 'n/a' if v is None else f'{v:+.3f}'),
+    names = ' / '.join(RAGAS_METRICS.values())
+    t = Table(7, f'RAGAS {names} (PILLAR vs PACMANN)',
+              [('Metric', 'metric', f_str), ('Dataset', 'dataset', f_str), ('PILLAR method', 'method', f_str),
+               ('Config', 'config', f_str), ('PACMANN config', 'pconfig', f_str),
+               ('N queries', 'n', lambda v: v if isinstance(v, str) else f_int(v)), ('PILLAR', 'a', f_score),
+               ('PACMANN', 'b', f_score), ('95% CI (PILLAR)', 'ci_a', f_str), ('95% CI (PACMANN)', 'ci_b', f_str),
+               ('PILLAR − PACMANN', 'diff', lambda v: 'n/a' if v is None else f'{v:+.3f}'),
                ('95% CI', 'ci', f_str), ('Pairing', 'pairing', f_str)],
               [f'Paired bootstrap over the queries both CSVs score ({BOOTSTRAP_N} resamples, seed {BOOTSTRAP_SEED}). '
+               '95% CI (PILLAR) / (PACMANN) = bootstrap CI of each method\'s own mean over the same queries (same '
+               'resamples / seed). Queries a metric is NaN for are dropped for that metric only. '
                f'Each method\'s config with a RAGAS CSV and the highest MRR@10 ({RAGAS_PAIR}). The RAGAS runs are the '
                'older REAL runs (one per select_configs pick), not the simulated sweep; ragas_output_local_* (15-query '
                'test) left out.'])
@@ -774,43 +826,58 @@ def table7(R, ctx):
     for m, d, run, path in allr:
         per[(m, d)].append((run, path))
     choose = lambda xs: max(xs, key=lambda x: (x[0]['mrr'] if x[0] and pu.is_number(x[0].get('mrr')) else -1, x[1]))
-    for d in RAGAS_DATASETS:
-        for m in [x for x in RAGAS_METHODS if x != 'pacmann']:
-            a, b = per.get((m, d)), per.get(('pacmann', d))
-            if not (a and b):
-                t.add(dataset=D(d), method=L(m), ci='pending')
-                MISSING.append(f'Table 7, {D(d)}, {L(m)} vs PACMANN: pending (no RAGAS CSV for '
-                               + ', '.join(L(x) for x, have in ((m, a), ('pacmann', b)) if not have) + ')')
-                continue
-            (ra, pa), (rb, pb) = choose(a), choose(b)
-            qa, qb = _per_q(pa), _per_q(pb)
-            common = sorted(set(qa) & set(qb))
-            cfg = lambda r, p: r['config'] if r else os.path.basename(os.path.dirname(p))
-            if not common:   # different query sets: each method's own mean, unpaired bootstrap (flagged)
-                ex = lambda q: ', '.join(sorted(q, key=lambda x: (len(x), x))[:3])
-                mean, lo, hi = unpaired_bootstrap(list(qa.values()), list(qb.values()))
-                t.add(dataset=D(d), method=L(m), config=cfg(ra, pa), pconfig=cfg(rb, pb), n=f'{len(qa)} / {len(qb)}',
-                      a=statistics.mean(qa.values()), b=statistics.mean(qb.values()), diff=mean,
-                      ci=f'[{lo:+.3f}, {hi:+.3f}]', pairing='UNPAIRED: different queries')
-                t.notes.append(f'{D(d)}, {L(m)} vs PACMANN: UNPAIRED. The two RAGAS runs scored different queries '
-                               f'({L(m)} qids {ex(qa)}, … vs PACMANN {ex(qb)}, …), so this compares two means over '
-                               f'different query samples (independent bootstrap of each side), not a per-query difference.')
-                continue
-            mean, lo, hi = rn.bootstrap([qa[q] - qb[q] for q in common], n=BOOTSTRAP_N, seed=BOOTSTRAP_SEED)
-            t.add(dataset=D(d), method=L(m), config=cfg(ra, pa), pconfig=cfg(rb, pb), n=len(common),
-                  a=statistics.mean(qa[q] for q in common), b=statistics.mean(qb[q] for q in common),
-                  diff=mean, ci=f'[{lo:+.3f}, {hi:+.3f}]',
-                  pairing='paired' + (f' ({len(common)} shared of {len(qa)} / {len(qb)})'
-                                      if len(common) < max(len(qa), len(qb)) else ''))
+    cfg = lambda r, p: r['config'] if r else os.path.basename(os.path.dirname(p))
+    ex = lambda q: ', '.join(sorted(q, key=lambda x: (len(x), x))[:3])
+    for metric, mname in RAGAS_METRICS.items():
+        for d in RAGAS_DATASETS:
+            for m in [x for x in RAGAS_METHODS if x != 'pacmann']:
+                a, b = per.get((m, d)), per.get(('pacmann', d))
+                if not (a and b):
+                    t.add(metric=mname, dataset=D(d), method=L(m), ci='pending')
+                    MISSING.append(f'Table 7, {D(d)}, {L(m)} vs PACMANN: pending (no RAGAS CSV for '
+                                   + ', '.join(L(x) for x, have in ((m, a), ('pacmann', b)) if not have) + ')')
+                    continue
+                (ra, pa), (rb, pb) = choose(a), choose(b)
+                qa, qb = _per_q(pa, metric), _per_q(pb, metric)
+                base = dict(metric=mname, dataset=D(d), method=L(m), config=cfg(ra, pa), pconfig=cfg(rb, pb))
+                if not (qa and qb):
+                    t.add(**base, ci='n/a', pairing=f'no {mname} scores')
+                    MISSING.append(f'Table 7, {D(d)}, {L(m)} vs PACMANN: no {mname} column / scores')
+                    continue
+                common = sorted(set(qa) & set(qb))
+                if not common:   # different query sets: each method's own mean, unpaired bootstrap (flagged)
+                    mean, lo, hi = unpaired_bootstrap(list(qa.values()), list(qb.values()))
+                    t.add(**base, n=f'{len(qa)} / {len(qb)}',
+                          a=statistics.mean(qa.values()), b=statistics.mean(qb.values()), diff=mean,
+                          ci_a=mean_ci(qa.values()), ci_b=mean_ci(qb.values()),
+                          ci=f'[{lo:+.3f}, {hi:+.3f}]', pairing='UNPAIRED: different queries')
+                    t.notes.append(f'{mname}, {D(d)}, {L(m)} vs PACMANN: UNPAIRED. The two RAGAS runs scored different '
+                                   f'queries ({L(m)} qids {ex(qa)}, … vs PACMANN {ex(qb)}, …), so this compares two means '
+                                   f'over different query samples (independent bootstrap of each side), not a per-query difference.')
+                    continue
+                mean, lo, hi = rn.bootstrap([qa[q] - qb[q] for q in common], n=BOOTSTRAP_N, seed=BOOTSTRAP_SEED)
+                t.add(**base, n=len(common),
+                      a=statistics.mean(qa[q] for q in common), b=statistics.mean(qb[q] for q in common),
+                      ci_a=mean_ci(qa[q] for q in common), ci_b=mean_ci(qb[q] for q in common),
+                      diff=mean, ci=f'[{lo:+.3f}, {hi:+.3f}]',
+                      pairing='paired' + (f' ({len(common)} shared of {len(qa)} / {len(qb)})'
+                                          if len(common) < max(len(qa), len(qb)) else ''))
     rows = []
     for m, d, run, path in sorted(allr, key=lambda x: (x[1] or '', x[0], -(x[2] or {}).get('mrr', 0))):
-        q = _per_q(path)
-        rows.append({'dataset': D(d), 'method': L(m), 'config': run['config'] if run else os.path.basename(os.path.dirname(path)),
-                     'mrr': run and run.get('mrr'), 'recall': run and run.get('recall'), 'n': len(q),
-                     'rel': statistics.mean(q.values()) if q else None})
-    t.blocks.append(('Every RAGAS CSV found', [('Dataset', 'dataset', f_str), ('Method', 'method', f_str),
-                     ('Config', 'config', f_str), ('MRR@10', 'mrr', f_score), ('Recall@10', 'recall', f_score),
-                     ('N', 'n', f_int), ('Answer relevancy', 'rel', f_score)], rows))
+        row = {'dataset': D(d), 'method': L(m), 'config': cfg(run, path),
+               'mrr': run and run.get('mrr'), 'recall': run and run.get('recall')}
+        for metric in RAGAS_METRICS:
+            q = _per_q(path, metric)
+            row[f'n_{metric}'] = len(q)
+            row[metric] = statistics.mean(q.values()) if q else None
+            row[f'ci_{metric}'] = mean_ci(q.values())
+        rows.append(row)
+    cols = [('Dataset', 'dataset', f_str), ('Method', 'method', f_str), ('Config', 'config', f_str),
+            ('MRR@10', 'mrr', f_score), ('Recall@10', 'recall', f_score)]
+    for metric, mname in RAGAS_METRICS.items():
+        cols += [(f'N ({mname})', f'n_{metric}', f_int), (mname.capitalize(), metric, f_score),
+                 (f'95% CI ({mname})', f'ci_{metric}', f_str)]
+    t.blocks.append(('Every RAGAS CSV found', cols, rows))
     return t
 
 
@@ -845,8 +912,7 @@ def table8(R, ctx):
             if (d, proto) not in picks:
                 continue
             tv, pk = picks[(d, proto)]
-            for m in [PILLAR[proto]] + BASELINES:
-                run, flag = pk[m]
+            for m, run, flag in pick_rows(pk, proto):
                 row = run_row(run, flag, dataset=D(d), target=f'{proto.capitalize()} {tv:.2f}', method=L(m))
                 if run:
                     row['fetch'] = fetch
@@ -895,19 +961,26 @@ def main():
     ap.add_argument('--t-scale', type=float, default=T_SCALE)
     ap.add_argument('--storage-filter', choices=['off', 'on', 'both'], default=STORAGE_FILTER,
                     help="client-storage filter: off (every run), on (the paper's cut), both (tables twice)")
+    ap.add_argument('--tiptoe-token', choices=['on', 'off'], default='on' if TIPTOE_TOKEN else 'off',
+                    help="add Tiptoe's offline per-query token to its WAN / LAN (default: CONFIG TIPTOE_TOKEN)")
     ap.add_argument('--storage-exempt', nargs='*', default=STORAGE_EXEMPT,
                     help='with the filter on: datasets that keep their runs anyway (e.g. scifact)')
     args = ap.parse_args()
     MATCH_MODE, TOL, T_SCALE = args.match, args.tol, args.t_scale
     g.setup_logging()
     modes = ['off', 'on'] if args.storage_filter == 'both' else [args.storage_filter]
-    data = load(modes, args.storage_exempt)
+    data = load(modes, args.storage_exempt, args.tiptoe_token == 'on')
     head = [f'# Rebuttal tables (k={K})', '',
             f'Generated by plotting/working_rebuttal.py. Match mode {MATCH_MODE}, TOL {TOL:.2f}, MRR floor {MIN_MRR:.2f}. '
             f'Client-storage filter: {args.storage_filter}' +
             (f' (exempt: {", ".join(args.storage_exempt)})' if args.storage_exempt and 'on' in modes else '') + '. '
             'Every PILLAR / PACMANN number is from the simulated runs (PIR simulated: same answers, bytes, LAN/WAN as a '
-            'real run). Tiptoe / Coeus are simulated too, their per-query lists are the real ranking outputs.', '']
+            'real run). Tiptoe / Coeus are simulated too, their per-query lists are the real ranking outputs. ' +
+            ("Tiptoe's WAN / LAN INCLUDE its single-use per-query token (fetched before the query; ~34-51 MB, already "
+             "in Comm), so do the merged Tiptoe+Coeus runs'. PILLAR / PACMANN's offline hint refreshes are NOT included."
+             if args.tiptoe_token == 'on' else
+             "WAN / LAN = online rounds only for every method: Tiptoe's per-query token (in Comm) and PILLAR / "
+             "PACMANN's hint refreshes are both offline and left out."), '']
     tables = []
     for i, mode in enumerate(modes):
         R = Runs(data[mode])

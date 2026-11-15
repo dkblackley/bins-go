@@ -8,7 +8,7 @@
 #SBATCH --time=0-02:00:00              # a config only builds its postings from the cached tokens
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-23               # for the default scifact + msmarco; other datasets: see --count below
+#SBATCH --array=0-47               # for the default scifact + msmarco; other datasets: see --count below
 #SBATCH --output=logs/Coeus_%A_%a.out
 #SBATCH --error=logs/Coeus_%A_%a.err
 
@@ -18,7 +18,7 @@
 # Needs `baselines/setup_baselines.sh coeus` first.
 #
 # Sweep: keyword dictionary size F (multiples of 8192; the paper used 65,536) x tf weighting x k
-#   2 datasets x 3 F x 2 tf x 2 k = 24 tasks. Configs with F past the vocabulary exit without writing anything
+#   2 datasets x 3 F x 4 tf (raw log lognorm bm25) x 2 k = 48 tasks. Configs with F past the vocabulary exit without writing anything
 #   (they'd duplicate a smaller F with extra upload), so scifact produces fewer results.
 #
 # Quality + communication (bytes -> LAN/WAN time) only: the opt2 server-time benchmark is never run. Fits in 32G / 6 h
@@ -48,7 +48,7 @@ PREP_ARR=($COEUS_DATASETS)
 DATA_ARR=(); F_ARR=(); TF_ARR=(); K_ARR=()
 for d in $COEUS_DATASETS; do
     for f in 8192 32768 262144; do   # 2026-11-09, was 8192 16384 32768 65536 131072 262144
-        for tf in raw log; do
+        for tf in raw log lognorm bm25; do   # lognorm / bm25 added 2026-11-15 (length-normalised weightings)
             for k in 10 100; do
                 DATA_ARR+=("$d"); F_ARR+=("$f"); TF_ARR+=("$tf"); K_ARR+=("$k")
             done

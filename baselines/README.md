@@ -42,7 +42,7 @@ sbatch --array=1-47 run_coeus.slurm       # the other tasks reuse the cached fit
 ```
 
 Result folders: `tiptoe_<dataset>_c<clusters>_m<multi-assign>_b<bundle>_h<hint MB>_k<K>` and
-`coeus_<dataset>_k<K>_f<features>_tf<raw|log>`. The plot loader also still reads the older names without the extra parts.
+`coeus_<dataset>_k<K>_f<features>_tf<raw|log|lognorm|bm25>`. The plot loader also still reads the older names without the extra parts.
 
 Both modes write the same folder and keys, and the simulated runs also have `TiptoeSimulated: "true"`. If you ever
 run both, `MRRPreReRank` should agree (apart from the order of exactly tied scores).

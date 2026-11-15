@@ -141,7 +141,7 @@ EOF
   if has coeus; then
     for F in 8192 32768 262144; do
       warmed=0
-      for tf in raw log; do
+      for tf in raw log lognorm bm25; do
         for k in 10 100; do
           run=coeus_${name}_k${k}_f${F}_tf${tf}
           if [ "$FORCE" != 1 ] && [ -f "$OUT/coeus/$run/metadata.json" ]; then continue; fi

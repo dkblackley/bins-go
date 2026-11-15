@@ -27,7 +27,9 @@ its own values. Within one row of the headline only the method changes:
   WAN budget                 W = the lowest budget (0.1 s steps) under which all four have a run on that
                              dataset (--wan to choose one); each takes its best MRR@10 within W. A hybrid
                              counts its summed WAN.
-A freeze with no value all four reach on a dataset is not shown (listed as "no shared value"). Datasets
+A score freeze with no value all four reach on a dataset uses the given T (or the value most of them reach):
+a method with no run at T but runs below it gets its highest-scoring run below T (marked ↓); a method whose runs
+are all above T shows "-". A WAN budget with no value all four reach is not shown ("no shared value"). Datasets
 where one of the methods has no runs at all are listed and skipped.
 Under each frozen score table: "picks merged", the hybrid of exactly the Tiptoe and Coeus configs that
 table picked (better of the two orders on MRR@10) -- it is not at T, it shows what merging those two gives.
@@ -37,12 +39,13 @@ downloads a single-use token per query (34-44 MB, ~98% of its bytes; counted in 
 PILLAR / PACMANN's Piano hints run out after ~sqrt(N) ln N lookups per partition and every refresh streams the
 whole DB to the client again; the tree's refreshes alone come to ~2-4 MB per query on SciFact and 60-250 MB
 per query on NQ / FEVER / DBPedia / MS MARCO (Stage DB size x (refreshes - 1) / queries), i.e. as much as
-Tiptoe's token or more. --tiptoe-token adds Tiptoe's token to its WAN / LAN alone (one-sided; for reference
-only). Coeus: all its per-query traffic is in its WAN already (its Galois keys are a one-off setup, counted
+Tiptoe's token or more. Tiptoe's token IS added to its WAN / LAN by default (~0.8 s WAN / query on SciFact /
+NQ / FEVER, ~8x its online WAN); --no-tiptoe-token leaves it out. PILLAR / PACMANN's refreshes are not added,
+so this is one-sided against Tiptoe. Coeus: all its per-query traffic is in its WAN already (its Galois keys are a one-off setup, counted
 once); its server time is not counted (CoeusTimeSource none), which flatters it.
 
-Runs are filtered like frozen_values.py (MRR@10 floor --min-mrr; nothing else). Tiptoe's WAN is the
-online part only (its per-query token is fetched offline), as everywhere else in the paper.
+Runs are filtered like frozen_values.py (MRR@10 floor --min-mrr; nothing else). Tiptoe's WAN includes its
+per-query token by default (see above).
 
 Inputs: load_results() (metadata.json; Tiptoe / Coeus are read from g.RESULTS_DIRS if it found none of
 them, e.g. with ONLY_SIMULATED on hopper), results.json / results_reRank.json of every Tiptoe and Coeus
@@ -269,6 +272,22 @@ def run_group(by, group, datasets, args, metric, target):
     return fv.exact_freeze(by, group, datasets, metric, metric, target, args.tol, pick_by=args.pick_by)
 
 
+def fill_below(res, by, d, metric):
+    """score freeze: a method with no run at T (within the window) but runs below it gets its HIGHEST-scoring run
+    (= the best it can do; ties: lowest WAN), marked in res['below']; a method whose runs are all above T stays
+    missing. (Was the lowest-WAN run below T, which picked the weakest config, e.g. 0.06 on NQ for a method that
+    reaches 0.43.)"""
+    res['below'] = set()
+    t, steps = fv.rkey(res['value']), fv.rkey(res['tol'])
+    for (m, dd), p in res['picks'].items():
+        if p is None and dd == d:
+            lower = [r for r in by[m][d] if fv.rkey(r[metric]) < t - steps]
+            if lower:
+                res['picks'][(m, dd)] = min(lower, key=lambda r: (-fv.rkey(r[metric]), r[fv.COST_KEY]))
+                res['below'].add(m)
+    return res
+
+
 def pick_datasets(by, group, cands, metric, target, args):
     """the largest subset of cands where every method of the group has a run at ONE shared value (ties: the
     highest score / lowest WAN), and that freeze; (cands, None) if not even one dataset works"""
@@ -316,7 +335,7 @@ def report(nd, args):
              f'Hybrid = a Tiptoe run then a Coeus run, the two {"returned" if args.lists == "returned" else "reranked"} '
              f'lists merged round robin and cut to {k}; cost = sum of both (WAN, LAN, comm, client storage). '
              'Every Tiptoe x Coeus pair and both merge orders are candidates. '
-             + ("Tiptoe's WAN / LAN INCLUDE its per-query token (--tiptoe-token; PILLAR's Piano refreshes are NOT "
+             + ("Tiptoe's WAN / LAN INCLUDE its per-query token (default; --no-tiptoe-token leaves it out; PILLAR's Piano refreshes are NOT "
                 "included, so this is not like-for-like). " if args.tiptoe_token else
                 "WAN / LAN = online rounds only for every method (Tiptoe's token and PILLAR's Piano refreshes are "
                 "both offline and left out). ")
@@ -345,6 +364,8 @@ def report(nd, args):
                 for t in (targets[metric] or [None]):
                     name = 'WAN budget' if metric == 'wan' else fv.SCORE_LABEL[metric]
                     _, res = pick_datasets(by, group, [d], metric, t, args)
+                    if res is None and metric != 'wan':   # T = the given / most shared value, others fall below
+                        res = fill_below(run_group(by, group, [d], args, metric, t), by, d, metric)
                     if res is None:   # no value every method reaches: nothing shown
                         details += [f'#### {name}: no value that every method has a run at, not shown', '']
                         headline.append(f'| {D(d)} | {name}: no shared value | ' + ' | ' * len(cols))
@@ -359,14 +380,22 @@ def report(nd, args):
                                            f"{r2(mp['mrr'])} | {r2(mp['recall'])} | {r2(mp['wan_time'])} | "
                                            f"{r2(mp.get('lan_time'))} | {fv._f(mp.get('comm_kb'), '.1f')} | "
                                            f"{fv._f(mp.get('client_storage_mb'), '.1f')} | {mp['source']} |")
+                    below = res.get('below', set())
+                    if below:
+                        details.append(f"\n{', '.join(L(m) for m in sorted(below))}: no run at {fv._vt(res)}, so its "
+                                       "best (highest-scoring) run below it (marked ↓ in the headline)")
+                    missing = [m for m in group if res['picks'][(m, d)] is None]
+                    if missing:
+                        details.append(f"\n{', '.join(L(m) for m in missing)}: every run is above {fv._vt(res)}, none picked")
                     details += [''] + fv._summary(res, group, [d])[:1] + ['']
                     pk = res['picks']
+                    c = lambda m: cell(pk[(m, d)], res['kind']) + (' ↓' if m in below else '')
                     headline.append(f"| {D(d)} | {freeze_title(res)} | "
-                                    + ' | '.join([cell(pk[(m, d)], res['kind']) for m in BASE + [HYB]]
+                                    + ' | '.join([c(m) for m in BASE + [HYB]]
                                                  + [cell(mp, 'score') if res['kind'] == 'score' else '']
-                                                 + [cell(pk[(m, d)], res['kind']) for m in pillars]) + ' |')
+                                                 + [c(m) for m in pillars]) + ' |')
                     js[gname].append({'dataset': d, 'kind': res['kind'], 'match': res['match'], 'value': res['value'],
-                                      'tol': res['tol'],
+                                      'tol': res['tol'], 'below': sorted(res.get('below', ())),
                                       'picks': {m: (fv._row(pk[(m, d)]) if pk[(m, d)] else None) for m in group},
                                       'picks_merged': fv._row(mp) if mp else None})
         headline.append('')
@@ -403,9 +432,9 @@ if __name__ == '__main__':
     ap.add_argument('--min-mrr', type=float, default=fv.MIN_MRR)
     ap.add_argument('--pick-by', choices=fv.PICK_BY_CHOICES, default=fv.PICK_BY,
                     help='frozen score: the matching run with the lowest of this')
-    ap.add_argument('--tiptoe-token', action='store_true',
-                    help="add Tiptoe's per-query token to its WAN / LAN (NOT like-for-like: PILLAR / PACMANN's Piano "
-                         "refreshes, which stream the DB, are left out)")
+    ap.add_argument('--no-tiptoe-token', dest='tiptoe_token', action='store_false',
+                    help="leave Tiptoe's per-query token (~0.8 s WAN / query) out of its WAN / LAN (online part only, "
+                         "as in the paper's other plots). By default it is included")
     ap.add_argument('--no-write', dest='write', action='store_false')
     args = ap.parse_args()
     g.setup_logging()

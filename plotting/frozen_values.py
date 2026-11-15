@@ -12,6 +12,12 @@ config whose rounded-down MRR@10 is 0.36, 0.37 or 0.38 -- not any one above
     python frozen_values.py
     python frozen_values.py --datasets msmarco nq scifact fever
     python frozen_values.py --mrr 0.20 --recall 0.40 --wan 1.5 2.0   # your own values
+    # Bin vs Tree vs PACMANN in one table at MRR@10 = 0.10, lowest client storage, MS MARCO v2 25M / 50M:
+    python frozen_values.py --groups three --no-auto-datasets --datasets msmarco-v2-25m msmarco-v2-50m \
+        --mrr 0.10 --pick-by client_storage_mb
+    # same, plus the full MS MARCO v2 (138M), where PACMANN has no runs (its rows show '—'):
+    python frozen_values.py --groups three --no-auto-datasets --datasets msmarco msmarco-v2-25m msmarco-v2-50m \
+        msmarco-v2 --partial-datasets msmarco-v2 --pick-by client_storage_mb
 
 Two kinds of freeze, each done separately for two pairs, PACMANN vs PILLAR-Bin
 and PACMANN vs PILLAR-Tree, so each pair gets its own frozen values:
@@ -39,7 +45,9 @@ shared value is listed, so another one can be passed with --mrr / --recall /
 --wan.
 
 A dataset joins a group only if every method of the group has runs there
-(others are listed as skipped). After each table: who wins on each dataset
+(others are listed as skipped), unless it is in --partial-datasets: then it joins
+when at least one method has runs, the methods without runs get a '—' row, and
+the frozen values are computed from the methods that do have runs. After each table: who wins on each dataset
 (ties at DP decimals are ties) and the per-method mean over datasets, so it is
 easy to see whether one method wins everywhere.
 
@@ -82,6 +90,8 @@ log = logging.getLogger('frozen_values')
 DATASETS = ['msmarco', 'scifact', 'nq', 'fever', 'msmarco-v2']
 GROUPS = [('PACMANN vs PILLAR-Bin', ['pacmann', 'bins']),
           ('PACMANN vs PILLAR-Tree', ['pacmann', 'tree'])]
+THREE_WAY = [('PACMANN vs PILLAR-Bin vs PILLAR-Tree', ['pacmann', 'bins', 'tree'])]
+GROUP_SETS = {'pairs': GROUPS, 'three': THREE_WAY, 'all': GROUPS + THREE_WAY}   # --groups
 SCORE_KEYS = ['mrr', 'recall']
 COST_KEY = 'wan_time'   # the WAN freeze matches on this
 PICK_BY = 'wan_time'    # what "cheapest" means in the score freeze; 'client_storage_mb' = lowest client storage
@@ -154,10 +164,11 @@ def _row(run):
     return row
 
 
-def group_datasets(by, group, datasets):
-    used = [d for d in datasets if all(by[m][d] for m in group)]
+def group_datasets(by, group, datasets, partial=()):
+    used = [d for d in datasets if all(by[m][d] for m in group) or (d in partial and any(by[m][d] for m in group))]
     skipped = {d: [m for m in group if not by[m][d]] for d in datasets if d not in used}
-    return used, skipped
+    no_runs = {d: [m for m in group if not by[m][d]] for d in used if not all(by[m][d] for m in group)}
+    return used, skipped, no_runs
 
 
 def _cost(r, key):
@@ -173,7 +184,7 @@ def exact_freeze(by, group, datasets, match_key, pick_key, target=None, tol=0.0,
     if kind == 'wan':
         return _wan_freeze(by, group, datasets, pick_key, target, tol, dp)
     steps = rkey(tol, dp)
-    pairs = [(m, d) for m in group for d in datasets]
+    pairs = [(m, d) for m in group for d in datasets if by[m][d]]   # no runs at all ('—'): left out
     avail = {p: {rkey(r[match_key], dp) for r in by[p[0]][p[1]]} for p in pairs}
     cands = set().union(*avail.values())
     cands = set().union(*({v + i for i in range(-steps, steps + 1)} for v in cands))
@@ -205,7 +216,7 @@ def _wan_freeze(by, group, datasets, pick_key, target, tol, dp, mode='closest'):
     """WAN on the raw time, W on a 10^-dp grid. mode 'closest': a run matches when |WAN - W| <= tol and each method
     takes the run closest to W (ties: best pick_key, then Recall). mode 'budget': a run matches when WAN <= W and
     each method takes its best pick_key (then Recall, then lowest WAN)."""
-    pairs = [(m, d) for m in group for d in datasets]
+    pairs = [(m, d) for m in group for d in datasets if by[m][d]]   # no runs at all ('—'): left out
     if mode == 'budget':
         near = lambda r, v: r[COST_KEY] <= v / 10 ** dp + 1e-9
     else:
@@ -245,6 +256,9 @@ def _table(res, group, datasets):
            '| Client storage (MB) | Source |', '|' + '---|' * 10]
     for d in datasets:
         for m in group:
+            if (m, d) not in res['picks']:
+                out.append(f'| {D(d)} | {L(m)} | — (no runs on this dataset) |' + ' — |' * 7)
+                continue
             p = res['picks'][(m, d)]
             if p is None:
                 out.append(f'| {D(d)} | {L(m)} | no run at this value (within the window) |' + ' |' * 7)
@@ -265,7 +279,7 @@ def _summary(res, group, datasets):
     wins, per_d = {m: 0 for m in group}, []
     for d in datasets:
         vals = {m: sign * rkey(res['picks'][(m, d)][metric]) for m in group
-                if res['picks'][(m, d)] and pu.is_number(res['picks'][(m, d)].get(metric))}
+                if res['picks'].get((m, d)) and pu.is_number(res['picks'][(m, d)].get(metric))}
         if len(vals) < 2:
             continue
         top = [m for m in vals if vals[m] == max(vals.values())]
@@ -281,14 +295,15 @@ def _summary(res, group, datasets):
         out[-1] += f'  (**{L(sweep[0])} wins every dataset**)'
     means = []
     for m in group:
-        ps = [res['picks'][(m, d)] for d in datasets]
+        ps = [res['picks'].get((m, d)) for d in datasets]
         if all(ps):
             mean = lambda key: r2(sum(p[key] for p in ps) / len(ps))
             st = [p['client_storage_mb'] for p in ps if pu.is_number(p.get('client_storage_mb'))]
             means.append(f"{L(m)} MRR@10 {mean('mrr')}, Recall@10 {mean('recall')}, WAN {mean('wan_time')} s"
                          + (f", client storage {sum(st) / len(st):.0f} MB" if len(st) == len(ps) else ''))
         else:
-            means.append(f'{L(m)} n/a (no run at this value on every dataset)')
+            gone = [D(d) for d in datasets if (m, d) not in res['picks']]
+            means.append(f'{L(m)} n/a (' + (f"no runs on {', '.join(gone)}" if gone else 'no run at this value on every dataset') + ')')
     out.append('- mean over datasets: ' + '; '.join(means))
     return out
 
@@ -359,7 +374,8 @@ def choose_datasets(by, front, groups, candidates, metrics, tol, wan_tol, target
 
 def frozen_values(nested_data, datasets=None, k=g.K_MAIN, groups=None, mrr_targets=None, recall_targets=None,
                   wan_budgets=None, tol=None, wan_tol=None, min_mrr=MIN_MRR, drop_dominated=DROP_DOMINATED,
-                  auto_datasets=AUTO_DATASETS, auto_metrics=None, pick_by=None, write=True, quiet=False):
+                  auto_datasets=AUTO_DATASETS, auto_metrics=None, pick_by=None, write=True, quiet=False,
+                  suffix='', partial_datasets=()):
     pick_by = pick_by or PICK_BY
     tol = TOL if tol is None else tol
     wan_tol = WAN_TOL if wan_tol is None else wan_tol
@@ -387,7 +403,7 @@ def frozen_values(nested_data, datasets=None, k=g.K_MAIN, groups=None, mrr_targe
             alone = choose_datasets(by, front, groups, cands, [mt], tol, wan_tol, firsts)
             auto_lines.append(f"- {name(mt)} alone: {', '.join(D(d) for d in alone) or 'no dataset'}")
         auto_lines.append('')
-        datasets = chosen or cands
+        datasets = (chosen or cands) + [d for d in partial_datasets if d in datasets and d not in (chosen or cands)]
     lines = [f'# A. Frozen values across datasets (k={k}; Tiptoe and Coeus excluded)', '',
              f'One value for every method on every dataset (values rounded down to {DP} decimals; a run matches when '
              f'it is within ± {tol:.{DP}f} of an MRR@10 / Recall@10 value, ± {wan_tol:g} s of a WAN value (raw time; WAN values are multiples of 0.1 s)): an '
@@ -403,7 +419,7 @@ def frozen_values(nested_data, datasets=None, k=g.K_MAIN, groups=None, mrr_targe
                '|---|---|---|---|---|']
     js = {}
     for name, group in groups:
-        used, skipped = group_datasets(by, group, datasets)
+        used, skipped, no_runs = group_datasets(by, group, datasets, partial_datasets)
         lines += [f'## {name}: {", ".join(L(m) for m in group)}', '']
         if skipped:
             lines.append('Skipped (no runs at k=%d): ' % k +
@@ -413,6 +429,9 @@ def frozen_values(nested_data, datasets=None, k=g.K_MAIN, groups=None, mrr_targe
             lines += ['No dataset where every method of this group has runs.', '']
             continue
         lines += [f'Datasets: {", ".join(D(d) for d in used)}', '']
+        if no_runs:
+            lines += ['No runs (rows shown as —, left out of the frozen values): ' +
+                      '; '.join(f"{', '.join(L(m) for m in ms)} on {D(d)}" for d, ms in no_runs.items()), '']
         results = []
         for sk in SCORE_KEYS:
             for t in (given[sk] or [None]):
@@ -438,7 +457,7 @@ def frozen_values(nested_data, datasets=None, k=g.K_MAIN, groups=None, mrr_targe
         print(text)
     if write:
         os.makedirs(g.FIGURE_DIR, exist_ok=True)
-        base = os.path.join(g.FIGURE_DIR, f'frozen_values_k{k}' + ('' if pick_by == 'wan_time' else f'_{pick_by}'))
+        base = os.path.join(g.FIGURE_DIR, f'frozen_values_k{k}' + ('' if pick_by == 'wan_time' else f'_{pick_by}') + suffix)
         open(base + '.md', 'w').write(text)
         json.dump(js, open(base + '.json', 'w'), indent=2)
         log.info("saved %s.md / .json", base)
@@ -461,11 +480,17 @@ if __name__ == '__main__':
     ap.add_argument('--min-mrr', type=float, default=MIN_MRR, help='drop runs with MRR@10 below this (0 = no floor)')
     ap.add_argument('--pick-by', choices=PICK_BY_CHOICES, default=PICK_BY,
                     help='score freeze: pick the matching run with the lowest of this (default WAN)')
+    ap.add_argument('--groups', choices=list(GROUP_SETS), default='pairs',
+                    help='pairs: PACMANN vs Bin and PACMANN vs Tree (default); three: one table with all three '
+                    'methods at the same value; all: both')
+    ap.add_argument('--partial-datasets', nargs='+', default=[],
+                    help="datasets kept even if some method has no runs there (its rows show '—'), e.g. msmarco-v2")
     ap.add_argument('--keep-dominated', action='store_true', help='keep runs that another run beats on WAN, MRR and Recall')
     args = ap.parse_args()
     g.setup_logging()
-    frozen_values(load_results.load_results(), args.datasets, args.k, mrr_targets=args.mrr,
+    frozen_values(load_results.load_results(), args.datasets, args.k, groups=GROUP_SETS[args.groups],
+                  suffix='' if args.groups == 'pairs' else f'_{args.groups}', mrr_targets=args.mrr,
                   recall_targets=args.recall, wan_budgets=args.wan, tol=args.tol, wan_tol=args.wan_tol,
                   min_mrr=args.min_mrr, drop_dominated=not args.keep_dominated,
                   auto_datasets=not args.no_auto_datasets, auto_metrics=args.auto_metrics,
-                  pick_by=args.pick_by)
+                  pick_by=args.pick_by, partial_datasets=args.partial_datasets)

@@ -67,7 +67,7 @@ finishes, so a folder without metadata.json is skipped (counted in the log).
         H        embedding hint MB (default 500)
         P        embedding precision fp16|fp8|fp4|fp2|fp1 (default fp32; simulate_tiptoe.py --precision)
 
-    coeus_{dataset}_k{K}_f{F}[_tf{raw|log}]
+    coeus_{dataset}_k{K}_f{F}[_tf{raw|log|lognorm|bm25}]
         F        keyword dictionary size (baselines/coeus/run_coeus.py)
         tf       term-frequency weighting (default raw)
 
@@ -409,7 +409,7 @@ def tree_pir_rounds(folder, meta, n):
 
 # m = multi-assign, b = bundle size, h = embedding hint MB (optional, older runs don't have them)
 TIPTOE_NAME = re.compile(r'^tiptoe_(?P<dataset>[a-z0-9-]+)_c(?P<c>\d+)(?:_m(?P<m>\d+))?(?:_b(?P<b>\d+))?(?:_h(?P<h>\d+))?_k(?P<k>10)(?:_(?P<prec>fp16|fp8|fp4|fp2|fp1))?$')
-COEUS_NAME = re.compile(r'^coeus_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_f(?P<f>\d+)(?:_tf(?P<tf>raw|log))?$')
+COEUS_NAME = re.compile(r'^coeus_(?P<dataset>[a-z0-9-]+)_k(?P<k>10)_f(?P<f>\d+)(?:_tf(?P<tf>raw|lognorm|log|bm25))?$')
 
 
 def parse_tiptoe(folder, meta):

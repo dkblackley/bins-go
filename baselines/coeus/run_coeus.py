@@ -34,7 +34,7 @@ Coeus' numbers:
 Step 3 of Coeus (fetching the documents themselves) is not counted, because
 none of the other methods in this repo count document download either.
 
-Outputs <results-root>/coeus_<dataset>_k<K>_f<F>_tf<raw|log>/{metadata.json,results.json,results_reRank.json}
+Outputs <results-root>/coeus_<dataset>_k<K>_f<F>_tf<raw|log|lognorm|bm25>/{metadata.json,results.json,results_reRank.json}
 
 Usage
 -----
@@ -168,7 +168,35 @@ def load_or_build_tokens(corpus_path, tokenize, prefix, require=False):
     return tok, vocab, z["df"], z["lens"]
 
 
-def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir, cache_prefix="", require_cache=False):
+TF_MODES = ["raw", "log", "lognorm", "bm25"]
+
+
+def doc_term_weights(cnt, d, t, a, b, tf_mode, idf, idf_bm25, lens, avgdl, bm25):
+    """Weight of each (doc d, term t) pair, cnt = term count in the doc; the pairs are sorted by doc and cover docs
+    a..b-1. Every mode is a fixed per-(doc, term) number the server bakes into its plaintext matrix, so Coeus' protocol
+    and cost are the same for all of them; only the ranking changes:
+      raw      tf * idf                      (no length normalisation: long docs win)
+      log      (1 + ln tf) * idf
+      lognorm  (1 + ln tf) * idf, each doc vector scaled to unit L2 norm (over the dictionary terms): the
+               query . doc product is then cosine similarity, the textbook TF-IDF ranking
+      bm25     Lucene BM25 term weight, k1 / b from bm25: q . doc with a 0/1 query = the BM25 score (each query term
+               counted once)"""
+    tf = cnt.astype(np.float64)
+    if tf_mode == "bm25":
+        k1, bb = bm25
+        norm = k1 * (1 - bb + bb * lens[d] / avgdl)
+        return idf_bm25[t] * tf * (k1 + 1) / (tf + norm)
+    if tf_mode in ("log", "lognorm"):
+        tf = 1 + np.log(tf)
+    wt = tf * idf[t]
+    if tf_mode == "lognorm":
+        l2 = np.sqrt(np.bincount(d - a, weights=wt * wt, minlength=b - a))
+        wt = wt / np.maximum(l2[d - a], 1e-12)
+    return wt
+
+
+def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir, cache_prefix="", require_cache=False,
+                bm25=(0.9, 0.4)):
     """CSC-style term -> (doc rows, weights) for the top-`features` terms by document frequency.
 
     Streams the corpus once: token ids go to an int32 file (cached at cache_prefix if given, else a temporary one in
@@ -189,6 +217,9 @@ def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir, cache_prefix=
         remap = np.full(len(vocab), -1, dtype=np.int64)
         remap[keep] = np.arange(nkeep)
         idf = np.log(n_docs / np.maximum(df[keep], 1)).astype(np.float64)
+        # Lucene's BM25 idf (always > 0) and the mean doc length, for tf_mode "bm25"
+        idf_bm25 = np.log(1 + (n_docs - df[keep] + 0.5) / (df[keep] + 0.5)).astype(np.float64)
+        avgdl = float(lens.mean()) if n_docs else 1.0
 
         # Fill the postings in place: term t's docs go to rows[ptr[t]:ptr[t+1]], in doc order
         ptr = np.concatenate([[0], np.cumsum(df[keep])]).astype(np.int64)
@@ -206,11 +237,9 @@ def build_tfidf(corpus_path, features, tokenize, tf_mode, tmp_dir, cache_prefix=
                 continue
             uk, cnt = np.unique(doc[m] * nkeep + tok[m], return_counts=True)   # sorted by (doc, term)
             d, t = uk // nkeep + a, uk % nkeep
-            tf = cnt.astype(np.float32)
-            if tf_mode == "log":
-                tf = 1 + np.log(tf)
+            wt = doc_term_weights(cnt, d, t, a, b, tf_mode, idf, idf_bm25, lens, avgdl, bm25)
             o = np.argsort(t, kind="stable")                                     # by term, doc order kept
-            d, t, wt = d[o], t[o], tf[o] * idf[t[o]]
+            d, t, wt = d[o], t[o], wt[o]
             per_t = np.bincount(t, minlength=nkeep)
             first = np.cumsum(per_t) - per_t
             pos = cursor[t] + np.arange(len(t)) - first[t]
@@ -314,7 +343,11 @@ def main():
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--features", type=int, default=65536,
                     help="keyword dictionary size F (Coeus pads to a multiple of 8192; paper used 65,536)")
-    ap.add_argument("--tf", choices=["raw", "log"], default="raw")
+    ap.add_argument("--tf", choices=TF_MODES, default="raw",
+                    help="document weighting (see doc_term_weights): raw / log tf-idf as before, lognorm = cosine "
+                         "(length-normalised) log tf-idf, bm25 = BM25 weights. Same Coeus cost for every one")
+    ap.add_argument("--bm25-k1", type=float, default=0.9, help="--tf bm25: k1 (default = baselines.py / Pyserini)")
+    ap.add_argument("--bm25-b", type=float, default=0.4, help="--tf bm25: b")
     ap.add_argument("--tokenizer", choices=["auto", "lucene", "regex"], default="auto",
                     help="auto = pyserini's Lucene analyzer (same as our BM25) if installed")
     ap.add_argument("--max-queries", type=int, default=0, help="0 = all")
@@ -354,7 +387,7 @@ def main():
     t0 = time.time()
     term_id, ptr, rows, w, n_docs = build_tfidf(paths["corpus"], args.features, tokenize, args.tf,
                                                 args.tmp_dir or args.results_root, cache_prefix,
-                                                args.require_token_cache)
+                                                args.require_token_cache, (args.bm25_k1, args.bm25_b))
     pre_time = time.time() - t0
     print(f"tf-idf built over {n_docs} docs and {len(term_id)} keywords in {pre_time:.1f}s", flush=True)
     # A dictionary padded past the vocabulary only adds empty query ciphertexts: same results, more bytes.
@@ -393,6 +426,7 @@ def main():
         "TotalLANTime": n_q * common.net_time(cost["per_query"], 2, 1000, 0.005),
         "TotalWANTime": n_q * common.net_time(cost["per_query"], 2, 400, 0.05),
         "CoeusFeatures": args.features, "CoeusKeywordsUsed": len(term_id),
+        **({"CoeusBM25k1": args.bm25_k1, "CoeusBM25b": args.bm25_b} if args.tf == "bm25" else {}),
         "CoeusR": cost["R"], "CoeusC": cost["C"], "CoeusBuckets": cost["buckets"],
         "CoeusStep1UpBytes": cost["s1_up"], "CoeusStep1DownBytes": cost["s1_down"],
         "CoeusStep2UpBytes": cost["s2_up"], "CoeusStep2DownBytes": cost["s2_down"],
