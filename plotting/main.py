@@ -34,6 +34,10 @@ import plot_quality_vs_cost
 import plot_tree_stages
 import plot_pareto_frontier
 import plot_pareto_vs_latency
+import plot_best_mrr
+import plot_query_terms
+import plot_rebuttal_bars
+import rebuttal_final
 
 if __name__ == '__main__':
     g.setup_logging()
@@ -74,5 +78,25 @@ if __name__ == '__main__':
     # comparison) -> figures/rebuttal_numbers.md; per-query files it still needs are listed at the end
     # rebuttal_numbers._add_stage3_batch(nested_data)
     # rebuttal_numbers.rebuttal_numbers(nested_data)
+
+    # ---------------------------------------------------------------- final rebuttal / camera-ready results
+    # Default filters (globals.py): simulated runs only; runs whose client storage is >= the embedding DB are never
+    # loaded, except on SciFact. Every call below prints the exact numbers it draws (paste them to the LLM).
+    # Every table, clean numbers first, then a dashed line, then the details -> figures/rebuttal_final.md
+    rebuttal_final.report(nested_data)
+    # best MRR@10 per method, BM25 / dense / fused hybrid as dotted lines -> figures/best_mrr_<dataset>.pdf, best_mrr_grid.pdf
+    plot_best_mrr.make_plots(nested_data)
+    # costs at fixed MRR@10 (0.10 Bin, 0.15 Tree, 0.05 scale) and at fixed client storage (0.5 / 1 / 1.5 GB)
+    # -> figures/fixed_mrr_bin.pdf, fixed_mrr_tree.pdf, scale.pdf, fixed_storage_<S>gb.pdf
+    plot_rebuttal_bars.make_plots(nested_data)
+    # PILLAR-Tree MRR@10 vs number of query terms, a line per dataset -> figures/query_terms.pdf
+    plot_query_terms.make_plots(nested_data)
+    # "<dataset> Comparison": MRR@10 / Recall@10 vs WAN, LAN, data sent, every config -> figures/pareto_costs_<dataset>.pdf
+    # (cost_keys=['client_storage_mb'] or any other run key for other columns; frontier points -> *_frontier.md)
+    plot_pareto_grid.make_cost_grids(nested_data)
+    # one cost, the six datasets side by side -> figures/pareto_<x>.pdf
+    # plot_pareto_grid.make_comparison_plot(nested_data, x_key='wan_time')
+    # plot_pareto_grid.make_comparison_plot(nested_data, x_key='lan_time')
+    # plot_pareto_grid.make_comparison_plot(nested_data, x_key='comm_kb')
 
     print(f"Done, figures in {g.FIGURE_DIR}")

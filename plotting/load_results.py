@@ -26,11 +26,12 @@ CLIENT STORAGE FILTER
 With g.FILTER_CLIENT_STORAGE (default on; FILTER_CLIENT_STORAGE=0, or pass
 filter_client=False), runs of every method whose client_storage_mb is
 >= g.MAX_CLIENT_FRACTION (1.0) x g.EMBED_DB_MB[dataset] (the dataset's embedding file)
-are dropped after loading, unless that would drop every run of a method on a dataset (then
-that method keeps all its runs there). The count per method/dataset is logged and the dropped runs
+are dropped after loading (with g.KEEP_IF_ALL_DROPPED, off by default, a method that would lose every run on a
+dataset keeps them all). The count per method/dataset is logged and the dropped runs
 are kept in DROPPED[method][dataset]. Datasets missing from EMBED_DB_MB keep all their
 runs (with a warning), and so do the datasets in g.CLIENT_FILTER_EXEMPT (default scifact;
-CLIENT_FILTER_EXEMPT="" filters it too).
+CLIENT_FILTER_EXEMPT="" filters it too) and the (method, dataset) pairs in g.CLIENT_FILTER_EXEMPT_PAIRS (default
+PILLAR-Tree on NQ).
 
 FOLDERS
 -------
@@ -629,7 +630,7 @@ def filter_client_storage(nested_data, fraction=None):
     fraction = g.MAX_CLIENT_FRACTION if fraction is None else fraction
     for method, per_dataset in nested_data.items():
         for dataset, runs in per_dataset.items():
-            if dataset in g.CLIENT_FILTER_EXEMPT:
+            if dataset in g.CLIENT_FILTER_EXEMPT or (method, dataset) in g.CLIENT_FILTER_EXEMPT_PAIRS:
                 continue
             limit = g.EMBED_DB_MB.get(dataset)
             if limit is None:
@@ -639,7 +640,7 @@ def filter_client_storage(nested_data, fraction=None):
             limit *= fraction
             # NaN client storage compares False, so those runs are kept
             keep = [r for r in runs if not r.get('client_storage_mb', math.nan) >= limit]
-            if runs and not keep:   # the filter would wipe out this method on this dataset: keep all of its runs
+            if runs and not keep and g.KEEP_IF_ALL_DROPPED:   # the filter would wipe out this method on this dataset: keep all of its runs
                 log.info("%s/%s: all %d runs have client storage >= %.1f MB (%.2f x the %.1f MB embedding DB), "
                          "filter not applied so the method stays in", method, dataset, len(runs), limit, fraction,
                          g.EMBED_DB_MB[dataset])

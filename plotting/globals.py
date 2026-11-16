@@ -84,7 +84,15 @@ FILTER_CLIENT_STORAGE = os.environ.get('FILTER_CLIENT_STORAGE', '1') != '0'
 # filter dropped all but 6 of PILLAR-Bin's 2114 runs there while Tree / PACMANN (every run above it) were exempt.
 # CLIENT_FILTER_EXEMPT="" applies the filter to SciFact too.
 CLIENT_FILTER_EXEMPT = os.environ.get('CLIENT_FILTER_EXEMPT', 'scifact').split()
+# (method, dataset) pairs the filter never applies to, on top of the whole datasets above. PILLAR-Tree on NQ by
+# default: its smallest client (2.3 GB) is above NQ's 1.96 GB embedding file, so the filter would drop all 276 runs.
+# CLIENT_FILTER_EXEMPT_PAIRS="tree:nq bins:fever" (method:dataset, space-separated); "" applies the filter to tree/nq too.
+CLIENT_FILTER_EXEMPT_PAIRS = {tuple(p.split(':', 1)) for p in
+                              os.environ.get('CLIENT_FILTER_EXEMPT_PAIRS', 'tree:nq').split() if ':' in p}
 MAX_CLIENT_FRACTION = float(os.environ.get('MAX_CLIENT_FRACTION', 1.0))
+# The filter used to keep every run of a method on a dataset when it would drop all of them. Off (strict) by default:
+# a run at or above the embedding DB size is never loaded. KEEP_IF_ALL_DROPPED=1 brings the old safety net back.
+KEEP_IF_ALL_DROPPED = os.environ.get('KEEP_IF_ALL_DROPPED', '0') == '1'
 # Size (MB = 2^20 bytes, like DBSizeInBytesMB / ClientStorageMB) of ../datasets/<d>/<d>_corpus_embed_f32.npy on hopper,
 # checked 2026-11-10: docs x 192 dims x float32 (the PCA'd e5 embeddings), + the .npy header.
 EMBED_DB_MB = {
@@ -155,6 +163,8 @@ METHOD_HATCHES = {'bins': '///', 'bins-text': '++', 'tree': 'xxx', 'pacmann': ''
 # reranked number is still loaded as 'mrr_reranked' (see load_results.py)
 MRR_FROM_PRE_RERANK = {'coeus', 'tiptoe'}
 
+# the six datasets of the rebuttal / camera-ready figures (rebuttal_final.py, plot_best_mrr.py, the cost grids)
+REBUTTAL_DATASETS = ['msmarco', 'scifact', 'fever', 'nq', 'msmarco-v2-25m', 'msmarco-v2-50m']
 # every dataset run_me.sh / check_runs.sh cover (the rebuttal tables use these)
 ALL_DATASETS = ['scifact', 'msmarco', 'nq', 'fever', 'dbpedia-entity', 'msmarco-v2-25m', 'msmarco-v2-50m', 'msmarco-v2']
 NEW_DATASETS = ['nq', 'fever', 'msmarco-v2-25m', 'msmarco-v2-50m', 'msmarco-v2']

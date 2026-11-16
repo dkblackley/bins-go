@@ -768,8 +768,9 @@ def draw_panel(ax, panel, nested_data, figure_dataset):
             pu.log.info("%-9s %-8s %-8s %-10s %s=%-10.4g %s=%-10.4g %s", kind, method, dataset,
                         y_key, x_key, run[x_key], y_key, run[y_key], run['folder'])
 
+    front = frontier(pooled, x_key, y_key, name=f'all/{dataset}')
+    _frontier_points.append(dict(dataset=dataset, x=x_key, y=y_key, runs=front))
     if GLOBAL_FRONTIER:
-        front = frontier(pooled, x_key, y_key, name=f'all/{dataset}')
         for run in front:
             log_point('global', 'all', run)
         if len(front) > 1:   # a single point is already drawn in its method's colour
@@ -941,6 +942,45 @@ def plot_pareto_grid(nested_data, dataset, name=FIG_NAME):
 
 
 _frontier_counts = []   # one entry per panel drawn, for print_frontier_summary
+_frontier_points = []   # one entry per panel drawn: the runs on its global frontier, for print_frontier_points
+
+FRONTIER_POINTS = True  # print (and write to figures/<figure name>_frontier.md) every point on each panel's global
+                        # frontier as a Markdown table, so the exact numbers can go next to the figure
+
+
+def _value(key, v):
+    if key in ('mrr', 'recall', 'mrr_pre_rerank', 'recall_pre_rerank'):
+        return f'{v:.4f}'
+    if key == 'client_storage_mb':
+        return f'{v:,.1f} MB'
+    if key in ('comm_kb', 'comm_per_batch_kb'):
+        return f'{v:,.1f} KB'
+    if key.endswith('_time'):
+        return f'{v:.3f} s'
+    return f'{v:.4g}'
+
+
+def print_frontier_points(name=None):
+    """The global frontier of every panel drawn since the last clear, as Markdown tables (sorted by cost). Written to
+    figures/<name>_frontier.md as well when a name is given."""
+    out = []
+    for e in _frontier_points:
+        out += [f"### {g.DATASET_LABELS.get(e['dataset'], e['dataset'])}: {g.label(e['y'], K)} vs "
+                f"{re.sub(r'[(][^)]*[)]$', '', g.label(e['x'], K)).strip()} (global Pareto frontier)", '',
+                f"| Method | {g.label(e['y'], K)} | {g.label(e['x'], K)} |", '|---|---|---|']
+        out += [f"| {g.METHOD_LABELS.get(r['method'], r['method'])} | {_value(e['y'], r[e['y']])} | "
+                f"{_value(e['x'], r[e['x']])} |" for r in e['runs']]
+        out.append('')
+    text = '\n'.join(out)
+    print('\n' + text)
+    if name:
+        import os
+        os.makedirs(g.FIGURE_DIR, exist_ok=True)
+        path = os.path.join(g.FIGURE_DIR, f'{name}_frontier.md')
+        with open(path, 'w') as fh:
+            fh.write(text + '\n')
+        pu.log.info('saved %s', path)
+    return text
 
 
 def print_frontier_summary():
@@ -981,6 +1021,62 @@ def make_plots(nested_data):
 
 
 # ==========================================
+# ONE FIGURE PER DATASET, COSTS ACROSS (the "<dataset> Comparison" figures)
+# ==========================================
+
+# One figure per dataset: MRR@10 and Recall@10 (rows) against each cost (columns), every config of every method
+# (BEST_N = None) after the load filters, the global frontier as a black line. The cost list is all that changes:
+#   make_cost_grids(nd)                                   WAN, LAN, data sent (COST_GRID_KEYS)
+#   make_cost_grids(nd, cost_keys=['client_storage_mb'])  client storage only
+#   make_cost_grids(nd, cost_keys=['wan_time'], name='pareto_wan_{dataset}')
+COST_GRID_KEYS = ['wan_time', 'lan_time', 'comm_kb']   # columns; 'client_storage_mb', 'total_time', ... work too
+COST_GRID_DATASETS = None          # None = g.REBUTTAL_DATASETS (one figure each)
+COST_GRID_SUPTITLE = '{dataset} Comparison'
+COST_GRID_FIG_NAME = 'pareto_costs_{dataset}'   # '{dataset}' filled in per figure
+COST_GRID_LOG = True               # log cost axes: Coeus is ~100x slower and sends ~1000x more than PILLAR-Bin
+COST_GRID_PINNED = False           # True keeps the per-dataset ranges in AXIS_DEFAULTS (tuned for the paper's MS MARCO /
+                                   # SciFact figures; they cut off Tiptoe / Coeus and PACMANN's slow configs)
+
+
+def _cost_axis_defaults(cost_keys, pinned, log):
+    """AXIS_DEFAULTS for a figure that should show every config: the per-dataset (pinned) ranges dropped unless
+    `pinned`, and each cost on a log axis when `log`."""
+    out = {k: dict(v) for k, v in AXIS_DEFAULTS.items() if pinned or not isinstance(k, tuple)}
+    for key in cost_keys:
+        out[key] = {**out.get(key, {}), 'log': log}
+    return out
+
+
+def make_cost_grids(nested_data, datasets=None, cost_keys=None, name=None, pinned=None, log=None):
+    """figures/pareto_costs_<dataset>.pdf: '<dataset> Comparison', MRR@10 / Recall@10 rows, a column per cost."""
+    global PANELS, COLS, SUPTITLE, AXIS_DEFAULTS, GRID_MAX, LEGEND_ROWS
+    saved = PANELS, COLS, SUPTITLE, AXIS_DEFAULTS, GRID_MAX, LEGEND_ROWS
+    cost_keys = list(cost_keys or COST_GRID_KEYS)
+    datasets = list(datasets or COST_GRID_DATASETS or g.REBUTTAL_DATASETS)
+    name = name or COST_GRID_FIG_NAME
+    try:
+        AXIS_DEFAULTS = _cost_axis_defaults(cost_keys, COST_GRID_PINNED if pinned is None else pinned,
+                                            COST_GRID_LOG if log is None else log)
+        PANELS, COLS = cross(QUALITY_KEYS, cost_keys), len(cost_keys)
+        GRID_MAX = max(GRID_MAX, len(PANELS))
+        SUPTITLE = COST_GRID_SUPTITLE
+        LEGEND_ROWS = [row + (['global'] if i == len(g.METHOD_LEGEND_ROWS) - 1 else [])
+                       for i, row in enumerate(g.METHOD_LEGEND_ROWS)]
+        figures = []
+        for d in datasets:
+            _frontier_counts.clear()
+            _frontier_points.clear()
+            figures.append(plot_pareto_grid(nested_data, d, name=name))
+            if FRONTIER_SUMMARY:
+                print_frontier_summary()
+            if FRONTIER_POINTS:
+                print_frontier_points(name.format(dataset=d))
+        return figures
+    finally:
+        PANELS, COLS, SUPTITLE, AXIS_DEFAULTS, GRID_MAX, LEGEND_ROWS = saved
+
+
+# ==========================================
 # ONE COST ONLY (one figure, every dataset side by side)
 # ==========================================
 
@@ -998,8 +1094,8 @@ COMPARE_X = 'client_storage_mb'     # client storage
 # COMPARE_X = 'preproc_rounds'      # preprocessing rounds
 # COMPARE_X = 'pir_rounds'          # PIR rounds
 
-STORAGE_DATASETS = None                     # the columns; None = g.DATASETS (DATASETS=new python main.py)
-STORAGE_MAX_COLS = 4                        # more datasets than this continue in another figure,
+STORAGE_DATASETS = g.REBUTTAL_DATASETS      # the columns; None = g.DATASETS (DATASETS=new python main.py)
+STORAGE_MAX_COLS = 6                        # more datasets than this continue in another figure,
                                             # pareto_<x>_2.pdf, ... (GRID_MAX is 8 panels)
 STORAGE_QUALITY = ['mrr', 'recall']         # the rows
 STORAGE_FIG_NAME = 'pareto_{x}'             # figures/<this>.pdf, '{x}' becoming COMPARE_X, so
@@ -1014,7 +1110,7 @@ def make_client_storage_plot(nested_data, datasets=None):
     return make_comparison_plot(nested_data, datasets, x_key='client_storage_mb')
 
 
-def make_comparison_plot(nested_data, datasets=None, x_key=None):
+def make_comparison_plot(nested_data, datasets=None, x_key=None, pinned=None, log=None):
     """
     figures/pareto_<x>.pdf: one cost (x_key, default COMPARE_X) against
     MRR@10 / Recall@10 (rows), every dataset side by side (columns), every panel
@@ -1022,10 +1118,17 @@ def make_comparison_plot(nested_data, datasets=None, x_key=None):
     AXIS_DEFAULTS, so ('msmarco', <x_key>) etc. set this figure's ranges too.
     Each panel keeps its own y range (the datasets' MRR scales differ), so
     SHARE_Y_ROW is off here.
+
+    Client storage keeps the tuned per-dataset ranges of AXIS_DEFAULTS; any other cost (WAN, LAN, comm_kb)
+    drops them and goes on a log axis by default, so every config is shown (`pinned` / `log` override this):
+        make_comparison_plot(nd, x_key='wan_time')   ->  figures/pareto_wan_time.pdf
     """
-    global PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE
-    saved = PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE
+    global PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE, AXIS_DEFAULTS
+    saved = PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE, AXIS_DEFAULTS
     x_key = x_key or COMPARE_X
+    storage = x_key == 'client_storage_mb'
+    AXIS_DEFAULTS = _cost_axis_defaults([x_key], storage if pinned is None else pinned,
+                                        (COST_GRID_LOG and not storage) if log is None else log)
     TITLE_SIZE = STORAGE_TITLE_SIZE
     datasets = list(datasets or STORAGE_DATASETS or g.DATASETS)
     chunks = [datasets[i:i + STORAGE_MAX_COLS] for i in range(0, len(datasets), STORAGE_MAX_COLS)]
@@ -1039,6 +1142,7 @@ def make_comparison_plot(nested_data, datasets=None, x_key=None):
     figures = []
     try:
         _frontier_counts.clear()
+        _frontier_points.clear()
         for n, chunk in enumerate(chunks):
             PANELS = [dict(x=x_key, y=y, dataset=d,
                            title=g.DATASET_LABELS.get(d, d) if row == 0 else None)
@@ -1048,9 +1152,11 @@ def make_comparison_plot(nested_data, datasets=None, x_key=None):
             figures.append(plot_pareto_grid(nested_data, chunk[0], name=name))
         if FRONTIER_SUMMARY:
             print_frontier_summary()
+        if FRONTIER_POINTS:
+            print_frontier_points(STORAGE_FIG_NAME.format(x=x_key))
         return figures[0] if len(figures) == 1 else figures
     finally:
-        PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE = saved
+        PANELS, COLS, SHARE_Y_ROW, SUPTITLE, Y_LABEL_ROW, LEGEND_ROWS, GRID_MAX, TITLE_SIZE, AXIS_DEFAULTS = saved
 
 
 if __name__ == '__main__':
@@ -1059,3 +1165,4 @@ if __name__ == '__main__':
     nested = load_results.load_results()
     make_plots(nested)
     make_comparison_plot(nested)   # figures/pareto_<COMPARE_X>.pdf
+    make_cost_grids(nested)        # figures/pareto_costs_<dataset>.pdf

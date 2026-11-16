@@ -72,9 +72,10 @@ PICK_COST = 'wan_time'     # "lowest WAN"; e.g. 'client_storage_mb' to pick the 
 
 # Client-storage filter: load_results() drops runs whose client storage is >= the dataset's embedding DB
 # (globals.EMBED_DB_MB). On SciFact (3.8 MB of embeddings) that drops EVERY PILLAR-Bin config.
-#   'off'  every run is kept (default)     'on'  the paper's filter (STORAGE_EXEMPT datasets still keep theirs)
+#   'on'  the paper's filter (default; SciFact is exempt through g.CLIENT_FILTER_EXEMPT, STORAGE_EXEMPT adds more)
+#   'off'  every run is kept
 #   'both' every table twice, filter off then on
-STORAGE_FILTER = 'off'
+STORAGE_FILTER = 'on'
 # Tiptoe's single-use per-query token (34-51 MB, fetched before the query): True adds its WAN / LAN time
 # (TiptoeOfflineWANTime / LANTime per query) to Tiptoe's WAN / LAN, and so to the merged Tiptoe+Coeus runs, in every
 # table and in the picks. Not like-for-like the other way: PILLAR / PACMANN's offline hint refreshes stay excluded.

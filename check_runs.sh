@@ -7,6 +7,7 @@
 #   REAL=1 bash check_runs.sh                       # the real runs instead of the simulated ones (the default)
 #   METHODS="bins tree" SINCE=2026-11-01 bash check_runs.sh nq
 #   bash check_runs.sh --mark                       # from now on only show failures after this moment
+#   EXPECTED_ONLY=1 bash check_runs.sh              # only print every config the grids should produce, then stop
 #
 # "Since": sections 2, 4, 5 and 6 only show failures after the time in logs/check/since. run_me.sh writes it every
 # time it deploys a fix and resubmits, so failures that are already fixed drop out. No file: the last 14 days.
@@ -161,6 +162,8 @@ EOF
     fi
 done
 } > "$OUT/expected.txt"
+# EXPECTED_ONLY=1: print the expected grid (method dataset folder config...) and stop; prune_results.sh uses this
+if [[ "${EXPECTED_ONLY:-0}" == 1 ]]; then cat "$OUT/expected.txt"; exit 0; fi
 
 # result folders a pending / running job will write (slurm_common.sh queued_dirs; run_me.sh passes QUEUED_FILE)
 if [[ -n "${QUEUED_FILE:-}" && -f "$QUEUED_FILE" ]]; then cp "$QUEUED_FILE" "$OUT/queued.tsv"

@@ -122,7 +122,7 @@ build_tree_grid() {
             add_oat scifact $MQ "$ANCHOR" r "2 4 8 16 32 64"
             add_oat scifact $MQ "$ANCHOR" s "1 2 4 8 16"
             add_oat scifact $MQ "$ANCHOR" L "1 2 5 10 20 40 80 160"   # was 1 2 3 5 10 20 40 80 160
-            add_oat scifact $MQ "$ANCHOR" q "1 2 4 6 8 12 16 24"
+            add_oat scifact $MQ "$ANCHOR" q "1 2 3 4 6 8 12 16 24"
             add_oat scifact $MQ "$ANCHOR" c "1 2 4 8 16 20 40 80"
         fi
         if [[ $sweep == grid || $sweep == all ]]; then

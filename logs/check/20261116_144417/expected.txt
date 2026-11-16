@@ -1,0 +1,350 @@
+pacmann msmarco /x/pacmann_msmarco_k10_steps5_neighb8 k=10 steps=5 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k10_steps5_neighb16 k=10 steps=5 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k10_steps5_neighb24 k=10 steps=5 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k10_steps5_neighb32 k=10 steps=5 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k10_steps5_neighb40 k=10 steps=5 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k10_steps5_neighb48 k=10 steps=5 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k10_steps10_neighb8 k=10 steps=10 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k10_steps10_neighb16 k=10 steps=10 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k10_steps10_neighb24 k=10 steps=10 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k10_steps10_neighb32 k=10 steps=10 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k10_steps10_neighb40 k=10 steps=10 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k10_steps10_neighb48 k=10 steps=10 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k10_steps15_neighb8 k=10 steps=15 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k10_steps15_neighb16 k=10 steps=15 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k10_steps15_neighb24 k=10 steps=15 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k10_steps15_neighb32 k=10 steps=15 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k10_steps15_neighb40 k=10 steps=15 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k10_steps15_neighb48 k=10 steps=15 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k10_steps20_neighb8 k=10 steps=20 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k10_steps20_neighb16 k=10 steps=20 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k10_steps20_neighb24 k=10 steps=20 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k10_steps20_neighb32 k=10 steps=20 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k10_steps20_neighb40 k=10 steps=20 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k10_steps20_neighb48 k=10 steps=20 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k10_steps25_neighb8 k=10 steps=25 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k10_steps25_neighb16 k=10 steps=25 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k10_steps25_neighb24 k=10 steps=25 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k10_steps25_neighb32 k=10 steps=25 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k10_steps25_neighb40 k=10 steps=25 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k10_steps25_neighb48 k=10 steps=25 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k10_steps30_neighb8 k=10 steps=30 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k10_steps30_neighb16 k=10 steps=30 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k10_steps30_neighb24 k=10 steps=30 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k10_steps30_neighb32 k=10 steps=30 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k10_steps30_neighb40 k=10 steps=30 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k10_steps30_neighb48 k=10 steps=30 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k100_steps5_neighb8 k=100 steps=5 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k100_steps5_neighb16 k=100 steps=5 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k100_steps5_neighb24 k=100 steps=5 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k100_steps5_neighb32 k=100 steps=5 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k100_steps5_neighb40 k=100 steps=5 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k100_steps5_neighb48 k=100 steps=5 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k100_steps10_neighb8 k=100 steps=10 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k100_steps10_neighb16 k=100 steps=10 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k100_steps10_neighb24 k=100 steps=10 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k100_steps10_neighb32 k=100 steps=10 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k100_steps10_neighb40 k=100 steps=10 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k100_steps10_neighb48 k=100 steps=10 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k100_steps15_neighb8 k=100 steps=15 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k100_steps15_neighb16 k=100 steps=15 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k100_steps15_neighb24 k=100 steps=15 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k100_steps15_neighb32 k=100 steps=15 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k100_steps15_neighb40 k=100 steps=15 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k100_steps15_neighb48 k=100 steps=15 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k100_steps20_neighb8 k=100 steps=20 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k100_steps20_neighb16 k=100 steps=20 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k100_steps20_neighb24 k=100 steps=20 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k100_steps20_neighb32 k=100 steps=20 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k100_steps20_neighb40 k=100 steps=20 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k100_steps20_neighb48 k=100 steps=20 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k100_steps25_neighb8 k=100 steps=25 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k100_steps25_neighb16 k=100 steps=25 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k100_steps25_neighb24 k=100 steps=25 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k100_steps25_neighb32 k=100 steps=25 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k100_steps25_neighb40 k=100 steps=25 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k100_steps25_neighb48 k=100 steps=25 neighb=48
+pacmann msmarco /x/pacmann_msmarco_k100_steps30_neighb8 k=100 steps=30 neighb=8
+pacmann msmarco /x/pacmann_msmarco_k100_steps30_neighb16 k=100 steps=30 neighb=16
+pacmann msmarco /x/pacmann_msmarco_k100_steps30_neighb24 k=100 steps=30 neighb=24
+pacmann msmarco /x/pacmann_msmarco_k100_steps30_neighb32 k=100 steps=30 neighb=32
+pacmann msmarco /x/pacmann_msmarco_k100_steps30_neighb40 k=100 steps=30 neighb=40
+pacmann msmarco /x/pacmann_msmarco_k100_steps30_neighb48 k=100 steps=30 neighb=48
+tree msmarco /x/tree_grid_msmarco_b4_r32_s4_L100_q4_c100_k10 B=4 r=32 s=4 L=100 q=4 c=100
+tree msmarco /x/tree_grid_msmarco_b8_r32_s8_L100_q4_c100_k10 B=8 r=32 s=8 L=100 q=4 c=100
+tree msmarco /x/tree_grid_msmarco_b16_r32_s8_L100_q4_c128_k10 B=16 r=32 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q4_c128_k10 B=32 r=32 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r32_s8_L100_q4_c128_k10 B=64 r=32 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b128_r32_s8_L100_q4_c128_k10 B=128 r=32 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r2_s8_L100_q4_c128_k10 B=32 r=2 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L100_q4_c128_k10 B=32 r=4 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r8_s8_L100_q4_c128_k10 B=32 r=8 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L100_q4_c128_k10 B=32 r=16 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L100_q4_c128_k10 B=32 r=64 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r128_s8_L100_q4_c128_k10 B=32 r=128 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r256_s8_L100_q4_c128_k10 B=32 r=256 s=8 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s1_L100_q4_c128_k10 B=32 r=32 s=1 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s2_L100_q4_c128_k10 B=32 r=32 s=2 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s4_L100_q4_c128_k10 B=32 r=32 s=4 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s16_L100_q4_c128_k10 B=32 r=32 s=16 L=100 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s32_L100_q4_c100_k10 B=32 r=32 s=32 L=100 q=4 c=100
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L1_q4_c4_k10 B=32 r=32 s=8 L=1 q=4 c=4
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L4_q4_c16_k10 B=32 r=32 s=8 L=4 q=4 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L16_q4_c64_k10 B=32 r=32 s=8 L=16 q=4 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L32_q4_c128_k10 B=32 r=32 s=8 L=32 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L64_q4_c128_k10 B=32 r=32 s=8 L=64 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L400_q4_c128_k10 B=32 r=32 s=8 L=400 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L800_q4_c128_k10 B=32 r=32 s=8 L=800 q=4 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q1_c128_k10 B=32 r=32 s=8 L=100 q=1 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q2_c128_k10 B=32 r=32 s=8 L=100 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q3_c128_k10 B=32 r=32 s=8 L=100 q=3 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q6_c128_k10 B=32 r=32 s=8 L=100 q=6 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q8_c128_k10 B=32 r=32 s=8 L=100 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q12_c128_k10 B=32 r=32 s=8 L=100 q=12 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q4_c1_k10 B=32 r=32 s=8 L=100 q=4 c=1
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q4_c4_k10 B=32 r=32 s=8 L=100 q=4 c=4
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q4_c16_k10 B=32 r=32 s=8 L=100 q=4 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q4_c32_k10 B=32 r=32 s=8 L=100 q=4 c=32
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q4_c64_k10 B=32 r=32 s=8 L=100 q=4 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q4_c256_k10 B=32 r=32 s=8 L=100 q=4 c=256
+tree msmarco /x/tree_grid_msmarco_b32_r32_s8_L100_q4_c400_k10 B=32 r=32 s=8 L=100 q=4 c=400
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L2_q2_c8_k10 B=8 r=4 s=2 L=2 q=2 c=8
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L2_q8_c8_k10 B=8 r=4 s=2 L=2 q=8 c=8
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L16_q2_c64_k10 B=8 r=4 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L16_q8_c64_k10 B=8 r=4 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L128_q2_c64_k10 B=8 r=4 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L128_q2_c512_k10 B=8 r=4 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L128_q8_c64_k10 B=8 r=4 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L128_q8_c512_k10 B=8 r=4 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L512_q2_c64_k10 B=8 r=4 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L512_q2_c512_k10 B=8 r=4 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L512_q8_c64_k10 B=8 r=4 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r4_s2_L512_q8_c512_k10 B=8 r=4 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L2_q2_c2_k10 B=8 r=4 s=8 L=2 q=2 c=2
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L2_q8_c2_k10 B=8 r=4 s=8 L=2 q=8 c=2
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L16_q2_c16_k10 B=8 r=4 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L16_q8_c16_k10 B=8 r=4 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L128_q2_c16_k10 B=8 r=4 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L128_q2_c128_k10 B=8 r=4 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L128_q8_c16_k10 B=8 r=4 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L128_q8_c128_k10 B=8 r=4 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L512_q2_c16_k10 B=8 r=4 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L512_q2_c128_k10 B=8 r=4 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L512_q8_c16_k10 B=8 r=4 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r4_s8_L512_q8_c128_k10 B=8 r=4 s=8 L=512 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L2_q2_c8_k10 B=8 r=16 s=2 L=2 q=2 c=8
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L2_q8_c8_k10 B=8 r=16 s=2 L=2 q=8 c=8
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L16_q2_c64_k10 B=8 r=16 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L16_q8_c64_k10 B=8 r=16 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L128_q2_c64_k10 B=8 r=16 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L128_q2_c512_k10 B=8 r=16 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L128_q8_c64_k10 B=8 r=16 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L128_q8_c512_k10 B=8 r=16 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L512_q2_c64_k10 B=8 r=16 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L512_q2_c512_k10 B=8 r=16 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L512_q8_c64_k10 B=8 r=16 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r16_s2_L512_q8_c512_k10 B=8 r=16 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L2_q2_c2_k10 B=8 r=16 s=8 L=2 q=2 c=2
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L2_q8_c2_k10 B=8 r=16 s=8 L=2 q=8 c=2
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L16_q2_c16_k10 B=8 r=16 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L16_q8_c16_k10 B=8 r=16 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L128_q2_c16_k10 B=8 r=16 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L128_q2_c128_k10 B=8 r=16 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L128_q8_c16_k10 B=8 r=16 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L128_q8_c128_k10 B=8 r=16 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L512_q2_c16_k10 B=8 r=16 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L512_q2_c128_k10 B=8 r=16 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L512_q8_c16_k10 B=8 r=16 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r16_s8_L512_q8_c128_k10 B=8 r=16 s=8 L=512 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L2_q2_c8_k10 B=8 r=64 s=2 L=2 q=2 c=8
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L2_q8_c8_k10 B=8 r=64 s=2 L=2 q=8 c=8
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L16_q2_c64_k10 B=8 r=64 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L16_q8_c64_k10 B=8 r=64 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L128_q2_c64_k10 B=8 r=64 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L128_q2_c512_k10 B=8 r=64 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L128_q8_c64_k10 B=8 r=64 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L128_q8_c512_k10 B=8 r=64 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L512_q2_c64_k10 B=8 r=64 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L512_q2_c512_k10 B=8 r=64 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L512_q8_c64_k10 B=8 r=64 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b8_r64_s2_L512_q8_c512_k10 B=8 r=64 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L2_q2_c2_k10 B=8 r=64 s=8 L=2 q=2 c=2
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L2_q8_c2_k10 B=8 r=64 s=8 L=2 q=8 c=2
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L16_q2_c16_k10 B=8 r=64 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L16_q8_c16_k10 B=8 r=64 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L128_q2_c16_k10 B=8 r=64 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L128_q2_c128_k10 B=8 r=64 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L128_q8_c16_k10 B=8 r=64 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L128_q8_c128_k10 B=8 r=64 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L512_q2_c16_k10 B=8 r=64 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L512_q2_c128_k10 B=8 r=64 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L512_q8_c16_k10 B=8 r=64 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b8_r64_s8_L512_q8_c128_k10 B=8 r=64 s=8 L=512 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L2_q2_c32_k10 B=32 r=4 s=2 L=2 q=2 c=32
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L2_q8_c32_k10 B=32 r=4 s=2 L=2 q=8 c=32
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L16_q2_c64_k10 B=32 r=4 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L16_q2_c256_k10 B=32 r=4 s=2 L=16 q=2 c=256
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L16_q8_c64_k10 B=32 r=4 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L16_q8_c256_k10 B=32 r=4 s=2 L=16 q=8 c=256
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L128_q2_c64_k10 B=32 r=4 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L128_q2_c512_k10 B=32 r=4 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L128_q8_c64_k10 B=32 r=4 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L128_q8_c512_k10 B=32 r=4 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L512_q2_c64_k10 B=32 r=4 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L512_q2_c512_k10 B=32 r=4 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L512_q8_c64_k10 B=32 r=4 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r4_s2_L512_q8_c512_k10 B=32 r=4 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L2_q2_c8_k10 B=32 r=4 s=8 L=2 q=2 c=8
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L2_q8_c8_k10 B=32 r=4 s=8 L=2 q=8 c=8
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L16_q2_c16_k10 B=32 r=4 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L16_q2_c64_k10 B=32 r=4 s=8 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L16_q8_c16_k10 B=32 r=4 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L16_q8_c64_k10 B=32 r=4 s=8 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L128_q2_c16_k10 B=32 r=4 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L128_q2_c128_k10 B=32 r=4 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L128_q8_c16_k10 B=32 r=4 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L128_q8_c128_k10 B=32 r=4 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L512_q2_c16_k10 B=32 r=4 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L512_q2_c128_k10 B=32 r=4 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L512_q8_c16_k10 B=32 r=4 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r4_s8_L512_q8_c128_k10 B=32 r=4 s=8 L=512 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L2_q2_c32_k10 B=32 r=16 s=2 L=2 q=2 c=32
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L2_q8_c32_k10 B=32 r=16 s=2 L=2 q=8 c=32
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L16_q2_c64_k10 B=32 r=16 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L16_q2_c256_k10 B=32 r=16 s=2 L=16 q=2 c=256
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L16_q8_c64_k10 B=32 r=16 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L16_q8_c256_k10 B=32 r=16 s=2 L=16 q=8 c=256
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L128_q2_c64_k10 B=32 r=16 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L128_q2_c512_k10 B=32 r=16 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L128_q8_c64_k10 B=32 r=16 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L128_q8_c512_k10 B=32 r=16 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L512_q2_c64_k10 B=32 r=16 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L512_q2_c512_k10 B=32 r=16 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L512_q8_c64_k10 B=32 r=16 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r16_s2_L512_q8_c512_k10 B=32 r=16 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L2_q2_c8_k10 B=32 r=16 s=8 L=2 q=2 c=8
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L2_q8_c8_k10 B=32 r=16 s=8 L=2 q=8 c=8
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L16_q2_c16_k10 B=32 r=16 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L16_q2_c64_k10 B=32 r=16 s=8 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L16_q8_c16_k10 B=32 r=16 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L16_q8_c64_k10 B=32 r=16 s=8 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L128_q2_c16_k10 B=32 r=16 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L128_q2_c128_k10 B=32 r=16 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L128_q8_c16_k10 B=32 r=16 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L128_q8_c128_k10 B=32 r=16 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L512_q2_c16_k10 B=32 r=16 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L512_q2_c128_k10 B=32 r=16 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L512_q8_c16_k10 B=32 r=16 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r16_s8_L512_q8_c128_k10 B=32 r=16 s=8 L=512 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L2_q2_c32_k10 B=32 r=64 s=2 L=2 q=2 c=32
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L2_q8_c32_k10 B=32 r=64 s=2 L=2 q=8 c=32
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L16_q2_c64_k10 B=32 r=64 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L16_q2_c256_k10 B=32 r=64 s=2 L=16 q=2 c=256
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L16_q8_c64_k10 B=32 r=64 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L16_q8_c256_k10 B=32 r=64 s=2 L=16 q=8 c=256
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L128_q2_c64_k10 B=32 r=64 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L128_q2_c512_k10 B=32 r=64 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L128_q8_c64_k10 B=32 r=64 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L128_q8_c512_k10 B=32 r=64 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L512_q2_c64_k10 B=32 r=64 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L512_q2_c512_k10 B=32 r=64 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L512_q8_c64_k10 B=32 r=64 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r64_s2_L512_q8_c512_k10 B=32 r=64 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L2_q2_c8_k10 B=32 r=64 s=8 L=2 q=2 c=8
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L2_q8_c8_k10 B=32 r=64 s=8 L=2 q=8 c=8
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L16_q2_c16_k10 B=32 r=64 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L16_q2_c64_k10 B=32 r=64 s=8 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L16_q8_c16_k10 B=32 r=64 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L16_q8_c64_k10 B=32 r=64 s=8 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L128_q2_c16_k10 B=32 r=64 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L128_q2_c128_k10 B=32 r=64 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L128_q8_c16_k10 B=32 r=64 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L128_q8_c128_k10 B=32 r=64 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L512_q2_c16_k10 B=32 r=64 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L512_q2_c128_k10 B=32 r=64 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L512_q8_c16_k10 B=32 r=64 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b32_r64_s8_L512_q8_c128_k10 B=32 r=64 s=8 L=512 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L2_q2_c64_k10 B=64 r=4 s=2 L=2 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L2_q8_c64_k10 B=64 r=4 s=2 L=2 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L16_q2_c64_k10 B=64 r=4 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L16_q2_c512_k10 B=64 r=4 s=2 L=16 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L16_q8_c64_k10 B=64 r=4 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L16_q8_c512_k10 B=64 r=4 s=2 L=16 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L128_q2_c64_k10 B=64 r=4 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L128_q2_c512_k10 B=64 r=4 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L128_q8_c64_k10 B=64 r=4 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L128_q8_c512_k10 B=64 r=4 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L512_q2_c64_k10 B=64 r=4 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L512_q2_c512_k10 B=64 r=4 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L512_q8_c64_k10 B=64 r=4 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r4_s2_L512_q8_c512_k10 B=64 r=4 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L2_q2_c16_k10 B=64 r=4 s=8 L=2 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L2_q8_c16_k10 B=64 r=4 s=8 L=2 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L16_q2_c16_k10 B=64 r=4 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L16_q2_c128_k10 B=64 r=4 s=8 L=16 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L16_q8_c16_k10 B=64 r=4 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L16_q8_c128_k10 B=64 r=4 s=8 L=16 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L128_q2_c16_k10 B=64 r=4 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L128_q2_c128_k10 B=64 r=4 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L128_q8_c16_k10 B=64 r=4 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L128_q8_c128_k10 B=64 r=4 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L512_q2_c16_k10 B=64 r=4 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L512_q2_c128_k10 B=64 r=4 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L512_q8_c16_k10 B=64 r=4 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r4_s8_L512_q8_c128_k10 B=64 r=4 s=8 L=512 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L2_q2_c64_k10 B=64 r=16 s=2 L=2 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L2_q8_c64_k10 B=64 r=16 s=2 L=2 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L16_q2_c64_k10 B=64 r=16 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L16_q2_c512_k10 B=64 r=16 s=2 L=16 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L16_q8_c64_k10 B=64 r=16 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L16_q8_c512_k10 B=64 r=16 s=2 L=16 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L128_q2_c64_k10 B=64 r=16 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L128_q2_c512_k10 B=64 r=16 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L128_q8_c64_k10 B=64 r=16 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L128_q8_c512_k10 B=64 r=16 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L512_q2_c64_k10 B=64 r=16 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L512_q2_c512_k10 B=64 r=16 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L512_q8_c64_k10 B=64 r=16 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r16_s2_L512_q8_c512_k10 B=64 r=16 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L2_q2_c16_k10 B=64 r=16 s=8 L=2 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L2_q8_c16_k10 B=64 r=16 s=8 L=2 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L16_q2_c16_k10 B=64 r=16 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L16_q2_c128_k10 B=64 r=16 s=8 L=16 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L16_q8_c16_k10 B=64 r=16 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L16_q8_c128_k10 B=64 r=16 s=8 L=16 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L128_q2_c16_k10 B=64 r=16 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L128_q2_c128_k10 B=64 r=16 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L128_q8_c16_k10 B=64 r=16 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L128_q8_c128_k10 B=64 r=16 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L512_q2_c16_k10 B=64 r=16 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L512_q2_c128_k10 B=64 r=16 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L512_q8_c16_k10 B=64 r=16 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r16_s8_L512_q8_c128_k10 B=64 r=16 s=8 L=512 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L2_q2_c64_k10 B=64 r=64 s=2 L=2 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L2_q8_c64_k10 B=64 r=64 s=2 L=2 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L16_q2_c64_k10 B=64 r=64 s=2 L=16 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L16_q2_c512_k10 B=64 r=64 s=2 L=16 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L16_q8_c64_k10 B=64 r=64 s=2 L=16 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L16_q8_c512_k10 B=64 r=64 s=2 L=16 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L128_q2_c64_k10 B=64 r=64 s=2 L=128 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L128_q2_c512_k10 B=64 r=64 s=2 L=128 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L128_q8_c64_k10 B=64 r=64 s=2 L=128 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L128_q8_c512_k10 B=64 r=64 s=2 L=128 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L512_q2_c64_k10 B=64 r=64 s=2 L=512 q=2 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L512_q2_c512_k10 B=64 r=64 s=2 L=512 q=2 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L512_q8_c64_k10 B=64 r=64 s=2 L=512 q=8 c=64
+tree msmarco /x/tree_grid_msmarco_b64_r64_s2_L512_q8_c512_k10 B=64 r=64 s=2 L=512 q=8 c=512
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L2_q2_c16_k10 B=64 r=64 s=8 L=2 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L2_q8_c16_k10 B=64 r=64 s=8 L=2 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L16_q2_c16_k10 B=64 r=64 s=8 L=16 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L16_q2_c128_k10 B=64 r=64 s=8 L=16 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L16_q8_c16_k10 B=64 r=64 s=8 L=16 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L16_q8_c128_k10 B=64 r=64 s=8 L=16 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L128_q2_c16_k10 B=64 r=64 s=8 L=128 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L128_q2_c128_k10 B=64 r=64 s=8 L=128 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L128_q8_c16_k10 B=64 r=64 s=8 L=128 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L128_q8_c128_k10 B=64 r=64 s=8 L=128 q=8 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L512_q2_c16_k10 B=64 r=64 s=8 L=512 q=2 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L512_q2_c128_k10 B=64 r=64 s=8 L=512 q=2 c=128
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L512_q8_c16_k10 B=64 r=64 s=8 L=512 q=8 c=16
+tree msmarco /x/tree_grid_msmarco_b64_r64_s8_L512_q8_c128_k10 B=64 r=64 s=8 L=512 q=8 c=128
