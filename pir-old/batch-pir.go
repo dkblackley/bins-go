@@ -614,7 +614,7 @@ func (p *SimpleBatchPianoPIR) GetMetrics() map[string]float64 {
 	for _, sub := range p.subPIR {
 		totalByte += sub.server.RetrievalCount
 	}
-	return map[string]float64{
+	m := map[string]float64{
 		"TotalByteSent":      float64(totalByte),
 		"TotalWANTime":       netTime(totalByte, p.roundsMade, 400, 0.05),
 		"TotalLANTime":       netTime(totalByte, p.roundsMade, 1000, 0.005),
@@ -626,6 +626,45 @@ func (p *SimpleBatchPianoPIR) GetMetrics() map[string]float64 {
 		"DBSizeInBytesMB":    float64(p.config.DBSize) * float64(p.config.DBEntryByteNum) / 1024 / 1024,
 		"CommCostPerBatchKB": float64(p.CommCostPerBatchOnline()) / 1024,
 		"DownloadedDBs":      boolToFloat(p.download),
+	}
+	for k, v := range p.PreprocMetrics() {
+		m[k] = v
+	}
+	return m
+}
+
+// PreprocMetrics is the offline-phase (hint refresh) traffic of the whole run, every refresh counted:
+//
+//	PreprocCount           full preprocessings of this batch PIR, the first one included (= TotalPreProc)
+//	PreprocPartitionCount  partition offline phases, summed over partitions (PartitionNum per full preprocessing,
+//	                       plus the single partitions Query re-preprocesses after a hint miss)
+//	PreprocBytes           bytes the client streamed in all of them (Piano's offline phase downloads the partition)
+//	PreprocWANTime / PreprocLANTime   that traffic on the TotalWANTime / TotalLANTime network model, one round
+//	                       trip per offline phase (full preprocessings + extra single-partition refreshes)
+//
+// None of this is in TotalByteSent / TotalWANTime / TotalLANTime, which are the online phase only.
+func (p *SimpleBatchPianoPIR) PreprocMetrics() map[string]float64 {
+	if p.download { // the download is the one offline phase: the whole DB, once
+		b := p.config.DBSize * p.config.DBEntryByteNum
+		return map[string]float64{"PreprocCount": 1, "PreprocPartitionCount": 0, "PreprocBytes": float64(b),
+			"PreprocWANTime": netTime(b, 1, 400, 0.05), "PreprocLANTime": netTime(b, 1, 1000, 0.005)}
+	}
+	var parts, bytes uint64
+	for _, sub := range p.subPIR {
+		parts += sub.client.PreprocCount
+		bytes += sub.client.PreprocBytes
+	}
+	full := uint64(p.TotalPreProcs)
+	rounds := full
+	if extra := int64(parts) - int64(full*p.config.PartitionNum); extra > 0 {
+		rounds += uint64(extra)
+	}
+	return map[string]float64{
+		"PreprocCount":          float64(full),
+		"PreprocPartitionCount": float64(parts),
+		"PreprocBytes":          float64(bytes),
+		"PreprocWANTime":        netTime(bytes, rounds, 400, 0.05),
+		"PreprocLANTime":        netTime(bytes, rounds, 1000, 0.005),
 	}
 }
 

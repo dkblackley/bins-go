@@ -212,6 +212,13 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 		metadata["PreprocessingTime"] = "0"
 		metadata["MaintainenceTime"] = "0"
 		metadata["DownloadedDB"] = "true"
+		// the download is the one offline phase: the whole DB, once
+		metadata["PreprocCount"] = "1"
+		metadata["TotalPreProc"] = "1"
+		metadata["PreprocPartitionCount"] = "0"
+		metadata["PreprocBytes"] = fmt.Sprintf("%v", uint64(dbBytes))
+		metadata["PreprocWANTime"] = fmt.Sprintf("%v", netTime(uint64(dbBytes), 1, 400, 0.05))
+		metadata["PreprocLANTime"] = fmt.Sprintf("%v", netTime(uint64(dbBytes), 1, 1000, 0.005))
 		return metadata
 	}
 
@@ -274,8 +281,42 @@ func (p *SimpleBatchPianoPIR) PrintInfo() map[string]string {
 	metadata["CommCostPerBatchKB"] = fmt.Sprintf("%v", p.CommCostPerBatchOnline()/1024)
 	metadata["PreprocessingTime"] = fmt.Sprintf("%v", p.InitialPreprocessingTime)
 	metadata["MaintainenceTime"] = fmt.Sprintf("%v", p.MaintainenceTime)
+	for k, v := range p.PreprocMetrics() {
+		metadata[k] = fmt.Sprintf("%v", v)
+	}
 
 	return metadata
+}
+
+// PreprocMetrics is the offline-phase (hint refresh) traffic of the whole run, every refresh counted:
+//
+//	PreprocCount           full preprocessings of the batch PIR, the first one included (= TotalPreProc)
+//	PreprocPartitionCount  partition offline phases, summed over partitions (PartitionNum per full preprocessing,
+//	                       plus any single partition PianoPIR.Query refreshed on its own)
+//	PreprocBytes           bytes the client streamed in all of them (Piano's offline phase downloads the partition)
+//	PreprocWANTime / PreprocLANTime   that traffic on the same network model as TotalWANTime / TotalLANTime, one
+//	                       round trip per offline phase (full preprocessings + extra single-partition refreshes)
+//
+// None of this is in TotalByteSent / TotalWANTime / TotalLANTime, which are the online phase only.
+func (p *SimpleBatchPianoPIR) PreprocMetrics() map[string]float64 {
+	var parts, bytes uint64
+	for _, sub := range p.subPIR {
+		parts += sub.client.PreprocCount
+		bytes += sub.client.PreprocBytes
+	}
+	full := uint64(p.TotalPreProcs)
+	rounds := full
+	if extra := int64(parts) - int64(full*p.config.PartitionNum); extra > 0 {
+		rounds += uint64(extra)
+	}
+	return map[string]float64{
+		"PreprocCount":          float64(full),
+		"TotalPreProc":          float64(full),
+		"PreprocPartitionCount": float64(parts),
+		"PreprocBytes":          float64(bytes),
+		"PreprocWANTime":        netTime(bytes, rounds, 400, 0.05),
+		"PreprocLANTime":        netTime(bytes, rounds, 1000, 0.005),
+	}
 }
 
 func (p *SimpleBatchPianoPIR) RecordStats() {

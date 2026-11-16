@@ -540,8 +540,13 @@ func (g *PIRGraphInfo) Preprocess() {
 	g.DBTotalSize = uint64(N) * DBEntryByteNum
 
 	// now we set up the PIR
+	// BatchNumNeeded = the batches one query uses (one per graph step) + 1 spare: main.go refreshes the hints
+	// before a query when FinishedBatchNum + BatchNumNeeded reaches SupportBatchNum. It was stepN*ThreadNum+10
+	// (310 for 10 steps), which on small DBs (SciFact: ~52 batches per refresh) forced a full refresh before every
+	// query and inflated the offline cost. A partition that still runs out mid-query is refreshed by
+	// SimpleBatchPianoPIR.Query itself, so a tight margin never fails a query; answers and online bytes are unchanged.
 	g.PIR = pianopir.NewSimpleBatchPianoPIR(uint64(g.N), uint64(len(g.rawDB[0])), g.DBEntryByteNum,
-		uint64(len(g.graph[0])), g.rawDB, 20, uint64(g.stepN)*uint64(pianopir.ThreadNum)+10)
+		uint64(len(g.graph[0])), g.rawDB, 20, uint64(g.stepN)+1)
 
 	if g.skipPrep {
 		g.PIR.DummyPreprocessing()

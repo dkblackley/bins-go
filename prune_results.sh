@@ -14,7 +14,7 @@
 #      SWEEP          tree grid (default all, as run_me.sh)
 # Only top-level folders named bins_* / pacmann_* / tree_* (and those inside h<H>_lf<LF>/ sub-folders) are looked at;
 # Tiptoe / Coeus, plan.tsv, resource_usage.tsv etc. are never touched. A folder that already exists in ARCHIVE is
-# left where it is and reported.
+# overwritten (the archived copy is deleted, the one from RESULTS_DIR takes its place).
 set -uo pipefail
 cd "$(dirname "$0")"
 if [[ -z "${DATASETS_ROOT:-}" ]]; then
@@ -58,10 +58,13 @@ if [[ "${APPLY:-0}" != 1 ]]; then
     [[ "${LIST:-0}" == 1 ]] && sed 's/^/  /' "$tmp/extra"
     exit 0
 fi
-moved=0; skipped=0
+moved=0; replaced=0
 while read -r rel; do
     dest="$ARCHIVE/$rel"
-    if [[ -e "$dest" ]]; then echo "  already in archive, left in place: $rel"; skipped=$((skipped + 1)); continue; fi
+    if [[ -e "$dest" ]]; then   # an older copy is already archived: the one being moved replaces it
+        rm -rf -- "$dest" || { echo "  could not remove the archived $rel, left in place" >&2; continue; }
+        replaced=$((replaced + 1))
+    fi
     mkdir -p "$(dirname "$dest")" && mv "$RES/$rel" "$dest" && moved=$((moved + 1))
 done < "$tmp/extra"
-echo "moved $moved folders to $ARCHIVE ($skipped already there, left in place)"
+echo "moved $moved folders to $ARCHIVE ($replaced of them replaced an older copy already there)"

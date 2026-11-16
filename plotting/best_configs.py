@@ -131,7 +131,7 @@ def best_configs(nested_data, datasets=None, n=BEST_N, cost_key=sc.COST_KEY, csv
                 csv_rows.append(dict(dataset=dataset, method=method, pick=i, reason=reason, config=run['config'],
                                      effectiveness=round(e, 4), source=run.get('source', ''), folder=run['folder'],
                                      **{k: run.get(k, '') for k, _, _ in COLUMNS}))
-    if csv_name and csv_rows:
+    if csv_name and csv_rows and g.WRITE_TEXT_FILES:
         os.makedirs(g.FIGURE_DIR, exist_ok=True)
         path = os.path.join(g.FIGURE_DIR, csv_name)
         with open(path, 'w', newline='') as f:

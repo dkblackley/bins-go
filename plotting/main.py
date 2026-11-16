@@ -24,6 +24,7 @@ import fixed_recall
 import fixed_score
 import rebuttal_numbers
 import rebuttal_tables
+import plot_dataset_costs
 import plot_db_size
 import plot_metric_vs_latency
 import plot_bins_client_storage
@@ -58,7 +59,8 @@ if __name__ == '__main__':
     # plot_bins_vec_db.make_plots(nested_data)         # bins: the embedding DB, quality and cost
     # plot_bins_ablation_stacked.plot_bins_ablation_stacked(nested_data)
     # plot_pareto_grid.make_plots(nested_data)
-    plot_pareto_grid.make_comparison_plot(nested_data)   # client storage vs MRR/Recall, a column per dataset
+    # plot_pareto_grid.make_comparison_plot(nested_data)   # client storage vs MRR/Recall, a column per dataset
+    plot_dataset_costs.make_plots(nested_data)   # per dataset: MRR/Recall vs WAN, LAN, client storage -> figures/dataset_costs_<dataset>.pdf
 
     # the one-PDF-per-metric versions the two grids above replace
     # plot_db_size.make_plots(nested_data)             # bins DB size vs PACMANN baseline
@@ -83,17 +85,17 @@ if __name__ == '__main__':
     # Default filters (globals.py): simulated runs only; runs whose client storage is >= the embedding DB are never
     # loaded, except on SciFact. Every call below prints the exact numbers it draws (paste them to the LLM).
     # Every table, clean numbers first, then a dashed line, then the details -> figures/rebuttal_final.md
-    rebuttal_final.report(nested_data)
+    # rebuttal_final.report(nested_data)
     # best MRR@10 per method, BM25 / dense / fused hybrid as dotted lines -> figures/best_mrr_<dataset>.pdf, best_mrr_grid.pdf
-    plot_best_mrr.make_plots(nested_data)
+    # plot_best_mrr.make_plots(nested_data)
     # costs at fixed MRR@10 (0.10 Bin, 0.15 Tree, 0.05 scale) and at fixed client storage (0.5 / 1 / 1.5 GB)
     # -> figures/fixed_mrr_bin.pdf, fixed_mrr_tree.pdf, scale.pdf, fixed_storage_<S>gb.pdf
-    plot_rebuttal_bars.make_plots(nested_data)
+    # plot_rebuttal_bars.make_plots(nested_data)
     # PILLAR-Tree MRR@10 vs number of query terms, a line per dataset -> figures/query_terms.pdf
-    plot_query_terms.make_plots(nested_data)
+    # plot_query_terms.make_plots(nested_data)
     # "<dataset> Comparison": MRR@10 / Recall@10 vs WAN, LAN, data sent, every config -> figures/pareto_costs_<dataset>.pdf
     # (cost_keys=['client_storage_mb'] or any other run key for other columns; frontier points -> *_frontier.md)
-    plot_pareto_grid.make_cost_grids(nested_data)
+    # plot_pareto_grid.make_cost_grids(nested_data)
     # one cost, the six datasets side by side -> figures/pareto_<x>.pdf
     # plot_pareto_grid.make_comparison_plot(nested_data, x_key='wan_time')
     # plot_pareto_grid.make_comparison_plot(nested_data, x_key='lan_time')

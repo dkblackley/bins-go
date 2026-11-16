@@ -177,6 +177,12 @@ type PianoPIRClient struct {
 	localCache map[uint64][][]uint64
 
 	sim *simClient // non-nil when Simulate was on at creation: no hint tables, see simulate.go
+
+	// Offline-phase accounting. Every Preprocessing call is Piano's offline phase: the client streams this whole
+	// partition from the server and rebuilds its hints. Counted here, not in SimpleBatchPianoPIR, so the refreshes
+	// PianoPIR.Query triggers on its own (hint budget used up) are included.
+	PreprocCount uint64 // offline phases run on this partition (the first one included)
+	PreprocBytes uint64 // bytes the client streamed for them (real entry lengths, no padding)
 }
 
 func primaryNumParam(Q float64, ChunkSize float64, target uint64) uint64 {
@@ -443,6 +449,9 @@ func EntryXor(a, b [][]uint64) {
 
 func (c *PianoPIRClient) Preprocessing(rawDB [][]uint64) [][]uint64 {
 	c.Initialization() // first clean everything
+	// counted before the simulate / skip shortcuts: a simulated run must report what a real one streams
+	c.PreprocCount++
+	c.PreprocBytes += rawDBBytes(rawDB)
 
 	if len(rawDB) < int(c.config.ChunkSize*c.config.SetSize) {
 		// append with zeros

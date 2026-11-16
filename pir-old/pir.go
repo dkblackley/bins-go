@@ -128,6 +128,11 @@ type PianoPIRClient struct {
 	dummyScanSink uint64
 
 	sim *simClient // non-nil when Simulate was on at creation: no hint tables, see simulate.go
+
+	// Offline-phase accounting: every Preprocessing call streams this whole partition to the client (Piano's offline
+	// phase). Counted per client so refreshes PianoPIR.Query and the batch's per-partition retry trigger are included.
+	PreprocCount uint64 // offline phases run on this partition (the first one included)
+	PreprocBytes uint64 // bytes streamed for them
 }
 
 func primaryNumParam(Q float64, ChunkSize float64, target uint64) uint64 {
@@ -343,6 +348,9 @@ func EntryXor(a []uint64, b []uint64, entrySize uint64) {
 
 func (c *PianoPIRClient) Preprocessing(rawDB []uint64) {
 	c.Initialization() // first clean everything
+	// counted before the simulate / skip shortcuts: a simulated run must report what a real one streams
+	c.PreprocCount++
+	c.PreprocBytes += min(uint64(len(rawDB)), c.config.DBSize*c.config.DBEntrySize) * 8
 	if c.skipPrep || c.sim != nil {
 		// only for debugging and benchmarking, or simulated (no hints to build)
 		return

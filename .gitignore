@@ -27,11 +27,9 @@ go.work.sum
 # env file
 .env
 
-# Editor/IDE
- .idea/
- .vscode/
-
- figures/
+# Editor/IDE (no leading spaces: git reads them as part of the pattern)
+.idea/
+.vscode/
 
 
 /index_*
@@ -62,3 +60,20 @@ pir_app
 
 # -noram scratch files (pir_app -noram, one folder per run, deleted at the end)
 temp_storage/
+/ /
+/~/
+
+# logs: check_runs.sh / run_me.sh write logs/check/<timestamp>/ and logs/run_me/ on every call; slurm logs
+logs/
+*.log
+
+# Python bytecode anywhere
+*.pyc
+
+# scratch indexes / caches written by local runs
+Pacmanntemp_doc/
+pacmanntemp_doc_delete/
+cuckoo_cache/
+
+# Nextcloud sync conflicts
+*conflicted copy*

@@ -132,6 +132,12 @@ Not per query:
     failure_prob_log2, preprocessing_time (s, one-off),
     graph_generation_time (s, pacmann only), empty_bins, vocab_size,
     real_bin_size (bins only)
+    preproc_count, preproc_kb, preproc_wan_time, preproc_lan_time
+                 offline phase (Piano hint refreshes, first preprocessing included): number of full
+                 preprocessings, and the KB / WAN s / LAN s it streamed per query (PreprocCount, PreprocBytes,
+                 PreprocWANTime, PreprocLANTime; summed over a run's DBs like the other split keys)
+                 INCLUDE_PREPROC=1 adds them to wan_time / lan_time / comm_kb (see include_preproc; older tree
+                 runs get them from their Stage<N>TotalPreProc counts, older bins / pacmann runs have none)
     pir_rounds   sequential PIR rounds per query: bins 1 (vec1) or 2 (vec0),
                  pacmann = steps, tree = ceil(sum of Stage{N}Rounds / NumQueries)
 Split keys (bins only): lan_time, wan_time, comm_kb, db_size_mb,
@@ -214,6 +220,12 @@ def read_db_part(meta, n, prefix=''):
         'maintenance_time': read_seconds(meta, prefix + 'MaintainenceTime'),  # all preproc calls
         'preprocessing_time': read_seconds(meta, prefix + 'PreprocessingTime'),  # first call only
         'preproc_rounds': read_float(meta, prefix + 'TotalPreProc'),  # number of calls
+        # offline phase (hint refreshes, the first preprocessing included), from PreprocMetrics in the PIR code:
+        # NOT in lan_time / wan_time / comm_kb, which are online only. NaN for runs from before 2026-11-16.
+        'preproc_count':     read_float(meta, prefix + 'PreprocCount'),            # full preprocessings
+        'preproc_kb':        read_float(meta, prefix + 'PreprocBytes') / 1024 / n,  # streamed, per query
+        'preproc_wan_time':  read_seconds(meta, prefix + 'PreprocWANTime') / n,     # per query
+        'preproc_lan_time':  read_seconds(meta, prefix + 'PreprocLANTime') / n,     # per query
     }
 
 def combine_parts(run, parts):
@@ -388,10 +400,43 @@ def parse_tree(folder, meta):
         parts.update({f's{stage}': dict(zero) for stage in missing})
 
     combine_parts(run, {f's{stage}': parts[f's{stage}'] for stage in TREE_STAGES})
+    run['preproc_source'] = 'recorded' if not math.isnan(run['preproc_kb']) else None
+    if run['preproc_source'] is None:   # older run: rebuild the offline traffic from the refresh counts it did record
+        est = tree_preproc_from_counts(meta, run['num_queries'])
+        if est:
+            run.update(est, preproc_source='tree refresh counts')
     run['pir_rounds'] = tree_pir_rounds(folder, meta, run['num_queries'])
     if run['num_queries'] == 300:
         run['maintenance_time'] = run['maintenance_time'] * 3.9
     return run
+
+
+def tree_preproc_from_counts(meta, n):
+    """
+    Offline-phase traffic of a tree run that predates PreprocBytes, from what every tree run records per stage:
+    Stage<N>TotalPreProc (full preprocessings, the first included) and Stage<N>DBSizeInBytesMB (DBSize x entry bytes;
+    each preprocessing streams it once). Stage 1 is one PIR DB per tree level and both keys are sums over the levels,
+    so it is (count / levels) x total size, levels = Stage1Rounds / NumQueries (one round per level per query). That
+    charges every level the average count; small levels really refresh more often and big ones less, so Stage 1 is
+    approximate (an over-estimate when the levels differ a lot in size). Single-partition refreshes after a hint
+    miss were not counted by these runs (rare). Per query values, or None if a stage lacks the keys.
+    """
+    total, events = 0.0, 0.0
+    for stage in TREE_STAGES:
+        c, mb = read_float(meta, f'Stage{stage}TotalPreProc'), read_float(meta, f'Stage{stage}DBSizeInBytesMB')
+        if f'Stage{stage}TotalLANTime' not in meta:
+            continue   # stage not run
+        if math.isnan(c) or math.isnan(mb):
+            return None
+        levels = 1
+        if stage == 1:
+            r = read_float(meta, 'Stage1Rounds')
+            levels = max(1, round(r / n)) if not math.isnan(r) else 1
+        total += c / levels * mb * 2 ** 20
+        events += c
+    return {'preproc_count': events, 'preproc_kb': total / 1024 / n,
+            'preproc_wan_time': (total * 8 / 400e6 + events * 0.05) / n,    # pianopir netTime(..., 400, 0.05)
+            'preproc_lan_time': (total * 8 / 1000e6 + events * 0.005) / n}  # pianopir netTime(..., 1000, 0.005)
 
 
 def tree_pir_rounds(folder, meta, n):
@@ -599,8 +644,49 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
     if g.FILTER_CLIENT_STORAGE if filter_client is None else filter_client:
         filter_client_storage(nested_data)
     exclude_client_storage(nested_data)
+    if g.INCLUDE_PREPROC:
+        include_preproc(nested_data)
     print_summary(nested_data)
     return nested_data
+
+
+PREPROC_METHODS = ('bins', 'pacmann', 'tree')   # the Piano-based methods; Tiptoe / Coeus have no hint refresh
+                                                 # (Tiptoe's per-query token: working_rebuttal.TIPTOE_TOKEN)
+
+
+def include_preproc(nested_data, missing=None):
+    """g.INCLUDE_PREPROC: wan_time / lan_time / comm_kb += the offline phase (preproc_wan_time / preproc_lan_time /
+    preproc_kb, per query, the first preprocessing included). The online-only values are kept as wan_time_online,
+    lan_time_online, comm_kb_online; the _bm25 / _vec / _s1.. split keys stay online-only. A Piano run with no
+    offline numbers (older PILLAR-Bin / PACMANN) is dropped (missing='drop', g.PREPROC_MISSING) or kept online-only
+    ('keep'), and counted in the log either way."""
+    missing = missing or g.PREPROC_MISSING
+    for method in PREPROC_METHODS:
+        for dataset, runs in nested_data.get(method, {}).items():
+            keep, lacking, sources = [], 0, Counter()
+            for r in runs:
+                if not math.isnan(r.get('preproc_kb', math.nan)):
+                    for key, extra in (('wan_time', 'preproc_wan_time'), ('lan_time', 'preproc_lan_time'),
+                                       ('comm_kb', 'preproc_kb')):
+                        r[key + '_online'] = r[key]
+                        r[key] = r[key] + r[extra]
+                    r['preproc_included'] = True
+                    sources[r.get('preproc_source') or 'recorded'] += 1
+                    keep.append(r)
+                else:
+                    lacking += 1
+                    r['preproc_included'] = False
+                    if missing == 'keep':
+                        keep.append(r)
+            if lacking:
+                log.warning("%s/%s: %d of %d runs have no offline-phase numbers (run before 2026-11-16): %s",
+                            method, dataset, lacking, len(runs),
+                            'dropped (PREPROC_MISSING=keep keeps them online-only)' if missing != 'keep'
+                            else 'kept with online-only WAN / LAN / comm')
+            if sources:
+                log.info("%s/%s: offline phase added to WAN / LAN / comm for %d runs (%s)", method, dataset,
+                         sum(sources.values()), ', '.join(f'{n} from {s}' for s, n in sources.items()))
+            runs[:] = keep
 
 
 def exclude_client_storage(nested_data, methods=None):

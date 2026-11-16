@@ -106,7 +106,19 @@ EMBED_DB_MB = {
     'msmarco-v2': 101341.0,
     'trec-covid': 125.5,
 }
+# Piano's offline phase (hint refreshes: the client streams each PIR DB again every ~sqrt(n) ln n lookups) is NOT in
+# TotalWANTime / TotalLANTime / TotalByteSent. INCLUDE_PREPROC=1 adds it to wan_time, lan_time and comm_kb at load time
+# (load_results.include_preproc; the online-only values stay in wan_time_online / lan_time_online / comm_kb_online).
+# Where it comes from: PreprocBytes / PreprocWANTime / PreprocLANTime (runs from 2026-11-16 on, every method), else for
+# PILLAR-Tree the per-stage refresh counts every tree run records (Stage<N>TotalPreProc x Stage<N>DBSizeInBytesMB).
+# Older PILLAR-Bin / PACMANN runs recorded no count: PREPROC_MISSING='drop' (default) leaves them out so no method is
+# compared with its refreshes against one without; 'keep' keeps them online-only (and logs how many).
+INCLUDE_PREPROC = os.environ.get('INCLUDE_PREPROC', '0') == '1'
+PREPROC_MISSING = os.environ.get('PREPROC_MISSING', 'drop')
 FIGURE_DIR = os.path.join(_HERE, 'figures')
+WRITE_TEXT_FILES = os.environ.get('WRITE_TEXT_FILES', '0') == '1'   # off: only the PDFs land in FIGURE_DIR,
+                        # tables are printed to the terminal but no .md / .csv is written (best_configs.py,
+                        # plot_dataset_costs.py). WRITE_TEXT_FILES=1 python main.py, or set True here
 
 # Inputs of the per-query rebuttal numbers (rebuttal_numbers.py): the datasets folder (corpus.jsonl, qrels/,
 # queries) and the repo's data/ folder (data/<d>_tree/queries.qrels.analyzed.json). Defaults match the local layout

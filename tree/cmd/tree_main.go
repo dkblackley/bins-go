@@ -187,7 +187,8 @@ func (P *PIRTree) GetMetaData() map[string]string {
 			totals[k] += v
 		}
 	}
-	for _, k := range []string{"TotalByteSent", "TotalWANTime", "TotalLANTime", "ClientStorageMB", "DBSizeInBytesMB", "CommCostPerBatchKB", "Rounds", "TotalPreProc"} {
+	for _, k := range []string{"TotalByteSent", "TotalWANTime", "TotalLANTime", "ClientStorageMB", "DBSizeInBytesMB", "CommCostPerBatchKB", "Rounds", "TotalPreProc",
+		"PreprocCount", "PreprocPartitionCount", "PreprocBytes", "PreprocWANTime", "PreprocLANTime"} {
 		if v, ok := totals[k]; ok {
 			meta[k] = ff(v)
 		}
