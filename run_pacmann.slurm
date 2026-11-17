@@ -8,7 +8,7 @@
 #SBATCH --time=0-05:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-127
+#SBATCH --array=0-111
 #SBATCH --output=logs/Pacmann_%A_%a.out
 #SBATCH --error=logs/Pacmann_%A_%a.err
 #SBATCH --signal=B:TERM@120
@@ -20,14 +20,21 @@ set -euo pipefail
 # local_run_go_simulated.sh all read it through --list, so array task i is line i+1 of --list everywhere.
 #   bash run_pacmann.slurm --list    "index dataset k steps neighbours" per config
 #   bash run_pacmann.slurm --count
-# Grid version g2 (2026-11-17): k=10 only; steps 1 and 3 and neighbours 2 and 4 added for low-MRR/low-storage points.
+#   PACMANN_GRID=g1 bash run_pacmann.slurm --list    an older grid (queued_dirs decodes still-queued old jobs with it)
+# Jobs are named pacmann_<d>_<grid>[_sim] (run_all.sh); a name without a grid tag is g1.
+#   g1 (until 2026-11-17)  k 10 100 x steps 5..30 x neighbours 8..48
+#   g2 (2026-11-17)        k 10 x steps 1 3 5..30 x neighbours 2 4 8..48
+#   g3 (2026-11-17)        k 10 x steps 3 5..30 x neighbours 2 4 8..48     <- current
 # neighbours=1 can't run: BatchSize 1 gives 0 PIR partitions (pianopir NewSimpleBatchPianoPIR) and the NGT build
-# finds no neighbour (it searches int(1.5*m) = 1 = the vertex itself). Jobs of this grid are named pacmann_<d>_g2...
-# so queued_dirs can tell them from older-grid jobs (g1: k 10 100 x steps 5..30 x neighbours 8..48) still queued.
-# Changing the grid: bump the tag in datasets/run_all.sh (PACMANN_GRID) and add the old one to queued_dirs.
-PACMANN_K="10"
-PACMANN_STEPS="1 3 5 10 15 20 25 30"
-PACMANN_NEIGHB="2 4 8 16 24 32 40 48"
+# finds no neighbour (it searches int(1.5*m) = 1 = the vertex itself).
+# Changing the grid: add a new case here, make it the default, and set PACMANN_GRID in datasets/run_all.sh to it.
+PACMANN_GRID="${PACMANN_GRID:-g3}"
+case "$PACMANN_GRID" in
+    g1) PACMANN_K="10 100"; PACMANN_STEPS="5 10 15 20 25 30";     PACMANN_NEIGHB="8 16 24 32 40 48" ;;
+    g2) PACMANN_K="10";     PACMANN_STEPS="1 3 5 10 15 20 25 30"; PACMANN_NEIGHB="2 4 8 16 24 32 40 48" ;;
+    g3) PACMANN_K="10";     PACMANN_STEPS="3 5 10 15 20 25 30";   PACMANN_NEIGHB="2 4 8 16 24 32 40 48" ;;
+    *)  echo "run_pacmann.slurm: unknown PACMANN_GRID=$PACMANN_GRID" >&2; exit 1 ;;
+esac
 
 DATA_ARR=()
 K_ARR=()

@@ -144,7 +144,7 @@ inputs_pending() { [[ -n "$(echo $1)" ]]; }
 
 # pacmann_todo <dataset> -> slurm --array list (e.g. "0-3,7,9-71") of the configs still to run; the grid and its
 # order come from run_pacmann.slurm --list (task i = line i+1). FORCE=1 lists every config.
-PACMANN_GRID=g2   # job-name tag of the current run_pacmann.slurm grid (queued_dirs decodes tasks by it)
+PACMANN_GRID=g3   # job-name tag of the current run_pacmann.slurm grid (queued_dirs decodes tasks by it)
 pacmann_todo() {
     local d=$1 i dd k st nb od res="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}" idx=()
     load_queued
@@ -153,7 +153,7 @@ pacmann_todo() {
         [[ -z "${FORCE:-}" && -s "$od/metadata.json" ]] && continue
         is_queued pacmann "$dd" "$od" && continue
         idx+=("$i")
-    done < <(PACMANN_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_pacmann.slurm --list)
+    done < <(PACMANN_GRID="$PACMANN_GRID" PACMANN_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_pacmann.slurm --list)
     printf '%s\n' "${idx[@]}" | awk 'NF { if ($1 == p + 1 && c) { p = $1; next }
         if (c) out = out (s == p ? s : s "-" p) ","; s = p = $1; c = 1 }
         END { if (c) out = out (s == p ? s : s "-" p); print out }'
@@ -282,7 +282,7 @@ submit_dataset() {
     if has pacmann; then
         # only the configs without a metadata.json that no queued job covers (task i = config i of the grid)
         local n big=() todo
-        n=$(count_of PACMANN_DATASETS="$d" run_pacmann.slurm)
+        n=$(PACMANN_GRID="$PACMANN_GRID" count_of PACMANN_DATASETS="$d" run_pacmann.slurm)
         todo=$(pacmann_todo "$d")
         if [[ "${SIMULATE:-0}" == 1 ]]; then
             # simulated: no hints, sized from the dataset (slurm_common.sh pacmann_sim_model), not the 120 GB / 5 h default
@@ -295,7 +295,7 @@ submit_dataset() {
         if [[ -z "$todo" ]]; then
             echo "  pacmann  SKIPPED: all $n configs finished or already queued"
         else
-            echo "  pacmann  $(submit "$embed" --export=ALL,PACMANN_DATASETS="$d" --array="$todo" "${big[@]}" \
+            echo "  pacmann  $(submit "$embed" --export=ALL,PACMANN_DATASETS="$d",PACMANN_GRID="$PACMANN_GRID" --array="$todo" "${big[@]}" \
                  --job-name="pacmann_${d}_$PACMANN_GRID$SFX" run_pacmann.slurm) ($(pacmann_count "$todo") of $n tasks: $todo)"
         fi
     fi
