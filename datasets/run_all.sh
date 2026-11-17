@@ -142,18 +142,18 @@ fi
 # true if any of these upstream jobs is being queued now (their outputs don't exist yet, so don't check inputs)
 inputs_pending() { [[ -n "$(echo $1)" ]]; }
 
-# pacmann_todo <dataset> <grid size> -> slurm --array list (e.g. "0-3,7,9-71") of the configs still to run; same
-# order as run_pacmann.slurm: k (10 100) x steps (5..30) x neighbours (8..48). FORCE=1 lists every config.
+# pacmann_todo <dataset> -> slurm --array list (e.g. "0-3,7,9-71") of the configs still to run; the grid and its
+# order come from run_pacmann.slurm --list (task i = line i+1). FORCE=1 lists every config.
+PACMANN_GRID=g2   # job-name tag of the current run_pacmann.slurm grid (queued_dirs decodes tasks by it)
 pacmann_todo() {
-    local d=$1 n=$2 i k st nb od res="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}" idx=()
+    local d=$1 i dd k st nb od res="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}" idx=()
     load_queued
-    for (( i = 0; i < n; i++ )); do
-        k=$(( i < 36 ? 10 : 100 )); st=$(( (i % 36 / 6 + 1) * 5 )); nb=$(( (i % 6 + 1) * 8 ))
-        od="$res/pacmann_${d}_k${k}_steps${st}_neighb${nb}"
+    while read -r i dd k st nb; do
+        od="$res/pacmann_${dd}_k${k}_steps${st}_neighb${nb}"
         [[ -z "${FORCE:-}" && -s "$od/metadata.json" ]] && continue
-        is_queued pacmann "$d" "$od" && continue
+        is_queued pacmann "$dd" "$od" && continue
         idx+=("$i")
-    done
+    done < <(PACMANN_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_pacmann.slurm --list)
     printf '%s\n' "${idx[@]}" | awk 'NF { if ($1 == p + 1 && c) { p = $1; next }
         if (c) out = out (s == p ? s : s "-" p) ","; s = p = $1; c = 1 }
         END { if (c) out = out (s == p ? s : s "-" p); print out }'
@@ -283,7 +283,7 @@ submit_dataset() {
         # only the configs without a metadata.json that no queued job covers (task i = config i of the grid)
         local n big=() todo
         n=$(count_of PACMANN_DATASETS="$d" run_pacmann.slurm)
-        todo=$(pacmann_todo "$d" "$n")
+        todo=$(pacmann_todo "$d")
         if [[ "${SIMULATE:-0}" == 1 ]]; then
             # simulated: no hints, sized from the dataset (slurm_common.sh pacmann_sim_model), not the 120 GB / 5 h default
             local pg pm; read -r pg pm <<< "$(pacmann_sim_model "$d")"
@@ -296,7 +296,7 @@ submit_dataset() {
             echo "  pacmann  SKIPPED: all $n configs finished or already queued"
         else
             echo "  pacmann  $(submit "$embed" --export=ALL,PACMANN_DATASETS="$d" --array="$todo" "${big[@]}" \
-                 --job-name="pacmann_$d$SFX" run_pacmann.slurm) ($(pacmann_count "$todo") of $n tasks: $todo)"
+                 --job-name="pacmann_${d}_$PACMANN_GRID$SFX" run_pacmann.slurm) ($(pacmann_count "$todo") of $n tasks: $todo)"
         fi
     fi
 

@@ -8,13 +8,52 @@
 #SBATCH --time=0-05:00:00
 #SBATCH --account=evgenios
 #SBATCH --qos=normal
-#SBATCH --array=0-143
+#SBATCH --array=0-127
 #SBATCH --output=logs/Pacmann_%A_%a.out
 #SBATCH --error=logs/Pacmann_%A_%a.err
 #SBATCH --signal=B:TERM@120
 #SBATCH --constraint=amd
 
 set -euo pipefail
+
+# ---- the grid: THE one definition. datasets/run_all.sh, check_runs.sh, slurm_common.sh (queued_dirs) and
+# local_run_go_simulated.sh all read it through --list, so array task i is line i+1 of --list everywhere.
+#   bash run_pacmann.slurm --list    "index dataset k steps neighbours" per config
+#   bash run_pacmann.slurm --count
+# Grid version g2 (2026-11-17): k=10 only; steps 1 and 3 and neighbours 2 and 4 added for low-MRR/low-storage points.
+# neighbours=1 can't run: BatchSize 1 gives 0 PIR partitions (pianopir NewSimpleBatchPianoPIR) and the NGT build
+# finds no neighbour (it searches int(1.5*m) = 1 = the vertex itself). Jobs of this grid are named pacmann_<d>_g2...
+# so queued_dirs can tell them from older-grid jobs (g1: k 10 100 x steps 5..30 x neighbours 8..48) still queued.
+# Changing the grid: bump the tag in datasets/run_all.sh (PACMANN_GRID) and add the old one to queued_dirs.
+PACMANN_K="10"
+PACMANN_STEPS="1 3 5 10 15 20 25 30"
+PACMANN_NEIGHB="2 4 8 16 24 32 40 48"
+
+DATA_ARR=()
+K_ARR=()
+STEPS_ARR=()
+NEIGHB_ARR=()
+# Build the setups for all datasets. Override the datasets (not the grid), e.g.
+#   PACMANN_DATASETS="nq hotpotqa fever" bash run_pacmann.slurm --count
+#   PACMANN_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_pacmann.slurm
+# Big corpora (graph + vectors of 100M+ docs need bigmem, e.g. --partition=bigmem --mem=1500G):
+#   PACMANN_DATASETS="msmarco-v2-100m msmarco-v2" sbatch --partition=bigmem --mem=1500G --array=... run_pacmann.slurm
+PACMANN_DATASETS="${PACMANN_DATASETS:-msmarco scifact}"
+for d in $PACMANN_DATASETS; do
+    for k in $PACMANN_K; do
+        for steps in $PACMANN_STEPS; do
+            for neighb in $PACMANN_NEIGHB; do
+                DATA_ARR+=("$d"); K_ARR+=("$k"); STEPS_ARR+=("$steps"); NEIGHB_ARR+=("$neighb")
+            done
+        done
+    done
+done
+
+case "${1:-}" in
+    --count) echo "${#DATA_ARR[@]} configs (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"; exit 0 ;;
+    --list)  for i in "${!DATA_ARR[@]}"; do echo "$i ${DATA_ARR[$i]} ${K_ARR[$i]} ${STEPS_ARR[$i]} ${NEIGHB_ARR[$i]}"; done; exit 0 ;;
+esac
+
 cd "$SLURM_SUBMIT_DIR"
 source ./noram_cleanup.sh
 # soft Go heap limit at 90% of the allocation (see slurm_common.sh)
@@ -45,39 +84,6 @@ db_size_of() {
             cat "$f" ;;
     esac
 }
-
-DATA_ARR=()
-K_ARR=()
-STEPS_ARR=()
-NEIGHB_ARR=()
-
-# Helper function to generate the 16 ablations per dataset
-add_pacmann_ablations() {
-    local d=$1
-
-    for k in 10 100; do
-        for steps in 5 10 15 20 25 30; do
-            for neighb in 8 16 24 32 40 48; do
-                DATA_ARR+=("$d"); K_ARR+=("$k"); STEPS_ARR+=("$steps"); NEIGHB_ARR+=("$neighb")
-            done
-        done
-    done
-}
-
-# Build the setups for all datasets. Override to add the new ones, e.g.
-#   PACMANN_DATASETS="nq hotpotqa fever" bash run_pacmann.slurm --count
-#   PACMANN_DATASETS="nq hotpotqa fever" sbatch --array=0-<N-1> run_pacmann.slurm
-# Big corpora (graph + vectors of 100M+ docs need bigmem, e.g. --partition=bigmem --mem=1500G):
-#   PACMANN_DATASETS="msmarco-v2-100m msmarco-v2" sbatch --partition=bigmem --mem=1500G --array=... run_pacmann.slurm
-PACMANN_DATASETS="${PACMANN_DATASETS:-msmarco scifact}"
-for d in $PACMANN_DATASETS; do
-    add_pacmann_ablations "$d"
-done
-
-if [[ "${1:-}" == "--count" ]]; then
-    echo "${#DATA_ARR[@]} configs (use --array=0-$(( ${#DATA_ARR[@]} - 1 )))"
-    exit 0
-fi
 
 task_id=$SLURM_ARRAY_TASK_ID
 

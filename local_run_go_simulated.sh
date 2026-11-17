@@ -202,13 +202,13 @@ for d in $DATASETS; do
         m=$(pacmann_missing "$d")
         if [[ -n "$m" ]]; then missing pacmann "$d" "$m"
         else
-            for k in 10 100; do for st in 5 10 15 20 25 30; do for nb in 8 16 24 32 40 48; do
+            while read -r _ _ k st nb; do   # the grid of run_pacmann.slurm (--list: "index dataset k steps neighbours")
                 # rough model: embeddings + the NGT graph build (several copies of the vectors) + 2 GB
                 gb=$(awk -v n="$n" -v nb="$nb" 'BEGIN { printf "%d", n * (768 * 4 + nb * 16) / 1e9 + 3 }')
                 add "$(sim_gb "$gb")" pacmann "$d" "$SIM_RESULTS/pacmann_${d}_k${k}_steps${st}_neighb${nb}" \
                     ./pir_app -n "$n" -t pacmann -name "$d" -k "$k" -steps "$st" -neighb "$nb" \
                     -dataset "$DATASET_DIR" -debug 1 -dim 192
-            done; done; done
+            done < <(PACMANN_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_pacmann.slurm --list)
         fi
     fi
 

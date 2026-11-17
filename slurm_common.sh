@@ -330,12 +330,13 @@ tree_cuckoo_tag() {   # dataset -> "h3_lf0.88/" (results sub-folder) or nothing 
 #                             "?<TAB>method<TAB>dataset<TAB>jobid" for an array whose config list can't be found
 # A task of a run_all.sh array runs line ARRAY_OFFSET+task+1 of its CONFIG_LIST. Both come from logs/lists/submitted.tsv
 # (run_all.sh appends "jobid list offset" for every array it submits) or, for older arrays, from sacct's SubmitLine.
-# Pacmann arrays are one dataset's grid, task i = config i (k, steps, neighbours as in run_pacmann.slurm).
+# Pacmann arrays are one dataset's grid, task i = config i: line i+1 of run_pacmann.slurm --list for jobs named
+# pacmann_<d>_g2..., the old g1 grid (decoded below) for older jobs without a grid tag.
 SUBMITTED_FILE="${SUBMITTED_FILE:-logs/lists/submitted.tsv}"
 queued_dirs() {
     command -v squeue >/dev/null 2>&1 || return 0
     local res="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}" jid task name _st m d list off
-    declare -A jl=() jo=()
+    declare -A jl=() jo=() pg=()
     if [[ -f "$SUBMITTED_FILE" ]]; then
         while IFS=$'\t' read -r jid list off; do jl[$jid]=$list; jo[$jid]=$off; done < "$SUBMITTED_FILE"
     fi
@@ -347,7 +348,17 @@ queued_dirs() {
         else [[ "${SIMULATE:-0}" != 1 ]] || continue; fi
         [[ $task =~ ^[0-9]+$ ]] || task=0
         if [[ $m == pacmann ]]; then
-            echo "P	$d	$task	${jid}_$task"; continue
+            if [[ $name == *_g2* ]]; then   # current grid: task i = line i+1 of run_pacmann.slurm --list
+                if [[ -z "${pg[$d]+x}" ]]; then
+                    pg[$d]=$(PACMANN_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_pacmann.slurm --list 2>/dev/null |
+                             awk -v res="$res" '{ printf "%s/pacmann_%s_k%s_steps%s_neighb%s ", res, $2, $3, $4, $5 }')
+                fi
+                local -a pl=(${pg[$d]})
+                if [[ -n "${pl[$task]:-}" ]]; then echo "D	${pl[$task]}	${jid}_$task"; else echo "?	$m	$d	$jid"; fi
+            else                            # older arrays (no grid tag): the g1 grid, decoded in awk below
+                echo "P	$d	$task	${jid}_$task"
+            fi
+            continue
         fi
         if [[ -z "${jl[$jid]+x}" ]]; then   # not submitted by this version of run_all.sh: ask sacct how it was submitted
             local sl; sl=$(sacct -j "$jid" -X -n -P -o SubmitLine 2>/dev/null | head -1 || true)
@@ -366,6 +377,8 @@ queued_dirs() {
         return (h != 2 || l != 0.4) ? "h" h "_lf" l "/" : "" }
     BEGIN { split("5 10 15 20 25 30", ST, " "); split("8 16 24 32 40 48", NB, " ") }
     $1 == "?" { print; next }
+    $1 == "D" { print $2 "\t" $3; next }
+    # P: g1 grid (jobs before 2026-11-17): k 10 100 x steps 5..30 x neighbours 8..48
     $1 == "P" { i = $3 + 0; k = (i < 36) ? 10 : 100; i %= 36
                 printf "%s/pacmann_%s_k%d_steps%d_neighb%d\t%s\n", res, $2, k, ST[int(i / 6) + 1], NB[i % 6 + 1], $4; next }
     $1 == "L" {

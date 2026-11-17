@@ -123,9 +123,11 @@ for d in $DATASETS; do
         done
     fi
     if has pacmann; then
-        for k in 10 100; do for st in 5 10 15 20 25 30; do for nb in 8 16 24 32 40 48; do
-            echo "pacmann $d $RES/pacmann_${d}_k${k}_steps${st}_neighb${nb} k=$k steps=$st neighb=$nb"
-        done; done; done
+        # the grid of run_pacmann.slurm (--list: "index dataset k steps neighbours")
+        PACMANN_DATASETS="$d" SLURM_SUBMIT_DIR="$PWD" bash run_pacmann.slurm --list 2>/dev/null |
+        while read -r _ ds k st nb; do
+            echo "pacmann $ds $RES/pacmann_${ds}_k${k}_steps${st}_neighb${nb} k=$k steps=$st neighb=$nb"
+        done
     fi
     if has tree; then
         tag=$( source ./slurm_common.sh >/dev/null 2>&1; tree_cuckoo_tag "$d" )
