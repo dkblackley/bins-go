@@ -70,9 +70,10 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def kmeans(data, k, seed, niter=20, verbose=False):
+def kmeans(data, k, seed, niter=20, verbose=False, quiet_fd=True):
     """faiss if available (what Tiptoe used), otherwise sklearn MiniBatchKMeans.
-    verbose: progress bar with an ETA, one step per k-means iteration."""
+    verbose: progress bar with an ETA, one step per k-means iteration.
+    quiet_fd: send faiss' fd-2 warnings to fd 1 around train(); False when called from threads (the caller does it)."""
     data = np.ascontiguousarray(data, dtype=np.float32)
     try:
         import faiss
@@ -91,6 +92,9 @@ def kmeans(data, k, seed, niter=20, verbose=False):
         km = faiss.Kmeans(data.shape[1], k, niter=niter, seed=seed, verbose=False, max_points_per_centroid=mppc)
         # the small per-cluster bundle k-means make faiss print "WARNING clustering N points to K centroids"
         # to fd 2 (harmless: it just wants >= 39 points per centroid); send it to the log (fd 1), not the bars
+        if not quiet_fd:
+            km.train(data)
+            return km.centroids.astype(np.float32), "faiss"
         sys.stderr.flush()
         saved = os.dup(2)
         os.dup2(1, 2)
@@ -143,13 +147,13 @@ def nearest(data, centroids, n, chunk=0, desc=None):
     return idx, dist
 
 
-def make_bundles(members, vecs, bundle_size, seed):
+def make_bundles(members, vecs, bundle_size, seed, quiet_fd=True):
     """Tiptoe's url-cluster step: group a cluster's docs into bundles of similar docs, <= bundle_size each.
     vecs[i] is the embedding of doc members[i]."""
     if len(members) <= bundle_size:
         return [members]
     nb = math.ceil(len(members) / bundle_size)
-    cents, _ = kmeans(vecs, nb, seed, niter=10)
+    cents, _ = kmeans(vecs, nb, seed, niter=10, quiet_fd=quiet_fd)
     assign, _ = nearest(vecs, cents, 1)
     bundles = []
     for b in range(nb):
@@ -180,6 +184,8 @@ def main():
     ap.add_argument("--format", choices=["txt", "npy"], default="txt",
                     help="txt = Tiptoe's own cluster files (needed for the real run); npy = compact arrays the "
                          "simulator reads, ~3x smaller and much faster (use it for 25M+ docs)")
+    ap.add_argument("--workers", type=int, default=min(16, os.cpu_count() or 1),
+                    help="threads for the per-cluster bundle k-means (output is the same for any value)")
     ap.add_argument("--kmeans-cache", default="",
                     help="dir to cache the main k-means centroids in. They only depend on the embeddings, C, seed and "
                          "train sample, not on --multi-assign/--bundle-size, so those sweeps reuse one k-means")
@@ -267,11 +273,46 @@ def main():
         rows_out = np.lib.format.open_memmap(os.path.join(out, "rows.npy"), mode="w+", dtype=np.int64, shape=(total,))
         bun_out = np.lib.format.open_memmap(os.path.join(out, "bundle.npy"), mode="w+", dtype=np.int32, shape=(total,))
         cluster_ptr, bundle_ptr, bundle_bytes, pos = [0], [0], [], 0
-    for c in bar(range(C), "bundle + write clusters"):
+    def prep_cluster(c):
+        """Bundles of cluster c and its quantised vectors (runs in a worker thread: faiss and numpy drop the GIL)."""
         rows = np.sort(members[c])                       # sorted = sequential reads from the memmap
         vecs = np.asarray(data[rows], dtype=np.float32)
-        q = dict(zip(rows.tolist(), np.clip(np.round(vecs * scale), lo, hi).astype(np.int8)))
-        bundles = make_bundles(rows, vecs, args.bundle_size, args.seed + c)
+        qv = np.clip(np.round(vecs * scale), lo, hi).astype(np.int8)
+        return rows, qv, make_bundles(rows, vecs, args.bundle_size, args.seed + c, quiet_fd=workers == 1)
+
+    workers = max(1, args.workers)
+    if workers > 1:
+        # many small k-means at once: one faiss thread each instead of every k-means using every core.
+        # Same seeds and data per cluster, so the output is the same as with --workers 1.
+        try:
+            import faiss
+            faiss.omp_set_num_threads(1)
+        except ImportError:
+            pass
+        sys.stderr.flush()
+        saved_fd2 = os.dup(2)
+        os.dup2(1, 2)        # faiss' "WARNING clustering N points" lines go to the log, not the bars
+        sys.stderr = os.fdopen(os.dup(saved_fd2), "w", buffering=1)   # bars still reach the terminal
+
+    def prepared():
+        """(c, rows, qv, bundles) in cluster order, at most 4*workers clusters in flight (bounds memory)."""
+        if workers == 1:
+            for c in range(C):
+                yield (c,) + prep_cluster(c)
+            return
+        from collections import deque
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(workers) as ex:
+            pending, nxt = deque(), 0
+            while nxt < C or pending:
+                while nxt < C and len(pending) < 4 * workers:
+                    pending.append((nxt, ex.submit(prep_cluster, nxt)))
+                    nxt += 1
+                c, fut = pending.popleft()
+                yield (c,) + fut.result()
+
+    for c, rows, qv, bundles in bar(prepared(), "bundle + write clusters", total=C):
+        q = dict(zip(rows.tolist(), qv))
         n_bundles += len(bundles)
         sizes.append(len(members[c]))
         if args.format == "npy":
@@ -298,6 +339,10 @@ def main():
         if c % 500 == 0:
             log(f"wrote cluster {c}/{C}")
 
+    if workers > 1:
+        sys.stderr.flush()
+        os.dup2(saved_fd2, 2)
+        os.close(saved_fd2)
     if args.format == "npy":
         emb_out.flush(), rows_out.flush(), bun_out.flush()
         np.save(os.path.join(out, "cluster_ptr.npy"), np.asarray(cluster_ptr, dtype=np.int64))

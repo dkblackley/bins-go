@@ -197,10 +197,81 @@ def ceil_to(x, m):
     return x + (-x) % m
 
 
-def bench(binary, rows, cols, logq, p, max_gb):
+def bench(binary, rows, cols, logq, p, max_gb, cache=""):
+    """Seconds per SimplePIR answer at (rows, cols). Cached by shape in `cache` (JSON): many configs share a shape
+    (k, precision, bundle size), and each uncached run fills up to max_gb of random DB on one thread."""
+    key = f"{rows}x{cols}_q{logq}_p{p}"
+    data = {}
+    if cache and os.path.exists(cache):
+        try:
+            data = json.load(open(cache))
+        except ValueError:
+            data = {}
+    if key in data:
+        return data[key]
     out = subprocess.run([binary, "-rows", str(rows), "-cols", str(cols), "-logq", str(logq), "-p", str(p),
                           "-max-gb", str(max_gb)], capture_output=True, text=True, check=True).stdout
-    return json.loads(out.strip().splitlines()[-1])["seconds"]
+    t = json.loads(out.strip().splitlines()[-1])["seconds"]
+    if cache:
+        import fcntl
+        with open(cache + ".lock", "w") as lk:      # concurrent array tasks: merge, don't clobber
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            try:
+                data = json.load(open(cache)) if os.path.exists(cache) else {}
+            except ValueError:
+                data = {}
+            data[key] = t
+            tmp = f"{cache}.tmp{os.getpid()}"
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp, cache)
+    return t
+
+
+# Set by main() before the worker pool forks; read by _sim_cluster in the workers.
+_G = {}
+
+
+def _load_cluster(c):
+    g = _G
+    if g["npy"]:
+        s_, e_ = g["cptr"][c], g["cptr"][c + 1]
+        embs, crow, cbun = (np.asarray(g["emb_all"][s_:e_], dtype=np.int8), np.asarray(g["rows_all"][s_:e_]),
+                            np.asarray(g["bun_all"][s_:e_]))
+    else:
+        cl = read_cluster_full(os.path.join(g["cdir"], f"cluster_{c}.txt"))
+        embs = np.stack([e for _, e, _ in cl]).astype(np.int8)
+        crow, cbun = np.array([r for r, _, _ in cl]), np.array([b for _, _, b in cl])
+    if g["prec"] != "fp32":
+        embs = g["requantise"](crow)
+    return embs, crow, cbun
+
+
+def _sim_cluster(task):
+    """runRound for every query whose nearest centroid is c: [(query index, returned corpus rows)]."""
+    c, qis = task
+    g = _G
+    embs, crow, cbun = _load_cluster(c)
+    embs32 = embs.astype(np.int32)
+    out = []
+    for i in qis:
+        v = reduce_precision(g["qvecs"][i], g["prec"])
+        q = np.clip(np.round(v.astype(np.float64) * g["scale"]), g["lo"], g["hi"]).astype(np.int64)  # quantise
+        # exact integer inner products, as decrypted (|score| <= 192*16*16, so int32 is exact)
+        scores = embs32 @ q.astype(np.int32)
+        order = np.argsort(-scores, kind="stable")
+        best_bundle = cbun[order[0]]
+        ids, seen = [], set()
+        for j in order:
+            row, b = int(crow[j]), cbun[j]
+            if b != best_bundle or row in seen:   # results hold corpus rows; mapped to doc IDs below
+                continue
+            seen.add(row)
+            ids.append(row)
+            if len(ids) == g["k"]:
+                break
+        out.append((i, ids))
+    return out
 
 
 def main():
@@ -216,6 +287,10 @@ def main():
     ap.add_argument("--bench-bin", default="", help="cmd/simplepir_bench binary, to measure online server time")
     ap.add_argument("--bench-max-gb", type=float, default=8)
     ap.add_argument("--parallelism", type=int, default=1, help="divide server time by this (Tiptoe shards freely)")
+    ap.add_argument("--bench-cache", default="",
+                    help="JSON cache of simplepir_bench results by (L, M); default simplepir_bench_cache.json next to the binary")
+    ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1),
+                    help="processes for the query loop (one cluster per task); 1 = serial")
     ap.add_argument("--precision", choices=list(PRECISION_BITS), default="fp32",
                     help="cast every embedding to this float format after loading (REDUCED PRECISION above)")
     args = ap.parse_args()
@@ -281,41 +356,35 @@ def main():
             out[part] = np.clip(np.round(v * meta["scale"]), lo, hi).astype(np.int8)
         return out
 
-    cache, results, returned = {}, {}, []
-    for i, (qid, _) in enumerate(queries):
+    # nearestCluster per query, then each cluster is loaded once and all its queries scored together. Clusters run
+    # in parallel worker processes (--workers); per-query results are identical to the serial loop.
+    by_cluster = {}
+    for i in range(len(queries)):
         v = reduce_precision(qvecs[i], prec)
-        c = int(np.argmin(((cents - v) ** 2).sum(1)))                                         # nearestCluster
-        q = np.clip(np.round(v.astype(np.float64) * meta["scale"]), lo, hi).astype(np.int64)  # quantise
-        if c not in cache:
-            if len(cache) > 256:
-                cache.clear()
-            if npy:
-                s_, e_ = cptr[c], cptr[c + 1]
-                cache[c] = (np.asarray(emb_all[s_:e_], dtype=np.int8), np.asarray(rows_all[s_:e_]),
-                            np.asarray(bun_all[s_:e_]))
-            else:
-                cl = read_cluster_full(os.path.join(cdir, f"cluster_{c}.txt"))
-                cache[c] = (np.stack([e for _, e, _ in cl]).astype(np.int8), np.array([r for r, _, _ in cl]),
-                            np.array([b for _, _, b in cl]))
-            if prec != "fp32":
-                cache[c] = (requantise(cache[c][1]),) + cache[c][1:]
-        embs, crow, cbun = cache[c]
-        # exact integer inner products, as decrypted (|score| <= 192*16*16, so int32 is exact); clusters are cached
-        # as int8 to keep memory at ~200 B per doc even with 40k-doc clusters
-        scores = embs.astype(np.int32) @ q.astype(np.int32)
-        order = np.argsort(-scores, kind="stable")
-        best_bundle = cbun[order[0]]
-        ids, seen = [], set()
-        for j in order:
-            row, b = int(crow[j]), cbun[j]
-            if b != best_bundle or row in seen:   # results hold corpus rows; mapped to doc IDs below
-                continue
-            seen.add(row)
-            ids.append(row)
-            if len(ids) == args.k:
-                break
-        results[qid] = ids
-        returned.append(len(ids))
+        c = int(np.argmin(((cents - v) ** 2).sum(1)))
+        by_cluster.setdefault(c, []).append(i)
+    _G.update(npy=npy, cdir=cdir, prec=prec, requantise=requantise, qvecs=qvecs, scale=meta["scale"],
+              lo=lo, hi=hi, k=args.k)
+    if npy:
+        _G.update(cptr=cptr, emb_all=emb_all, rows_all=rows_all, bun_all=bun_all)
+    # biggest clusters first, so one huge cluster doesn't finish last
+    tasks = sorted(by_cluster.items(), key=lambda t: -(cluster_docs[t[0]] * len(t[1])))
+    workers = max(1, min(args.workers, len(tasks)))
+    per_query = {}
+    if workers == 1:
+        for t in tasks:
+            per_query.update(_sim_cluster(t))
+    else:
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+        # fork: workers inherit _G (memmaps, closures) without pickling; each holds ~200 B/doc of one cluster
+        with ProcessPoolExecutor(workers, mp_context=mp.get_context("fork")) as ex:
+            for part in ex.map(_sim_cluster, tasks, chunksize=1):
+                per_query.update(part)
+    results, returned = {}, []
+    for i, (qid, _) in enumerate(queries):
+        results[qid] = per_query[i]
+        returned.append(len(per_query[i]))
 
     qvec_by_id = {qid: reduce_precision(qvecs[i], prec) for i, (qid, _) in enumerate(all_queries) if i < len(qvecs)}
     reranked = common.cosine_rerank(results, args.k, common.AllRows(), ReducedRows(doc_vecs, prec), qvec_by_id)
@@ -354,8 +423,10 @@ def main():
         "TiptoeCostNote": "lower bounds: payload only, no serialisation headers; token server time not included",
     }
     if args.bench_bin:
-        t_emb = bench(args.bench_bin, L_emb, M_emb, 64, 1 << 17, args.bench_max_gb)
-        t_url = bench(args.bench_bin, L_url, M_url, 32, 256, args.bench_max_gb)
+        bcache = args.bench_cache or os.path.join(os.path.dirname(os.path.abspath(args.bench_bin)),
+                                                  "simplepir_bench_cache.json")
+        t_emb = bench(args.bench_bin, L_emb, M_emb, 64, 1 << 17, args.bench_max_gb, bcache)
+        t_url = bench(args.bench_bin, L_url, M_url, 32, 256, args.bench_max_gb, bcache)
         t = (t_emb + t_url) / args.parallelism
         out.update({"TotalAnswerTime": f"{t * nq:.6f}", "TiptoeRound1Time": f"{t_emb / args.parallelism * nq:.6f}",
                     "TiptoeRound2Time": f"{t_url / args.parallelism * nq:.6f}", "TiptoeParallelism": args.parallelism,

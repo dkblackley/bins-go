@@ -87,14 +87,45 @@ AXES = {
 
     ('fever', 'mrr'):               dict(lim=(0, 0.85)),
     ('fever', 'recall'):            dict(lim=(0, 0.9)),
-    ('fever', 'wan_time'):          dict(lim=(None, 2)),        # seconds
-    ('fever', 'lan_time'):          dict(lim=(None, 0.5)),      # seconds
-    ('fever', 'client_storage_mb'): dict(lim=(0, 3 * 1024)),    # MB: 3 GB
+    ('fever', 'wan_time'):          dict(lim=(0, 2)),        # seconds
+    ('fever', 'lan_time'):          dict(lim=(0, 0.5)),      # seconds
+    ('fever', 'client_storage_mb'): dict(lim=(0, 4 * 1024)),    # MB: 3 GB
+
+    # Set lim=None on any line to go back to fitting the data.
+    ('msmarco', 'mrr'):               dict(lim=(0, 0.35)),
+    ('msmarco', 'recall'):            dict(lim=(0, 0.62)),
+    ('msmarco', 'wan_time'):          dict(lim=(0, 2.0)),        # seconds
+    ('msmarco', 'lan_time'):          dict(lim=(0, 0.75)),      # seconds
+    ('msmarco', 'client_storage_mb'): dict(lim=(0, 6 * 1024)),    # MB
+
+    ('scifact', 'mrr'):               dict(lim=(0, 0.75)),
+    ('scifact', 'recall'):            dict(lim=(0, 0.9)),
+    ('scifact', 'wan_time'):          dict(lim=(0, 0.4)),        # seconds
+    ('scifact', 'lan_time'):          dict(lim=(0, 0.05)),      # seconds
+    ('scifact', 'client_storage_mb'): dict(lim=(0, 0.11 * 1024)),    # MB
+
+    ('nq', 'mrr'):                    dict(lim=(0, 0.55)),
+    ('nq', 'recall'):                 dict(lim=(0, 0.78)),
+    ('nq', 'wan_time'):               dict(lim=(0, 2.5)),        # seconds
+    ('nq', 'lan_time'):               dict(lim=(0, 0.275)),      # seconds
+    ('nq', 'client_storage_mb'):      dict(lim=(0, 1.0 * 1024)),    # MB
+
+    ('msmarco-v2-25m', 'mrr'):               dict(lim=(0, 0.3)),
+    ('msmarco-v2-25m', 'recall'):            dict(lim=(0, 0.45)),
+    ('msmarco-v2-25m', 'wan_time'):          dict(lim=(0, 2.5)),        # seconds
+    ('msmarco-v2-25m', 'lan_time'):          dict(lim=(0, 1.5)),      # seconds
+    ('msmarco-v2-25m', 'client_storage_mb'): dict(lim=(0, 10 * 1024)),    # MB
+
+    ('msmarco-v2-50m', 'mrr'):               dict(lim=(0, 0.21)),
+    ('msmarco-v2-50m', 'recall'):            dict(lim=(0, 0.35)),
+    ('msmarco-v2-50m', 'wan_time'):          dict(lim=(0, 5)),        # seconds
+    ('msmarco-v2-50m', 'lan_time'):          dict(lim=(0, 2.5)),      # seconds
+    ('msmarco-v2-50m', 'client_storage_mb'): dict(lim=(0, 14 * 1024)),    # MB
 }
 
 AXIS_FALLBACK = dict(label=None, lim=None, log=False, fmt='plain', base=None, ticks=4)
 
-PAD = 0.05            # margin round an auto-fitted end, as a fraction of the range (log range on log axes)
+PAD = 0.04            # margin round an auto-fitted end, as a fraction of the range (log range on log axes)
 NICE_ENDS = True      # round auto-fitted ends outward to TICK_SIG figures, so the end ticks read cleanly
 TICK_SIG = 2          # significant figures in the tick labels
 
@@ -120,6 +151,14 @@ FRONTIER_WIDTH = g.LINE_WIDTH + 0.3
 FRONTIER_STYLE = '-'
 FRONTIER_STEPS = False   # staircase instead of straight segments
 FRONTIER_LABEL = 'Pareto Frontier'
+# Drawing order (higher = on top): every other config, then the frontier line, then the points on it.
+Z_POINTS = 2             # configs off the frontier, faded or not, and METHOD_LINES
+Z_FRONTIER_LINE = 4      # the black line, above every config
+Z_FRONTIER_POINTS = 5    # the outlined points on the frontier, above the line
+# Within each layer the methods stack in g.METHOD_ORDER: the first (bins) on top, then tree, pacmann, ...
+# Each gets a fraction under 1 added, so a method never jumps to another layer. Reverse it with
+# STACK_ORDER = list(reversed(g.METHOD_ORDER)), or name your own order (first = on top).
+STACK_ORDER = None       # None = g.METHOD_ORDER
 
 METHOD_LINES = False  # also draw each method's own frontier in its colour
 
@@ -127,7 +166,7 @@ METHOD_LINES = False  # also draw each method's own frontier in its colour
 # CONFIG: LAYOUT, TITLES, LEGEND, OUTPUT
 # ======================================================================
 
-PANEL_SIZE = (1.5, 1.1)   # inches per panel (width, height). Fonts are fixed in points, so shrinking this
+PANEL_SIZE = (1.6, 1.15)   # inches per panel (width, height). Fonts are fixed in points, so shrinking this
                           # makes the panels smaller and the text relatively bigger, e.g. (1.8, 1.35)
 WSPACE = 0.01             # constrained-layout gaps (figure fractions)
 HSPACE = 0.02
@@ -137,10 +176,12 @@ SUPTITLE_SIZE = 16
 
 X_LABEL_SIZE = g.FONT_SIZE
 Y_LABEL_SIZE = g.FONT_SIZE
-TICK_SIZE = 9
+TICK_SIZE = 8
 X_LABEL_EVERY_ROW = False # False: only the bottom row gets x labels (the column shares its x key)
 Y_LABEL_EVERY_COL = False # False: only the left column gets y labels
 HIDE_INNER_TICKLABELS = False   # with shared limits, also drop the inner panels' tick numbers
+ALIGN_LABELS = True       # line up the y labels down each column (and x labels along each row), so
+                          # 'MRR@10' and 'Recall@10' sit at the same x even when their ticks differ in width
 SHOW_ARROWS = True        # better-direction badge after each axis label
 LOG_SUFFIX = ' (log)'     # appended to the label of any axis drawn on a log scale; '' for none
 GRID = True
@@ -331,6 +372,13 @@ def apply_axis(ax, which, spec, limits):
 # DRAWING
 # ======================================================================
 
+def method_z(method, layer):
+    """`layer` plus a fraction under 1 that is bigger the earlier `method` is in STACK_ORDER."""
+    order = list(STACK_ORDER or g.METHOD_ORDER)
+    rank = order.index(method) if method in order else len(order)
+    return layer + 0.9 * (len(order) - rank) / (len(order) + 1)
+
+
 def style(method, size=MARKER_SIZE, outlined=False):
     color = g.METHOD_COLORS[method]
     return dict(linestyle='none',
@@ -338,7 +386,7 @@ def style(method, size=MARKER_SIZE, outlined=False):
                 markersize=size, markerfacecolor=color,
                 markeredgecolor='#000000' if outlined and FRONTIER_EDGE else color,
                 markeredgewidth=FRONTIER_EDGE if outlined else 0,
-                zorder=3 if outlined else 2)
+                zorder=method_z(method, Z_FRONTIER_POINTS if outlined else Z_POINTS))
 
 
 def draw_panel(ax, per_method, dataset, x_key, y_key):
@@ -357,7 +405,7 @@ def draw_panel(ax, per_method, dataset, x_key, y_key):
     if FRONTIER_LINE and len(front) > 1:
         plot(front, color=FRONTIER_COLOR, linewidth=FRONTIER_WIDTH, linestyle=FRONTIER_STYLE,
              drawstyle=('steps-post' if better_sign(x_key) < 0 else 'steps-pre') if FRONTIER_STEPS else 'default',
-             zorder=1)
+             zorder=Z_FRONTIER_LINE)
 
     drawn = []
     for method, runs in good.items():
@@ -371,7 +419,7 @@ def draw_panel(ax, per_method, dataset, x_key, y_key):
         if METHOD_LINES:
             own = frontier(runs, x_key, y_key)
             if len(own) > 1:
-                plot(own, color=g.METHOD_COLORS[method], linewidth=g.LINE_WIDTH, zorder=2)
+                plot(own, color=g.METHOD_COLORS[method], linewidth=g.LINE_WIDTH, zorder=method_z(method, Z_POINTS))
         plain = [r for r in solid if id(r) not in on_global]
         edged = [r for r in solid if id(r) in on_global]
         if plain:
@@ -473,6 +521,12 @@ def plot_dataset(nested_data, dataset, rows, cols, name):
                     g.add_arrow(text, y_key, 'y')
             elif HIDE_INNER_TICKLABELS and SHARE_Y_ROW:
                 ax.tick_params(labelleft=False)
+
+    if ALIGN_LABELS:   # same x for every y label in a column, same y for every x label in a row,
+        for j in range(n_cols):   # whatever the width / height of each panel's tick numbers
+            fig.align_ylabels(axes[:, j])
+        for i in range(n_rows):
+            fig.align_xlabels(axes[i, :])
 
     if SUPTITLE:
         fig.suptitle(SUPTITLE.format(dataset=g.DATASET_LABELS.get(dataset, dataset)), fontsize=SUPTITLE_SIZE)
