@@ -46,9 +46,9 @@ TARGETS = {
     'msmarco':        [0.05, 0.10, 0.15, 0.20, 0.25],
     'scifact':        [0.56, 0.58, 0.60, 0.62, 0.64],
     'fever':          [0.60, 0.62, 0.64, 0.66, 0.68],
-    'nq':             [0.40, 0.41, 0.42, 0.43],
+    'nq':             [0.05, 0.10, 0.15, 0.20],
     'msmarco-v2-25m': [0.05, 0.10, 0.15, 0.20],
-    'msmarco-v2-50m': [0.08, 0.10, 0.12, 0.14, 0.16],
+    'msmarco-v2-50m': [0.08, 0.10, 0.12, 0.14],
 }
 AUTO_STEP = 0.05
 MATCH = 'window'     # 'window': rounded-down MRR@10 within T +/- TOL; 'at_least': rounded-down MRR@10 >= T
@@ -196,4 +196,4 @@ def make_plots(nested_data, datasets=None, rows=None, name=None):
 if __name__ == '__main__':
     g.setup_logging()
     g.setup_style()
-    make_plots(load_results.load_results(g.RESULTS_DIR))
+    make_plots(load_results.load_results(g.RESULTS_DIR, only_grid=False))   # every run, not only the current grid

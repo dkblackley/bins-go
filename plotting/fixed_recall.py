@@ -170,6 +170,6 @@ if __name__ == '__main__':
     args = ap.parse_args()
 
     g.setup_logging()
-    nested = load_results.load_results(g.RESULTS_DIR)
+    nested = load_results.load_results(g.RESULTS_DIR, only_grid=False)   # every run, not only the current grid
     fixed_recall(nested, k=args.k, cost_key=args.cost, decimals=args.dp,
                  methods=args.methods, datasets=args.datasets)

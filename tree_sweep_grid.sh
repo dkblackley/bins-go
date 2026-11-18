@@ -3,7 +3,7 @@
 # datasets/prep_tree.sh (artifacts). Edit the lists here, both pick it up.
 #
 #   DATASET=msmarco|scifact|nq|dbpedia-entity|fever|hotpotqa|miracl-en|msmarco-v2[-25m|-50m|-100m]
-#   SWEEP=legacy|oat|grid|all   (default all = oat + grid)
+#   SWEEP=legacy|oat|grid|lowmrr|all   (default all = oat + grid + lowmrr)
 #
 #   bash tree_sweep_grid.sh --count    number of run configs (for --array=0-N)
 #   bash tree_sweep_grid.sh --list     every run config
@@ -26,6 +26,11 @@
 #   oat     one-at-a-time: every parameter from its minimum up, the others held at an anchor
 #   grid    joint grid over all six parameters, geometric steps starting at small values;
 #           c is set from a target rerank pool P = c*s so it scales with s
+#   lowmrr  (2026-11-17) small q x L x c on the anchor shape only (no new artifacts), so the fixed-MRR comparisons
+#           (plotting/frozen_values.py, plot_fixed_mrr.py) find a tree config within +/- 0.01 of almost any MRR@10.
+#           oat/grid only lower one knob at a time, which left holes (scifact nothing below 0.22, fever
+#           0.01-0.08 / 0.21-0.26 / 0.30-0.32 / 0.39-0.41 / 0.50-0.53). See _lowmrr_grid. These folders are not in
+#           plotting/current_grid.txt, so only the fixed-MRR scripts load them.
 
 source "$(dirname "${BASH_SOURCE[0]}")/slurm_common.sh"
 
@@ -100,13 +105,42 @@ _big_grid() {   # dataset max_q sweep
         add_pool_grid "$d" "$MQ" "8 32 64"    "4 16 64" "2 8"    "2 16 128 512"     "2 8"   "128 1024"
         # 2026-11-09, was: "8 16 32 64" "4 16 64" "2 4 8" "2 8 32 128 512" "2 4 8" "128 1024"
     fi
+    if [[ $sweep == lowmrr || $sweep == all ]]; then
+        _lowmrr_grid "$d" "$MQ"
+    fi
+}
+
+# Fills the MRR@10 range for the fixed-MRR comparisons: Cartesian q x L x c on the anchor shape (already built and
+# Cuckoo-cached on every dataset, so these runs mmap its tables). MRR@10 is set by q, L and c; B / r / s barely move
+# it (oat sweeps: < 0.03 on every dataset), so one shape is enough.
+#   big datasets (B32 r32 s8): L is the main knob below ~0.6 (fever: L1 0.11, L2 0.17, L4 0.29, L16 0.48, L32 0.57,
+#     L64 0.64 at q4), so L takes the in-between steps; q 1-3 with c 1 / 4 / 128 (clamped to 4L) gives the low end
+#     (q1 L100 is 0.03 on nq, 0.04 on msmarco); q4 fills between the oat L values; q6 the 0.3-0.45 band on nq.
+#   scifact (B16 r8 s4): measured locally (2026-11-17, generic scifact_tree index, ~0.03 below the server's numbers):
+#     q1 L1 = 0.17 is the floor (B4 r4 s4 gives the same), and q 1-4 x L 1-10 x c 1-8 hits every 0.01 step from
+#     0.17 to 0.52 (the existing grid covers the rest).
+# msmarco-v2 (138M) is left out: every run there is costly and its oat/grid runs are not done yet.
+_lowmrr_grid() {   # dataset max_q
+    local d=$1 MQ=$2 q L c
+    if [[ $d == scifact ]]; then
+        for q in 1 2 3 4; do for L in 1 2 3 5 10; do for c in 1 2 4 8; do
+            add_cfg "$d" 16 8 4 "$L" "$q" "$c" "$MQ"
+        done; done; done
+        return
+    fi
+    [[ $d == msmarco-v2 ]] && return
+    for q in 1 2 3; do for L in 1 2 3 4 6 8 12 16 24 32 48; do for c in 1 4 128; do
+        add_cfg "$d" 32 32 8 "$L" "$q" "$c" "$MQ"
+    done; done; done
+    for L in 2 3 6 8 12 24 48; do add_cfg "$d" 32 32 8 "$L" 4 128 "$MQ"; done
+    for L in 16 32 64; do add_cfg "$d" 32 32 8 "$L" 6 128 "$MQ"; done
 }
 
 TREE_DATASETS="msmarco scifact nq dbpedia-entity fever hotpotqa miracl-en msmarco-v2 msmarco-v2-25m msmarco-v2-50m msmarco-v2-100m"
 
 build_tree_grid() {
     local dataset=$1 sweep=${2:-all}
-    case $sweep in legacy|oat|grid|all) ;; *) echo "Unknown SWEEP: $sweep (legacy|oat|grid|all)" >&2; return 1 ;; esac
+    case $sweep in legacy|oat|grid|lowmrr|all) ;; *) echo "Unknown SWEEP: $sweep (legacy|oat|grid|lowmrr|all)" >&2; return 1 ;; esac
     case $dataset in
     msmarco)
         _big_grid msmarco 6980 "$sweep" ;;
@@ -128,6 +162,9 @@ build_tree_grid() {
         if [[ $sweep == grid || $sweep == all ]]; then
             add_pool_grid scifact $MQ "4 16 32"   "2 4 16"   "1 4 8"   "1 10 30 100"   "2 16"    "16 64 256"
             # 2026-11-09, was: "4 8 16 32" "2 4 16" "1 2 4 8" "1 3 10 30 100" "2 8 16" "16 64 256"
+        fi
+        if [[ $sweep == lowmrr || $sweep == all ]]; then
+            _lowmrr_grid scifact $MQ
         fi
         ;;
     *) echo "Unknown DATASET: $dataset (one of: $TREE_DATASETS)" >&2; return 1 ;;

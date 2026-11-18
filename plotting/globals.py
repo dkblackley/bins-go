@@ -62,6 +62,14 @@ FALLBACK_TO_SIMULATED = os.environ.get('FALLBACK_TO_SIMULATED', '1') != '0'
 # when a simulated one is missing. EXTRA_RESULTS_DIRS (Tiptoe/Coeus, always simulated) are still read. Overrides
 # FALLBACK_TO_SIMULATED. Every run gets source='simulated'. ONLY_SIMULATED=0 brings the real runs back.
 ONLY_SIMULATED = os.environ.get('ONLY_SIMULATED', '1') != '0'
+# ONLY_CURRENT_GRID (on by default): bins / pacmann / tree runs are only loaded when their folder is in CURRENT_GRID_FILE,
+# the snapshot of what run_me.sh's grids produce (plotting/save_current_grid.sh writes it). Runs from older grids and
+# extras added only to fill fixed-MRR values (tree_sweep_grid.sh SWEEP=lowmrr) stay out of the regular plots. The
+# fixed-MRR scripts (frozen_values, fixed_recall, plot_fixed_mrr) pass only_grid=False and see
+# every run. Tiptoe / Coeus are never filtered. ONLY_CURRENT_GRID=0 loads everything everywhere.
+ONLY_CURRENT_GRID = os.environ.get('ONLY_CURRENT_GRID', '1') != '0'
+CURRENT_GRID_FILE = os.environ.get('CURRENT_GRID_FILE', os.path.join(_HERE, 'current_grid.txt'))
+GRID_METHODS = ('bins', 'pacmann', 'tree')
 # the vec0 client-storage sweep (bins_vec0_..._vb<B>_vr<R>_ib<I>: embedding-DB batch / rounds, ID-DB batch) loads as more
 # PILLAR-Bin configs, so the method comparisons can pick them; INCLUDE_VEC0_SWEEP=0 leaves them out everywhere
 INCLUDE_VEC0_SWEEP = os.environ.get('INCLUDE_VEC0_SWEEP', '1') != '0'

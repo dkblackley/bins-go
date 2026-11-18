@@ -46,7 +46,11 @@ if __name__ == '__main__':
     g.setup_logging()
     g.setup_style()
 
-    nested_data = load_results.load_results(g.RESULTS_DIR)
+    # every run (the fixed-MRR plots/tables want as many MRR@10 values as possible, e.g. the tree's SWEEP=lowmrr
+    # extras), and the current grid only (plotting/current_grid.txt) for everything else; ONLY_CURRENT_GRID=0 makes
+    # the two the same
+    all_data = load_results.load_results(g.RESULTS_DIR, only_grid=False)
+    nested_data = load_results.current_grid_only(all_data) if g.ONLY_CURRENT_GRID else all_data
 
     best_configs.best_configs(nested_data)            # terminal: the 5 picks per method/dataset and their stats
                                                       # (also figures/best_configs.csv)
@@ -74,7 +78,7 @@ if __name__ == '__main__':
     # plot_tree_stages.make_plots(nested_data)          # tree: latency split by PIR stage
     # plot_quality_vs_cost.make_plots(nested_data)      # all: quality vs preproc/storage cost
 
-    # fixed_recall.fixed_recall(nested_data)              # tables: each method's cost at one shared recall
+    # fixed_recall.fixed_recall(all_data)            # tables: each method's cost at one shared recall
 
     # rebuttal: best 5 configs per method/dataset on each cost knee (client storage, WAN, LAN) -> figures/rebuttal_best5_k10.md
     # rebuttal_tables.make_tables(nested_data)
@@ -104,8 +108,8 @@ if __name__ == '__main__':
     # plot_pareto_grid.make_comparison_plot(nested_data, x_key='comm_kb')
     # WAN at a sweep of fixed MRR@10 values (lowest WAN within +/- 0.01), two datasets per figure
     # -> figures/fixed_mrr_sweep_<d1>_<d2>.pdf
-    plot_fixed_mrr.make_plots(nested_data)
+    plot_fixed_mrr.make_plots(all_data)
     # WAN and MRR@10 at a sweep of fixed client storage (Bin vs PACMANN, MS MARCO + v2 25M/50M) -> figures/fixed_storage_sweep.pdf
-    plot_fixed_storage.make_plots(nested_data)
+    # plot_fixed_storage.make_plots(nested_data)
 
     print(f"Done, figures in {g.FIGURE_DIR}")

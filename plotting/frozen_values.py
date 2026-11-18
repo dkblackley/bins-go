@@ -488,7 +488,7 @@ if __name__ == '__main__':
     ap.add_argument('--keep-dominated', action='store_true', help='keep runs that another run beats on WAN, MRR and Recall')
     args = ap.parse_args()
     g.setup_logging()
-    frozen_values(load_results.load_results(), args.datasets, args.k, groups=GROUP_SETS[args.groups],
+    frozen_values(load_results.load_results(only_grid=False), args.datasets, args.k, groups=GROUP_SETS[args.groups],
                   suffix='' if args.groups == 'pairs' else f'_{args.groups}', mrr_targets=args.mrr,
                   recall_targets=args.recall, wan_budgets=args.wan, tol=args.tol, wan_tol=args.wan_tol,
                   min_mrr=args.min_mrr, drop_dominated=not args.keep_dominated,

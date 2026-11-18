@@ -21,6 +21,16 @@ quality, bytes, LAN/WAN and client storage are the same as a real run's. Sub-fol
 named like h3_lf0.88/ (msmarco-v2's tree runs with other Cuckoo settings) are read too;
 their runs' folder is 'h3_lf0.88/<name>'.
 
+CURRENT GRID FILTER
+-------------------
+With g.ONLY_CURRENT_GRID (the default; ONLY_CURRENT_GRID=0, or pass only_grid=False), bins / pacmann / tree folders
+are only loaded when they are listed in g.CURRENT_GRID_FILE (plotting/current_grid.txt): the configs run_me.sh's grids
+produced when plotting/save_current_grid.sh last ran. Older grids' leftovers and extras (tree_sweep_grid.sh
+SWEEP=lowmrr, there only to fill fixed MRR@10 values) are left out, so the regular plots stay readable. The fixed-MRR
+scripts (frozen_values.py, fixed_recall.py, plot_fixed_mrr.py) call load_results(only_grid=False)
+and get every run; main.py loads everything once and makes the filtered copy with current_grid_only(). Tiptoe and
+Coeus are never filtered. A missing grid file turns the filter off (with a warning).
+
 CLIENT STORAGE FILTER
 ---------------------
 With g.FILTER_CLIENT_STORAGE (default on; FILTER_CLIENT_STORAGE=0, or pass
@@ -550,8 +560,48 @@ def _list_folders(results_dir):
     return out
 
 
+_GRID_CACHE = {}
+
+
+def current_grid(path=None):
+    """Folders (relative to a results dir, e.g. 'h3_lf0.88/tree_grid_...') of g.CURRENT_GRID_FILE, or None if the
+    file is missing (then nothing is filtered)."""
+    path = path or g.CURRENT_GRID_FILE
+    if path not in _GRID_CACHE:
+        if not os.path.exists(path):
+            log.warning("%s not found: current-grid filter off (bash plotting/save_current_grid.sh writes it)", path)
+            _GRID_CACHE[path] = None
+        else:
+            with open(path) as f:
+                _GRID_CACHE[path] = {line.rstrip('\n').split('\t')[2] for line in f
+                                     if line.strip() and not line.startswith('#')}
+    return _GRID_CACHE[path]
+
+
+def in_current_grid(folder, grid):
+    """True if `folder` is kept by the current-grid filter: not a grid method, or listed in `grid`."""
+    return grid is None or os.path.basename(folder).split('_', 1)[0] not in g.GRID_METHODS or folder in grid
+
+
+def current_grid_only(nested_data, grid=None):
+    """A copy of nested_data with only the current grid's bins / pacmann / tree runs (the run dicts are shared, not
+    copied). For main.py: load once with only_grid=False, give the fixed-MRR plots that, everything else this."""
+    grid = current_grid() if grid is None else grid
+    out, dropped = {}, Counter()
+    for method, per_dataset in nested_data.items():
+        out[method] = {}
+        for dataset, runs in per_dataset.items():
+            keep = [r for r in runs if in_current_grid(r['folder'], grid)]
+            dropped[method] += len(runs) - len(keep)
+            out[method][dataset] = keep
+    if sum(dropped.values()):
+        log.info("current-grid filter: left out %s (not in %s)",
+                 ', '.join(f'{n} {m}' for m, n in dropped.items() if n), g.CURRENT_GRID_FILE)
+    return out
+
+
 def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallback_simulated=None,
-                 filter_client=None, only_simulated=None):
+                 filter_client=None, only_simulated=None, only_grid=None):
     """
     Reads every folder's metadata.json in `results_dirs` (one path, a list of
     paths, or None for g.RESULTS_DIRS) with a thread pool. With fallback_simulated
@@ -565,6 +615,8 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
     only_simulated (default g.ONLY_SIMULATED) reads `simulated_dirs` and nothing else:
     results_dirs is ignored (the Tiptoe/Coeus EXTRA_RESULTS_DIRS are still read), and a config with no simulated
     run is simply missing (it never falls back to a real run).
+    only_grid (default g.ONLY_CURRENT_GRID) loads only the bins / pacmann / tree folders listed in
+    g.CURRENT_GRID_FILE, see CURRENT GRID FILTER in the module docstring.
     """
     if results_dirs is None:
         results_dirs = g.RESULTS_DIRS
@@ -595,6 +647,8 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
     log.info("reading results from %s", ', '.join(f'{d} ({src})' for d, src in sources))
     nested_data = {method: {} for method in g.METHOD_ORDER}
 
+    grid = current_grid() if (g.ONLY_CURRENT_GRID if only_grid is None else only_grid) else None
+    off_grid = Counter()
     # folder -> [(results_dir, source), ...] in priority order; each folder is loaded once, from the first of these
     # with a metadata.json (a real run beats a simulated one; a real folder without metadata.json falls through)
     candidates = {}
@@ -607,7 +661,14 @@ def load_results(results_dirs=None, max_workers=32, simulated_dirs=None, fallbac
             # a mixed extra folder (datasets/results) only gives its baselines, see g.EXTRA_METHODS
             if is_extra and g.EXTRA_METHODS and os.path.basename(folder).split('_', 1)[0] not in g.EXTRA_METHODS:
                 continue
+            if not in_current_grid(folder, grid):
+                off_grid[os.path.basename(folder).split('_', 1)[0]] += 1
+                continue
             candidates.setdefault(folder, []).append((results_dir, source))
+    if grid is not None:
+        log.info("current-grid filter (%s, %d configs): %s", g.CURRENT_GRID_FILE, len(grid),
+                 'skipped ' + ', '.join(f'{n} {m} folders not in it' for m, n in sorted(off_grid.items()))
+                 if off_grid else 'every bins / pacmann / tree folder is in it')
     jobs = sorted(candidates.items())
     no_metadata, bad_json, skipped = [], [], []
 
