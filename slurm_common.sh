@@ -213,7 +213,7 @@ load_real_usage() {   # once; the latest line per (method, dataset, config) wins
     done < "$REAL_USAGE_FILE"
 }
 
-declare -A _USAGE_MEM=() _USAGE_SEC=() _USAGE_DS=() _USAGE_FAIL=() _USAGE_BSL=()
+declare -A _USAGE_MEM=() _USAGE_SEC=() _USAGE_DS=() _USAGE_FAIL=() _USAGE_BSL=() _USAGE_SHAPE_MIN=()
 load_usage() {   # read $USAGE_FILE once; the latest line per (method, dataset, config) wins
     [[ -f "$USAGE_FILE" ]] || return 0
     local m d c gb s _date st
@@ -227,6 +227,18 @@ load_usage() {   # read $USAGE_FILE once; the latest line per (method, dataset, 
         _USAGE_MEM["$m|$d|$c"]=$gb; _USAGE_SEC["$m|$d|$c"]=$s
         if [[ "$st" == failed* ]]; then _USAGE_FAIL["$m|$d|$c"]=1; else unset '_USAGE_FAIL["$m|$d|$c"]'; fi
     done < "$USAGE_FILE"
+    # tree: the smallest finished run of each shape (B, r, s) per dataset. The Cuckoo tables of the shape set a memory
+    # floor that L / q / c only add to, so a config never measured on this dataset asks for at least that much (see
+    # _estimate_resources). Without it a new config is scaled from the closest dataset that ran it, e.g. msmarco's
+    # SWEEP=lowmrr configs from nq: 12 GB asked, ~20 GB used by every b32_r32_s8 run on msmarco -> 104 OOMs.
+    local k
+    for k in "${!_USAGE_MEM[@]}"; do
+        [[ $k =~ ^tree\|([^|]+)\|(b[0-9]+_r[0-9]+_s[0-9]+)_ && -z "${_USAGE_FAIL[$k]:-}" ]] || continue
+        local sk="${BASH_REMATCH[1]}|${BASH_REMATCH[2]}" v=${_USAGE_MEM[$k]}
+        if [[ -z "${_USAGE_SHAPE_MIN[$sk]:-}" ]] || awk -v a="$v" -v b="${_USAGE_SHAPE_MIN[$sk]}" 'BEGIN { exit !(a < b) }'; then
+            _USAGE_SHAPE_MIN[$sk]=$v
+        fi
+    done
 }
 
 # estimate_resources <method> <dataset> <config> <fallback GB> <fallback minutes> -> "GB minutes source"
@@ -261,6 +273,23 @@ estimate_resources() {
     fi
 }
 _estimate_resources() {
+    local m=$1 d=$2 c=$3 fb_gb=$4 fb_min=$5 key="$1|$2|$3" floor out
+    # tree, no finished run of this exact config on this dataset (never run, or it failed): at least the shape's
+    # smallest finished run here (x MEM_HEADROOM + 1). A failed run is bumped 1.5x from what it was given, which is
+    # not enough when the first guess was far off (msmarco-v2-25m b32_r32_s8: 16 GB given, 57 GB needed)
+    if [[ $m == tree && ( -z "${_USAGE_MEM[$key]:-}" || -n "${_USAGE_FAIL[$key]:-}" ) && $c =~ ^(b[0-9]+_r[0-9]+_s[0-9]+)_ ]]; then
+        floor=${_USAGE_SHAPE_MIN["$d|${BASH_REMATCH[1]}"]:-}
+        if [[ -n "$floor" ]]; then
+            out=$(_estimate_resources_raw "$@")
+            awk -v o="$out" -v f="$floor" -v hm="$MEM_HEADROOM" 'BEGIN {
+                split(o, a, " "); g = f * hm + 1
+                if (g > a[1] + 0) printf "%.1f %s %s+shape-floor\n", g, a[2], a[3]; else print o }'
+            return
+        fi
+    fi
+    _estimate_resources_raw "$@"
+}
+_estimate_resources_raw() {
     local m=$1 d=$2 c=$3 fb_gb=$4 fb_min=$5 key="$1|$2|$3"
     # A failed run (OOM / time limit) only tells us a lower bound: its elapsed time is how far it got before it was
     # killed, so it never lowers the estimate below the model (e.g. an OOM after 2 min must not ask for 13 min).
