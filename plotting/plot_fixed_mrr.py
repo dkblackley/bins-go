@@ -69,7 +69,7 @@ PICK_BY = 'wan_time' # the candidate with the lowest of this is the pick (ties: 
 # ======================================================================
 
 X_LABEL = 'Fixed MRR@10'
-X_PAD = 0.5          # x margin either side of the first / last target, in units of the gap between targets
+X_PAD = 0.2          # x margin either side of the first / last target, in units of the gap between targets
 X_CATEGORICAL = False    # True: targets evenly spaced in order (uneven targets like 3.3 / 3.7 GB stop colliding)
 X_TICK_ROTATION = 0      # degrees, e.g. 45 when the tick labels run into each other
 X_TABLE = 'MRR@10 {t:.2f}'   # target name in the terminal table
@@ -81,7 +81,7 @@ def x_tick(v):
 
 # Same keys as plot_dataset_costs.AXES: label, lim, log, fmt, base, ticks; (dataset, key) wins for that dataset.
 AXES = {
-    'wan_time':          dict(label='WAN Latency', fmt='time', log=True),
+    'wan_time':          dict(label='WAN Latency', fmt='time', log=False),
     'lan_time':          dict(label='LAN Latency', fmt='time', log=True),
     'comm_kb':           dict(label='Data Sent', fmt='bytes', base='KB', log=True),
     'client_storage_mb': dict(label='Client Storage', fmt='bytes', base='MB', log=True),
@@ -89,6 +89,9 @@ AXES = {
     'recall':            dict(fmt='plain', lim=(0, None)),
     # ('msmarco', 'wan_time'): dict(lim=(0.03, 3)),
 }
+Y_TICKS = 4          # y gridlines per panel: the bottom one on the lowest point, the top one on the highest, evenly
+                     # spaced between (log-even on a log axis); None = the old automatic limits and ticks
+Y_PAD = 0.25         # y margin below the lowest / above the highest point, in units of the gap between y gridlines
 SHARE_Y_ROW = False  # same y limits across a row (the panels of a row are different datasets)
 Y_FIT = 'all'        # 'all': y limits fit the faded candidates too; 'picks': only the picks
 
@@ -137,26 +140,30 @@ STACK_ORDER = None   # within a layer, first = on top; None = g.METHOD_ORDER
 FIGURE_GROUPS = [['msmarco', 'scifact'], ['fever', 'nq'], ['msmarco-v2-25m', 'msmarco-v2-50m']]
 PER_DATASET = False  # True: one figure per dataset instead (wins over FIGURE_GROUPS)
 N_COLS = 2           # datasets per line of panels (None = all on one line)
-PANEL_SIZE = (2.2, 1.6)
+PANEL_SIZE = (1.75, 1.35)
 WSPACE = 0.01
-HSPACE = 0.02
+HSPACE = 0.01
 
 PANEL_TITLE = '{dataset}'   # over each dataset's top panel; None for none
 TITLE_SIZE = g.FONT_SIZE
-SUPTITLE = None             # e.g. 'WAN Latency at Fixed MRR@10'; '{dataset}' works with PER_DATASET
-SUPTITLE_SIZE = 16
+SUPTITLE = 'PPRAG Latency at Fixed MRR@10'   # '{dataset}' works with PER_DATASET; None for none
+SUPTITLE_ON = ['msmarco', 'scifact']   # only on the figure(s) holding these datasets (the top one); None = every figure
+SUPTITLE_SIZE = 15
+SUPTITLE_OFFSET = 0          # points of white space between the suptitle and the panels; the figure grows to fit it
 
 X_LABEL_SIZE = g.FONT_SIZE
 Y_LABEL_SIZE = g.FONT_SIZE
 TICK_SIZE = 8
 X_LABEL_EVERY_ROW = False   # False: only the bottom panel of each column
 Y_LABEL_EVERY_COL = False   # False: only the left column
+Y_LABEL_Y = 0.35             # y-label centre in axes fractions: 0.5 = middle, lower moves it down
 ALIGN_LABELS = True
 SHOW_ARROWS = True
 LOG_SUFFIX = ' (log)'
 GRID = True
 
 LEGEND = True
+LEGEND_ON = ['msmarco-v2-25m', 'msmarco-v2-50m']   # only under the figure(s) holding these datasets (the bottom one); None = every figure
 LEGEND_ROWS = None          # None = g.METHOD_LEGEND_ROWS; or e.g. [['bins', 'tree', 'pacmann']]
 LEGEND_MARKER_SIZE = 6
 LEGEND_STYLE = dict(handlelength=1.5, fontsize=12)

@@ -2,7 +2,9 @@
 WAN latency and MRR@10 at fixed client storage, swept: x = a client storage S (GB), rows = WAN and MRR@10, a
 column per dataset (PILLAR-Bin vs PACMANN on MS MARCO and MS MARCO v2 25M / 50M).
 
-    figures/fixed_storage_sweep.pdf      (FIG_NAME; PER_DATASET = True for one figure per dataset)
+    figures/fixed_storage_sweep_wan_time.pdf, figures/fixed_storage_sweep_mrr.pdf
+                                         (SPLIT_ROWS: one figure per row, each with its own suptitle and the
+                                          dataset names over its panels; False = one figure, FIG_NAME.pdf)
 
 At each S every config of a method whose client storage is within S +/- TOL_GB (half the step) is a candidate (MODE =
 'budget': storage <= S instead), and the one with the lowest WAN is the method's point at S -- WAN rounded
@@ -66,7 +68,7 @@ MB_PER_GB = 1024     # ClientStorageMB is MiB, so GB = GiB (as fixed_storage.py 
 # ======================================================================
 
 X_LABEL = 'Client Storage (GB)'
-X_PAD = 0.5
+X_PAD = 0.2          # x margin either side of the first / last target, in units of the gap between targets
 X_CATEGORICAL = True    # True: targets evenly spaced in order (uneven targets like 3.3 / 3.7 GB stop colliding)
 X_TICK_ROTATION = 0      # degrees, e.g. 45 when the tick labels run into each other
 X_TABLE = '{t:g} GB'
@@ -77,13 +79,16 @@ def x_tick(v):
 
 
 AXES = {
-    'wan_time':          dict(label='WAN Latency', fmt='time', log=True),
+    'wan_time':          dict(label='WAN Latency', fmt='time', log=False),
     'lan_time':          dict(label='LAN Latency', fmt='time', log=True),
     'comm_kb':           dict(label='Data Sent', fmt='bytes', base='KB', log=True),
-    'mrr':               dict(fmt='%.3f', lim=(0, None)),   # tick labels at 3 dp ('0.067', '0.133'), all the same width
-    'recall':            dict(fmt='%.3f', lim=(0, None)),
+    'mrr':               dict(fmt='%.2f'),   # tick labels at 3 dp, all the same width (no `lim`: Y_TICKS snaps them)
+    'recall':            dict(fmt='%.2f'),
     # ('msmarco', 'mrr'): dict(lim=(0, 0.2)),
 }
+Y_TICKS = 4          # y gridlines per panel: the bottom one on the lowest point, the top one on the highest, evenly
+                     # spaced between (log-even on a log axis); None = the old automatic limits and ticks
+Y_PAD = 0.25         # y margin below the lowest / above the highest point, in units of the gap between y gridlines
 SHARE_Y_ROW = False
 Y_FIT = 'all'
 
@@ -128,17 +133,20 @@ STACK_ORDER = None   # within a layer, first = on top; None = g.METHOD_ORDER
 # CONFIG: LAYOUT, TITLES, LEGEND, OUTPUT
 # ======================================================================
 
+SPLIT_ROWS = True    # one figure per ROWS entry -> figures/<FIG_NAME>_<row>.pdf
 FIGURE_GROUPS = None   # e.g. [['msmarco', 'msmarco-v2-25m'], ['msmarco-v2-50m']] for one figure per group
 PER_DATASET = False
 N_COLS = 3
-PANEL_SIZE = (1.9, 1.35)
+PANEL_SIZE = (1.75, 1.35)
 WSPACE = 0.01
 HSPACE = 0.02
 
 PANEL_TITLE = '{dataset}'
 TITLE_SIZE = g.FONT_SIZE
-SUPTITLE = None
-SUPTITLE_SIZE = 16
+SUPTITLE = 'PPRAG {ylabel} Comparison at Fixed Client Storage'   # {ylabel}: the row's y label (SPLIT_ROWS)
+SUPTITLE_YLABEL = {'wan_time': 'Latency'}   # {ylabel} in the suptitle only; the y axis keeps 'WAN Latency'
+SUPTITLE_SIZE = 15
+SUPTITLE_OFFSET = 0 # points of white space between the suptitle and the panels (room for the tall y label)
 
 X_LABEL_SIZE = g.FONT_SIZE
 Y_LABEL_SIZE = g.FONT_SIZE
@@ -199,7 +207,10 @@ def auto_targets(per_method):
 
 def make_plots(nested_data, datasets=None, rows=None, name=None):
     import sys
-    return fixed_sweep.make_figures(nested_data, sys.modules[__name__], datasets, rows, name)
+    cfg, rows, name = sys.modules[__name__], list(rows or ROWS), name or FIG_NAME
+    if not SPLIT_ROWS:
+        return fixed_sweep.make_figures(nested_data, cfg, datasets, rows, name)
+    return [p for y in rows for p in fixed_sweep.make_figures(nested_data, cfg, datasets, [y], f'{name}_{y}')]
 
 
 if __name__ == '__main__':

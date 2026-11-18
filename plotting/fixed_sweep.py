@@ -191,6 +191,26 @@ def add_legend(fig, cfg, present):
 # FIGURE
 # ======================================================================
 
+def snap_y_ticks(ax, cfg, spec, vals, log):
+    """cfg.Y_TICKS gridlines, the bottom one on the lowest value drawn and the top one on the highest, evenly spaced
+    (in log space on a log axis); the axis runs cfg.Y_PAD tick gaps past them. Off when Y_TICKS is None, when the
+    axis has a fixed `lim`, or when every value is the same."""
+    n, pad = getattr(cfg, 'Y_TICKS', None), getattr(cfg, 'Y_PAD', 0)
+    vals = [v for v in vals if pu.is_number(v) and (v > 0 or not log)]
+    if not n or n < 2 or spec.get('lim') or not vals or min(vals) == max(vals):
+        return
+    lo, hi = min(vals), max(vals)
+    if log:
+        r = (hi / lo) ** (1 / (n - 1))
+        ticks, limits = [lo * r ** i for i in range(n)], (lo / r ** pad, hi * r ** pad)
+    else:
+        step = (hi - lo) / (n - 1)
+        ticks, limits = [lo + step * i for i in range(n)], (lo - step * pad, hi + step * pad)
+    ax.set_ylim(*limits)
+    ax.yaxis.set_major_locator(ticker.FixedLocator(ticks))
+    ax.yaxis.set_minor_locator(ticker.NullLocator())
+
+
 def figure(nested_data, cfg, datasets, rows, name):
     """One figure: a block of len(rows) panels per dataset, N_COLS blocks per line."""
     blocks = []
@@ -248,10 +268,12 @@ def figure(nested_data, cfg, datasets, rows, name):
         spec = axis_spec(cfg, y_key, d)
         vals = [v for c in range(n_cols) for v in ys.get((i, c), [])] if cfg.SHARE_Y_ROW else ys[i, j]
         y_log = pdc.apply_axis(ax, 'y', spec, pdc.fit_limits(spec, vals))
+        snap_y_ticks(ax, cfg, spec, vals, y_log)
         if cfg.X_LABEL and (i == bottom[j] or (cfg.X_LABEL_EVERY_ROW and i % n_keys == n_keys - 1)):
             ax.set_xlabel(cfg.X_LABEL, fontsize=cfg.X_LABEL_SIZE)
         if cfg.Y_LABEL_EVERY_COL or j == 0:
             text = ax.set_ylabel(spec['label'] + (cfg.LOG_SUFFIX if y_log else ''), fontsize=cfg.Y_LABEL_SIZE)
+            text.set_y(getattr(cfg, 'Y_LABEL_Y', 0.5))   # centre of the label, in axes fractions (0.5 = middle)
             if cfg.SHOW_ARROWS:
                 g.add_arrow(text, y_key, 'y')
     for i in range(n_lines * n_keys):
@@ -264,11 +286,34 @@ def figure(nested_data, cfg, datasets, rows, name):
             fig.align_ylabels(axes[:, j])
         for i in range(n_lines * n_keys):
             fig.align_xlabels(axes[i, :])
-    if cfg.SUPTITLE:
+    def on_this_figure(only):   # None = every figure, else only figures holding one of these datasets
+        return only is None or any(d in only for d, _, _ in blocks)
+
+    title = None
+    if cfg.SUPTITLE and on_this_figure(getattr(cfg, 'SUPTITLE_ON', None)):
         ds = blocks[0][0] if len(blocks) == 1 else ''
-        fig.suptitle(cfg.SUPTITLE.format(dataset=g.DATASET_LABELS.get(ds, ds)), fontsize=cfg.SUPTITLE_SIZE)
-    if cfg.LEGEND:
+        ylabel = ''   # '{ylabel}': one-row figures; cfg.SUPTITLE_YLABEL renames a row's label in the suptitle only
+        if len(rows) == 1:
+            ylabel = getattr(cfg, 'SUPTITLE_YLABEL', {}).get(rows[0]) or axis_spec(cfg, rows[0], blocks[0][0])['label']
+        title = fig.suptitle(cfg.SUPTITLE.format(dataset=g.DATASET_LABELS.get(ds, ds), ylabel=ylabel),
+                             fontsize=cfg.SUPTITLE_SIZE, va='top')
+        # The figure grows by the title's height (+ SUPTITLE_OFFSET points of gap) and the panels keep the exact area
+        # they'd have without a title, so they match the other figures.
+        title.set_in_layout(False)
+        top_pad = 3 / 72   # inches above the title
+        title_h = title.get_window_extent(fig.canvas.get_renderer()).height / fig.dpi
+        base = fig.get_figheight()
+        tall = base + top_pad + title_h + getattr(cfg, 'SUPTITLE_OFFSET', 0) / 72
+        fig.set_figheight(tall)
+        fig.get_layout_engine().set(rect=(0, 0, 1, base / tall))
+        title.set_y(1 - top_pad / tall)
+    if cfg.LEGEND and on_this_figure(getattr(cfg, 'LEGEND_ON', None)):
         add_legend(fig, cfg, {m for _, _, sw in blocks for m in sw[rows[0]]})
+
+    if title is not None:   # freeze the layout, then count the title again so the tight-bbox save keeps it
+        fig.draw_without_rendering()
+        fig.set_layout_engine('none')
+        title.set_in_layout(True)
 
     path = pu.save_figure(fig, name)
     if cfg.PRINT_TABLE:
