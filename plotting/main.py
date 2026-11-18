@@ -27,6 +27,7 @@ import rebuttal_tables
 import plot_dataset_costs
 import plot_fixed_mrr
 import plot_fixed_storage
+import plot_fixed_recall
 import plot_db_size
 import plot_metric_vs_latency
 import plot_bins_client_storage
@@ -108,8 +109,9 @@ if __name__ == '__main__':
     # plot_pareto_grid.make_comparison_plot(nested_data, x_key='comm_kb')
     # WAN at a sweep of fixed MRR@10 values (lowest WAN within +/- 0.01), two datasets per figure
     # -> figures/fixed_mrr_sweep_<d1>_<d2>.pdf
-    plot_fixed_mrr.make_plots(all_data)
+    # plot_fixed_mrr.make_plots(all_data)
     # WAN and MRR@10 at a sweep of fixed client storage (Bin vs PACMANN, MS MARCO + v2 25M/50M) -> figures/fixed_storage_sweep.pdf
     # plot_fixed_storage.make_plots(nested_data)
+    plot_fixed_recall.make_plots(all_data)
 
     print(f"Done, figures in {g.FIGURE_DIR}")
