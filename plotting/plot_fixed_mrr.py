@@ -43,17 +43,24 @@ MIN_MRR = 0.01                          # drop runs whose rounded-down MRR@10 is
 # NQ 0.05 ... 0.25 works too. A dataset not listed gets auto_targets(): every multiple of AUTO_STEP that every
 # method has a config at.
 TARGETS = {
-    'msmarco':        [0.05, 0.10, 0.15, 0.20, 0.25],
-    'scifact':        [0.56, 0.58, 0.60, 0.62, 0.64],
-    'fever':          [0.60, 0.62, 0.64, 0.66, 0.68],
-    'nq':             [0.05, 0.10, 0.15, 0.20],
+    'msmarco':        [0.10, 0.15, 0.20, 0.25],
+    # 'scifact':      [0.34, 0.44, 0.54, 0.64],   # 0.1 step at +/- 0.01: Bin, Tree, Bin, Bin
+    # 'scifact':      [0.4, 0.5, 0.6, 0.7],       # 0.1 step, TOL_SCALE 1.1 (+/- 10%): all Bin
+    # 'fever':        [0.38, 0.48, 0.58, 0.68],   # 0.1 step: Bin, Bin, Tree, Tree (all Bin: 0.35 ... 0.65)
+    'scifact':        [0.50, 0.55, 0.60, 0.65],   # 0.05 step, like Recall@10: all Bin (at +/- 0.01 and at TOL_SCALE's 10%)
+    'fever':          [0.45, 0.50, 0.55, 0.60],   # 0.05 step, like Recall@10: all Bin (0.50 ... 0.65 too)
+    'nq':             [0.05, 0.10, 0.15, 0.20],   # 0.05 step (all Bin at +/- 0.01 and at TOL_BY_DATASET's +/- 0.02)
     'msmarco-v2-25m': [0.05, 0.10, 0.15, 0.20],
-    'msmarco-v2-50m': [0.08, 0.10, 0.12, 0.14],
+    'msmarco-v2-50m': [0.04, 0.08, 0.12, 0.16],
 }
 AUTO_STEP = 0.05
 MATCH = 'window'     # 'window': rounded-down MRR@10 within T +/- TOL; 'at_least': rounded-down MRR@10 >= T
                      # (what the posted rebuttal tables used, so a fast high-MRR config counts at every lower T)
 TOL = 0.01           # match window round T, on the rounded-down MRR@10 (0 = exactly T at 2 dp)
+# per dataset: widen the window to T +/- (scale - 1) x T, e.g. 1.1 -> T = 0.5 takes 0.45 ... 0.55 (never narrower
+# than TOL; still on the rounded-down value). A dataset not listed keeps T +/- TOL.
+TOL_BY_DATASET = {'nq': 0.02}   # per dataset, in place of TOL (nq: round 0.05-step Recall@10 needs +/- 0.02, 2026-11-18)
+TOL_SCALE = {'scifact': 1.1}   # scifact: no 0.1-step grid on round values at +/- 0.01 (2026-11-18)
 DP = 2               # MRR@10 is rounded down to this many decimals before matching
 PICK_BY = 'wan_time' # the candidate with the lowest of this is the pick (ties: higher MRR@10)
 
@@ -156,7 +163,8 @@ LEGEND_STYLE = dict(handlelength=1.5, fontsize=12)
 
 FIG_NAME = 'fixed_mrr_sweep'
 TABLE_TITLE = lambda: ('WAN at fixed MRR@10 (lowest WAN at MRR@10 >= T)' if MATCH == 'at_least' else
-                       'WAN at fixed MRR@10 (lowest WAN within ± %.2f)' % TOL)   # a string works too
+                       'WAN at fixed MRR@10 (lowest WAN within ± %.2f)' % TOL + ''.join(f'; {d} ± {x:.2f}' for d, x in TOL_BY_DATASET.items())
+                       + ''.join(f'; {d} ± {round((f - 1) * 100)}%' for d, f in TOL_SCALE.items()))   # a string works too
 
 PRINT_TABLE = True
 WRITE_FILES = g.WRITE_TEXT_FILES   # also figures/<FIG_NAME>.md
@@ -167,8 +175,14 @@ LOG_POINTS = False
 # MATCHING (called by fixed_sweep)
 # ======================================================================
 
+def window_steps(t, dataset=None):
+    """half-width of the match window round t, in units of 10^-DP"""
+    scale, tol = TOL_SCALE.get(dataset), TOL_BY_DATASET.get(dataset, TOL)
+    return max(fv.rkey(tol, DP), fv.rkey((scale - 1) * t, DP)) if scale else fv.rkey(tol, DP)
+
+
 def candidates(runs, t, dataset=None):
-    steps, at = fv.rkey(TOL, DP), fv.rkey(t, DP)
+    steps, at = window_steps(t, dataset), fv.rkey(t, DP)
     if MATCH == 'at_least':
         return [r for r in runs if fv.rkey(r['mrr'], DP) >= at]
     return [r for r in runs if abs(fv.rkey(r['mrr'], DP) - at) <= steps]

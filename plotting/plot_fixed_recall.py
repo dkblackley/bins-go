@@ -39,15 +39,19 @@ NEED = ['mrr', 'recall']                # keys a run must have to be used at all
 MIN_MRR = 0.01                          # drop runs whose rounded-down MRR@10 (not recall) is below this (0 = keep all)
 
 # Fixed Recall@10 values per dataset: a 0.05 step, and at every value all three methods have a config and PILLAR
-# (Tree or Bin) has the lowest WAN, with MATCH = 'window' (checked on the local results, 2026-11-18). Tree wins some
+# (Tree or Bin) has the lowest WAN, with MATCH = 'window' (checked on the local results, 2026-11-18, re-checked after the new results). Tree wins some
 # points only on msmarco (0.35, 0.40) and fever (0.80; [0.56, 0.61, 0.66, 0.71] would give 2 Bin / 2 Tree). Scifact
 # and NQ have no valid grid on multiples of 0.05, hence the odd offsets. A dataset not listed gets auto_targets():
 # every multiple of AUTO_STEP that every method has a config at.
 TARGETS = {
+    'scifact':      [0.45, 0.5, 0.55, 0.6],   # 0.05 step (all Bin)
+    'fever':        [0.65, 0.70, 0.75, 0.80],   # 0.05 step: Bin, Bin, Bin, Tree
+    # 'scifact':        [0.45, 0.55, 0.65, 0.75],   # 0.1 step, TOL_SCALE 1.1 (+/- 10%): all Bin
+    # 'fever':          [0.10, 0.20, 0.30, 0.40],
+    # 'nq':           [0.5, 0.55, 0.6, 0.65],     # fails: PACMANN fastest at 0.55 (0.40-0.55 at any window), no Bin config at 0.65
+    # 'nq':           [0.18, 0.23, 0.28, 0.33],   # 0.05 step at +/- 0.01 (all Bin)
+    'nq':             [0.20, 0.25, 0.30, 0.35],   # 0.05 step, TOL_BY_DATASET +/- 0.02: all Bin
     'msmarco':        [0.25, 0.30, 0.35, 0.40],
-    'scifact':        [0.62, 0.67, 0.72, 0.77],
-    'fever':          [0.65, 0.70, 0.75, 0.80],
-    'nq':             [0.18, 0.23, 0.28, 0.33],
     'msmarco-v2-25m': [0.10, 0.15, 0.20, 0.25],
     'msmarco-v2-50m': [0.10, 0.15, 0.20, 0.25],
 }
@@ -55,6 +59,10 @@ AUTO_STEP = 0.05
 MATCH = 'window'     # 'window': rounded-down Recall@10 within T +/- TOL; 'at_least': rounded-down Recall@10 >= T
                      # (what the posted rebuttal tables used, so a fast high-MRR config counts at every lower T)
 TOL = 0.01           # match window round T, on the rounded-down Recall@10 (0 = exactly T at 2 dp)
+# per dataset: widen the window to T +/- (scale - 1) x T, e.g. 1.1 -> T = 0.5 takes 0.45 ... 0.55 (never narrower
+# than TOL; still on the rounded-down value). A dataset not listed keeps T +/- TOL.
+TOL_BY_DATASET = {'nq': 0.02}   # per dataset, in place of TOL (nq: round 0.05-step Recall@10 needs +/- 0.02, 2026-11-18)
+TOL_SCALE = {'scifact': 1.1}   # scifact: no 0.1-step grid on round values at +/- 0.01 (2026-11-18)
 DP = 2               # Recall@10 is rounded down to this many decimals before matching
 PICK_BY = 'wan_time' # the candidate with the lowest of this is the pick (ties: higher Recall@10)
 
@@ -157,7 +165,8 @@ LEGEND_STYLE = dict(handlelength=1.5, fontsize=12)
 
 FIG_NAME = 'fixed_recall_sweep'
 TABLE_TITLE = lambda: ('WAN at fixed Recall@10 (lowest WAN at Recall@10 >= T)' if MATCH == 'at_least' else
-                       'WAN at fixed Recall@10 (lowest WAN within ± %.2f)' % TOL)   # a string works too
+                       'WAN at fixed Recall@10 (lowest WAN within ± %.2f)' % TOL + ''.join(f'; {d} ± {x:.2f}' for d, x in TOL_BY_DATASET.items())
+                       + ''.join(f'; {d} ± {round((f - 1) * 100)}%' for d, f in TOL_SCALE.items()))   # a string works too
 
 PRINT_TABLE = True
 WRITE_FILES = g.WRITE_TEXT_FILES   # also figures/<FIG_NAME>.md
@@ -168,8 +177,14 @@ LOG_POINTS = False
 # MATCHING (called by fixed_sweep)
 # ======================================================================
 
+def window_steps(t, dataset=None):
+    """half-width of the match window round t, in units of 10^-DP"""
+    scale, tol = TOL_SCALE.get(dataset), TOL_BY_DATASET.get(dataset, TOL)
+    return max(fv.rkey(tol, DP), fv.rkey((scale - 1) * t, DP)) if scale else fv.rkey(tol, DP)
+
+
 def candidates(runs, t, dataset=None):
-    steps, at = fv.rkey(TOL, DP), fv.rkey(t, DP)
+    steps, at = window_steps(t, dataset), fv.rkey(t, DP)
     if MATCH == 'at_least':
         return [r for r in runs if fv.rkey(r['recall'], DP) >= at]
     return [r for r in runs if abs(fv.rkey(r['recall'], DP) - at) <= steps]

@@ -36,14 +36,15 @@ NEED = ['mrr', 'recall', 'wan_time', 'client_storage_mb']
 MIN_MRR = 0.01                      # drop grid-search leftovers whose rounded-down MRR@10 is below this
 
 # Client storage targets (GB) per dataset: an even step, and at every target both methods have a config (each window
-# is half the step, TOL_GB, so every config falls in its nearest target). Bin has the lower WAN at every target; it
-# has the higher MRR@10 only at the smaller ones (MS MARCO 0.5 / 1 GB, 25M 1 / 1.5 GB): at the same client storage
-# PACMANN reaches the higher MRR@10, and no even grid with a config of both at every step has Bin ahead on both
-# (checked on the local results, 2026-11-17). A dataset not listed gets auto_targets(): AUTO_ANCHOR's sizes to 0.1 GB.
+# is half the step, TOL_GB, so every config falls in its nearest target). Bin has the lower WAN at every target, and
+# the higher MRR@10 (with PICK_BY_ROW = False) at all 4 on MS MARCO and at 3 of 4 on 25M (not 2 GB) and 50M (not
+# 3 GB). With PICK_BY_ROW = True PACMANN has the better MRR@10 almost everywhere (checked on the local results,
+# 2026-11-18). Other even grids where Bin wins WAN at every point: MS MARCO 1-1.75 by 0.25, 25M 1-2.5 by 0.5,
+# 50M 2-5 by 1. A dataset not listed gets auto_targets(): AUTO_ANCHOR's sizes to 0.1 GB.
 TARGETS = {
     'msmarco':        [0.5, 1.0, 1.5, 2.0],
-    'msmarco-v2-25m': [1.0, 1.5, 2.0, 2.5],
-    'msmarco-v2-50m': [1.0, 2.0, 3.0, 4.0, 5.0],
+    'msmarco-v2-25m': [0.5, 1.0, 1.5, 2.0],
+    'msmarco-v2-50m': [1.0, 2.0, 3.0, 4.0],
 }
 # TARGETS = {
 #     'msmarco':        [0.8, 1.25, 1.5, 1.75, 2.0],
