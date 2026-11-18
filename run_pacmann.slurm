@@ -24,17 +24,37 @@ set -euo pipefail
 # Jobs are named pacmann_<d>_<grid>[_sim] (run_all.sh); a name without a grid tag is g1.
 #   g1 (until 2026-11-17)  k 10 100 x steps 5..30 x neighbours 8..48
 #   g2 (2026-11-17)        k 10 x steps 1 3 5..30 x neighbours 2 4 8..48
-#   g3 (2026-11-17)        k 10 x steps 3 5..30 x neighbours 2 4 8..48     <- current
+#   g3 (2026-11-17)        k 10 x steps 3 5..30 x neighbours 2 4 8..48
+#   g4 (2026-11-18)        g3 + pacmann_extra (per dataset, after the grid so g3's task numbers stay the same) <- current
 # neighbours=1 can't run: BatchSize 1 gives 0 PIR partitions (pianopir NewSimpleBatchPianoPIR) and the NGT build
 # finds no neighbour (it searches int(1.5*m) = 1 = the vertex itself).
 # Changing the grid: add a new case here, make it the default, and set PACMANN_GRID in datasets/run_all.sh to it.
-PACMANN_GRID="${PACMANN_GRID:-g3}"
+PACMANN_GRID="${PACMANN_GRID:-g4}"
 case "$PACMANN_GRID" in
     g1) PACMANN_K="10 100"; PACMANN_STEPS="5 10 15 20 25 30";     PACMANN_NEIGHB="8 16 24 32 40 48" ;;
     g2) PACMANN_K="10";     PACMANN_STEPS="1 3 5 10 15 20 25 30"; PACMANN_NEIGHB="2 4 8 16 24 32 40 48" ;;
-    g3) PACMANN_K="10";     PACMANN_STEPS="3 5 10 15 20 25 30";   PACMANN_NEIGHB="2 4 8 16 24 32 40 48" ;;
+    g3|g4) PACMANN_K="10";  PACMANN_STEPS="3 5 10 15 20 25 30";   PACMANN_NEIGHB="2 4 8 16 24 32 40 48" ;;
     *)  echo "run_pacmann.slurm: unknown PACMANN_GRID=$PACMANN_GRID" >&2; exit 1 ;;
 esac
+
+# g4: extra "steps:neighbours" configs per dataset (k 10) that fill the MRR@10 values the grid jumps over, so the
+# fixed-MRR plots have a PACMANN config within +/- 0.01 of every multiple of 0.05. Only the fixed-MRR scripts load
+# them (they are not in plotting/current_grid.txt). The grid jumps most between steps 3 / 5 / 10 and neighbours
+# 4 / 8 / 16; these mostly add steps at neighbour counts that already have an NGT graph. Expected MRR@10 is
+# interpolated from the g3 runs (2026-11-18), so it is a guess:
+#   scifact  0.15: 4:4 5:3 | 0.21-0.29: 6:4 7:4 8:4 9:4 | 0.35: 12:4 13:4 4:8 | 0.51: 4:16 8:8
+#   fever    0.25: 6:16 4:32 7:16 | 0.31-0.34: 8:16 6:24 4:40
+#   nq       0.25: 7:16 6:16 12:8 | 0.30: 8:16 4:40 4:48 17:8
+#   dbpedia-entity (g3 itself has 20 configs it never ran)  0.25-0.40: 5:12 7:8 5:20 7:16 | 0.53: 20:12
+pacmann_extra() {   # dataset -> "steps:neighbours ..." (g4 only)
+    [[ $PACMANN_GRID == g4 ]] || return 0
+    case "$1" in
+        scifact)        echo "4:4 5:3 6:4 7:4 8:4 9:4 12:4 13:4 4:8 4:16 8:8" ;;
+        fever)          echo "6:16 4:32 7:16 8:16 6:24 4:40" ;;
+        nq)             echo "7:16 6:16 12:8 8:16 4:40 4:48 17:8" ;;
+        dbpedia-entity) echo "5:12 7:8 5:20 7:16 20:12" ;;
+    esac
+}
 
 DATA_ARR=()
 K_ARR=()
@@ -53,6 +73,9 @@ for d in $PACMANN_DATASETS; do
                 DATA_ARR+=("$d"); K_ARR+=("$k"); STEPS_ARR+=("$steps"); NEIGHB_ARR+=("$neighb")
             done
         done
+    done
+    for x in $(pacmann_extra "$d"); do
+        DATA_ARR+=("$d"); K_ARR+=(10); STEPS_ARR+=("${x%%:*}"); NEIGHB_ARR+=("${x##*:}")
     done
 done
 

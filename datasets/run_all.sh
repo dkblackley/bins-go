@@ -144,7 +144,7 @@ inputs_pending() { [[ -n "$(echo $1)" ]]; }
 
 # pacmann_todo <dataset> -> slurm --array list (e.g. "0-3,7,9-71") of the configs still to run; the grid and its
 # order come from run_pacmann.slurm --list (task i = line i+1). FORCE=1 lists every config.
-PACMANN_GRID=g3   # job-name tag of the current run_pacmann.slurm grid (queued_dirs decodes tasks by it)
+PACMANN_GRID=g4   # job-name tag of the current run_pacmann.slurm grid (queued_dirs decodes tasks by it)
 pacmann_todo() {
     local d=$1 i dd k st nb od res="${RESULTS_DIR:-/scratch/${USER:-$(id -un)}/results}" idx=()
     load_queued
